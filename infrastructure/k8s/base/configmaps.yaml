@@ -1,0 +1,40 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: real-ass-common-config
+  namespace: real-ass
+  labels:
+    app.kubernetes.io/name: real-ass
+    app.kubernetes.io/component: shared-config
+data:
+  # Database configuration
+  POSTGRES_HOST: "postgres-service.real-ass.svc.cluster.local"
+  POSTGRES_PORT: "5432"
+  POSTGRES_DB: "real_ass_db"
+  POSTGRES_USER: "real_ass_user"
+
+  # Redis configuration
+  REDIS_HOST: "redis-service.real-ass.svc.cluster.local"
+  REDIS_PORT: "6379"
+
+  # Message broker configuration (RabbitMQ)
+  RABBITMQ_HOST: "rabbitmq-service.real-ass.svc.cluster.local"
+  RABBITMQ_PORT: "5672"
+  RABBITMQ_MANAGEMENT_PORT: "15672"
+
+  # Service discovery
+  USER_SERVICE_URL: "http://user-service.real-ass.svc.cluster.local:8080"
+  RESUME_SERVICE_URL: "http://resume-service.real-ass.svc.cluster.local:8081"
+  GITHUB_SERVICE_URL: "http://github-service.real-ass.svc.cluster.local:8082"
+  INTERVIEW_SERVICE_URL: "http://interview-service.real-ass.svc.cluster.local:8083"
+  AI_SERVICE_URL: "http://ai-service.real-ass.svc.cluster.local:8084"
+  SCORING_SERVICE_URL: "http://scoring-service.real-ass.svc.cluster.local:8085"
+  REPORT_SERVICE_URL: "http://report-service.real-ass.svc.cluster.local:8086"
+  NOTIFICATION_SERVICE_URL: "http://notification-service.real-ass.svc.cluster.local:8087"
+  ANALYTICS_SERVICE_URL: "http://analytics-service.real-ass.svc.cluster.local:8088"
+  ADMIN_SERVICE_URL: "http://admin-service.real-ass.svc.cluster.local:8089"
+
+  # Application settings
+  LOG_LEVEL: "info"
+  APP_ENV: "production"
+  CORS_ORIGINS: "https://real-ass.example.com"

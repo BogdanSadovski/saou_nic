@@ -1,0 +1,27 @@
+# TLS Certificate Secret - Placeholder
+# Replace the base64-encoded values with actual TLS certificate and key
+#
+# To generate a self-signed certificate for testing:
+#   openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+#     -keyout tls.key -out tls.crt -subj "/CN=recommendation-platform.local"
+#
+# To encode:
+#   base64 tls.crt | tr -d '\n'
+#   base64 tls.key | tr -d '\n'
+#
+# For production, use cert-manager with Let's Encrypt:
+#   See: https://cert-manager.io/docs/
+apiVersion: v1
+kind: Secret
+metadata:
+  name: recommendation-platform-tls
+  namespace: default
+  labels:
+    app: recommendation-platform
+    component: tls
+type: kubernetes.io/tls
+data:
+  # Placeholder values - REPLACE with actual base64-encoded certificate and key
+  # echo -n "your-certificate-content" | base64
+  tls.crt: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSUNwRENDQVl3Q0NRRHhGQWxQb3JrT3pBTkJna3Foa2lHOXcwQkFRc0ZBREFVTVJJd0VBWURWUVFEREFsdApZVzRuWlM1amIyMHdIaGNOTWpRd01UQXhNREF3TURBd1doY05NalV3TVRBeE1EQXdNREF3V2pBVU1SSXdFQVlEClZRUUREQWx0WVc0blpTNWpiMjB3Z2dFaU1BMEdDU3FHU0liM0RRRUJBUVVBQTRJQkR3QXdnZ0VLQW9JQkFRQzAKdGVzdC1jZXJ0aWZpY2F0ZS1wbGFjZWhvbGRlci1kYXRhLXJlcGxhY2UtdGhpcy13aXRoLXJlYWwtdGxzLWNlcnQKLS0tLS1FTkQgQ0VSVElGSUNBVEUtLS0tLQo=
+  tls.key: LS0tLS1CRUdJTiBQUklWQVRFIEtFWS0tLS0tCk1JSUV2UUlCQURBTkJna3Foa2lHOXcwQkFRRUZBQVNDQktjd2dnU2pBZ0VBQW9JQkFRQzB0ZXN0LWtleS1wbGFjZQpob2xkZXItZGF0YS1yZXBsYWNlLXRoaXMtd2l0aC1yZWFsLXRscy1rZXktZGF0YQotLS0tLUVORCBQUklWQVRFIEtFWS0tLS0tCg==

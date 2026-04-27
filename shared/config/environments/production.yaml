@@ -1,0 +1,177 @@
+# ============================================================
+# Production Environment Configuration
+# ============================================================
+# High-availability settings with scaled services, resource
+# limits, TLS enforcement, and warn-level logging.
+# ============================================================
+
+environment: production
+
+# --- Application ---
+app:
+  debug: false
+  log_level: warn
+  log_format: json
+  port: 8080
+  workers: 8
+  reload: false
+  graceful_shutdown_timeout: 30
+
+# --- Database ---
+database:
+  host: postgres-prod.internal
+  port: 5432
+  name: assessment_prod
+  user: assessment_app
+  pool_min_size: 5
+  pool_max_size: 30
+  ssl_mode: verify-full
+  ssl_root_cert: /etc/ssl/certs/rds-combined-ca-bundle.pem
+  connection_timeout: 10
+  statement_timeout: 30000
+  read_replicas:
+    - host: postgres-prod-ro.internal
+      port: 5432
+
+# --- Redis ---
+redis:
+  host: redis-prod.internal
+  port: 6379
+  db: 0
+  password: "${REDIS_PASSWORD}"
+  ssl: true
+  cluster_mode: true
+  nodes:
+    - redis-prod-0.internal:6379
+    - redis-prod-1.internal:6379
+    - redis-prod-2.internal:6379
+
+# --- Kafka ---
+kafka:
+  bootstrap_servers:
+    - kafka-prod-0.internal:9093
+    - kafka-prod-1.internal:9093
+    - kafka-prod-2.internal:9093
+  topics:
+    user_events: user-events.prod
+    interview_events: interview-events.prod
+    scoring_events: scoring-events.prod
+    notifications: notifications.prod
+  consumer_group: assessment-prod
+  auto_offset_reset: latest
+  security_protocol: SASL_SSL
+  sasl_mechanism: SCRAM-SHA-512
+  partitions: 12
+  replication_factor: 3
+
+# --- AI Service ---
+ai:
+  provider: openai
+  model: gpt-4o
+  max_tokens: 4096
+  temperature: 0.2
+  timeout_seconds: 60
+  mock_responses: false
+  retry_count: 3
+  rate_limit_per_minute: 100
+
+# --- Authentication ---
+auth:
+  jwt_algorithm: RS256
+  access_token_expiry_minutes: 15
+  refresh_token_expiry_days: 30
+  oauth:
+    google:
+      enabled: true
+      client_id: "${GOOGLE_OAUTH_CLIENT_ID}"
+      client_secret: "${GOOGLE_OAUTH_CLIENT_SECRET}"
+      redirect_uri: "https://app.assessment.example.com/auth/google/callback"
+    github:
+      enabled: true
+      client_id: "${GITHUB_OAUTH_CLIENT_ID}"
+      client_secret: "${GITHUB_OAUTH_CLIENT_SECRET}"
+      redirect_uri: "https://app.assessment.example.com/auth/github/callback"
+
+# --- Scoring ---
+scoring:
+  auto_score: true
+  score_range:
+    min: 0
+    max: 100
+  passing_threshold: 70
+  scoring_queue_size: 10000
+  batch_size: 100
+
+# --- Rate Limiting ---
+rate_limit:
+  enabled: true
+  requests_per_minute: 200
+  burst_limit: 50
+  per_user_limit: 60
+
+# --- CORS ---
+cors:
+  allow_origins:
+    - "https://app.assessment.example.com"
+    - "https://admin.assessment.example.com"
+  allow_methods:
+    - GET
+    - POST
+    - PUT
+    - DELETE
+    - PATCH
+  allow_headers:
+    - Authorization
+    - Content-Type
+    - X-Request-ID
+    - X-Correlation-ID
+  allow_credentials: true
+  max_age: 3600
+
+# --- TLS ---
+tls:
+  enabled: true
+  cert_path: /etc/ssl/certs/assessment.pem
+  key_path: /etc/ssl/private/assessment-key.pem
+  min_version: "1.2"
+  hsts_enabled: true
+  hsts_max_age: 31536000
+
+# --- Monitoring ---
+monitoring:
+  prometheus:
+    enabled: true
+    port: 9090
+    path: /metrics
+  health_check:
+    interval_seconds: 10
+    timeout_seconds: 3
+    path: /health
+  tracing:
+    enabled: true
+    sampler: parentbased_traceidratio
+    sample_rate: 0.1
+    exporter: otlp
+    endpoint: "jaeger-collector.monitoring:4317"
+
+# --- Kubernetes (Production - scaled) ---
+kubernetes:
+  replicas:
+    api_gateway: 3
+    user_service: 3
+    resume_service: 2
+    interview_service: 3
+    ai_service: 4
+    scoring_service: 2
+    admin_service: 2
+  resources:
+    cpu_request: "500m"
+    cpu_limit: "2000m"
+    memory_request: "512Mi"
+    memory_limit: "2Gi"
+  autoscaling:
+    enabled: true
+    min_replicas: 2
+    max_replicas: 10
+    target_cpu_utilization: 70
+    target_memory_utilization: 80

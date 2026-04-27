@@ -1,0 +1,195 @@
+syntax = "proto3";
+
+package interview;
+
+option go_package = "github.com/real-ass/shared/proto/interview;interviewpb";
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/duration.proto";
+
+// Question represents an interview question.
+message Question {
+  string id = 1;
+  string text = 2;
+  QuestionType type = 3;
+  string category = 4;
+  int32 difficulty_level = 5;
+  repeated string tags = 6;
+  int32 max_score = 7;
+  google.protobuf.Duration time_limit = 8;
+  repeated string reference_answers = 9;
+  map<string, string> hints = 10;
+}
+
+enum QuestionType {
+  QUESTION_TYPE_UNSPECIFIED = 0;
+  QUESTION_TYPE_MULTIPLE_CHOICE = 1;
+  QUESTION_TYPE_CODING = 2;
+  QUESTION_TYPE_SYSTEM_DESIGN = 3;
+  QUESTION_TYPE_BEHAVIORAL = 4;
+  QUESTION_TYPE_DEBUGGING = 5;
+}
+
+// Answer represents a candidate's answer to a question.
+message Answer {
+  string id = 1;
+  string question_id = 2;
+  string content = 3;
+  AnswerType type = 4;
+  google.protobuf.Timestamp submitted_at = 5;
+  google.protobuf.Duration time_taken = 6;
+  map<string, string> metadata = 7;
+}
+
+enum AnswerType {
+  ANSWER_TYPE_UNSPECIFIED = 0;
+  ANSWER_TYPE_TEXT = 1;
+  ANSWER_TYPE_CODE = 2;
+  ANSWER_TYPE_MULTIPLE_CHOICE = 3;
+  ANSWER_TYPE_DIAGRAM = 4;
+  ANSWER_TYPE_VOICE = 5;
+}
+
+// Interview represents a complete interview with its configuration.
+message Interview {
+  string id = 1;
+  string title = 2;
+  string description = 3;
+  InterviewStatus status = 4;
+  repeated Question questions = 5;
+  google.protobuf.Duration duration = 6;
+  string creator_id = 7;
+  repeated string candidate_ids = 8;
+  repeated string interviewer_ids = 9;
+  google.protobuf.Timestamp created_at = 10;
+  google.protobuf.Timestamp updated_at = 11;
+  google.protobuf.Timestamp scheduled_at = 12;
+  InterviewSettings settings = 13;
+}
+
+enum InterviewStatus {
+  INTERVIEW_STATUS_UNSPECIFIED = 0;
+  INTERVIEW_STATUS_DRAFT = 1;
+  INTERVIEW_STATUS_PUBLISHED = 2;
+  INTERVIEW_STATUS_IN_PROGRESS = 3;
+  INTERVIEW_STATUS_COMPLETED = 4;
+  INTERVIEW_STATUS_CANCELLED = 5;
+  INTERVIEW_STATUS_ARCHIVED = 6;
+}
+
+message InterviewSettings {
+  bool allow_copy_paste = 1;
+  bool allow_internet_access = 2;
+  bool record_screen = 3;
+  bool record_webcam = 4;
+  bool shuffle_questions = 5;
+  bool show_results_immediately = 6;
+  int32 max_attempts = 7;
+  string proctoring_level = 8;
+}
+
+// InterviewSession represents an active interview session.
+message InterviewSession {
+  string id = 1;
+  string interview_id = 2;
+  string candidate_id = 3;
+  string interviewer_id = 4;
+  SessionStatus status = 5;
+  int32 current_question_index = 6;
+  repeated Answer answers = 7;
+  google.protobuf.Timestamp started_at = 8;
+  google.protobuf.Timestamp completed_at = 9;
+  google.protobuf.Timestamp expires_at = 10;
+  SessionMetadata metadata = 11;
+}
+
+enum SessionStatus {
+  SESSION_STATUS_UNSPECIFIED = 0;
+  SESSION_STATUS_NOT_STARTED = 1;
+  SESSION_STATUS_IN_PROGRESS = 2;
+  SESSION_STATUS_PAUSED = 3;
+  SESSION_STATUS_COMPLETED = 4;
+  SESSION_STATUS_EXPIRED = 5;
+  SESSION_STATUS_ABANDONED = 6;
+}
+
+message SessionMetadata {
+  string browser = 1;
+  string os = 2;
+  string ip_address = 3;
+  int32 tab_switches = 4;
+  int32 copy_paste_events = 5;
+  bool proctoring_alerts = 6;
+}
+
+message CreateInterviewRequest {
+  string title = 1;
+  string description = 2;
+  repeated Question questions = 3;
+  google.protobuf.Duration duration = 4;
+  repeated string candidate_ids = 5;
+  repeated string interviewer_ids = 6;
+  InterviewSettings settings = 7;
+  optional google.protobuf.Timestamp scheduled_at = 8;
+}
+
+message StartSessionRequest {
+  string interview_id = 1;
+  string candidate_id = 2;
+  string session_metadata_browser = 3;
+  string session_metadata_os = 4;
+  string session_metadata_ip_address = 5;
+}
+
+message StartSessionResponse {
+  InterviewSession session = 1;
+}
+
+message SubmitAnswerRequest {
+  string session_id = 1;
+  string question_id = 2;
+  string content = 3;
+  AnswerType answer_type = 4;
+  google.protobuf.Duration time_taken = 5;
+  map<string, string> metadata = 6;
+}
+
+message SubmitAnswerResponse {
+  Answer answer = 1;
+  bool is_last_question = 2;
+  optional InterviewSession session = 3;
+}
+
+message GetInterviewRequest {
+  string interview_id = 1;
+}
+
+message GetInterviewResponse {
+  Interview interview = 1;
+}
+
+message ListInterviewsRequest {
+  int32 page = 1;
+  int32 page_size = 2;
+  optional InterviewStatus status_filter = 3;
+  optional string creator_id = 4;
+  string order_by = 5;
+  bool descending = 6;
+}
+
+message ListInterviewsResponse {
+  repeated Interview interviews = 1;
+  int32 total_count = 2;
+  int32 page = 3;
+  int32 page_size = 4;
+  int32 total_pages = 5;
+}
+
+// InterviewService manages interviews and sessions.
+service InterviewService {
+  rpc CreateInterview(CreateInterviewRequest) returns (GetInterviewResponse);
+  rpc GetInterview(GetInterviewRequest) returns (GetInterviewResponse);
+  rpc ListInterviews(ListInterviewsRequest) returns (ListInterviewsResponse);
+  rpc StartSession(StartSessionRequest) returns (StartSessionResponse);
+  rpc SubmitAnswer(SubmitAnswerRequest) returns (SubmitAnswerResponse);
+}

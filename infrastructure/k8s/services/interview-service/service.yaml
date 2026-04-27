@@ -1,0 +1,24 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: interview-service
+  namespace: real-ass
+  labels:
+    app.kubernetes.io/name: interview-service
+    app.kubernetes.io/component: backend
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8083"
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8083
+      targetPort: 8083
+      protocol: TCP
+      name: http
+    - port: 8084
+      targetPort: 8084
+      protocol: TCP
+      name: ws
+  selector:
+    app.kubernetes.io/name: interview-service

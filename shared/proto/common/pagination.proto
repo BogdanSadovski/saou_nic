@@ -1,0 +1,26 @@
+syntax = "proto3";
+
+package common;
+
+option go_package = "github.com/real-ass/shared/proto/common;commonpb";
+
+// ListRequest is a generic pagination request message.
+message ListRequest {
+  int32 page = 1;
+  int32 limit = 2;
+  optional string cursor = 3;
+  optional string order_by = 4;
+  bool descending = 5;
+  map<string, string> filters = 6;
+}
+
+// ListResponse is a generic paginated response message.
+message ListResponse {
+  repeated bytes items = 1;
+  int32 total_count = 2;
+  int32 page = 3;
+  int32 limit = 4;
+  bool has_more = 5;
+  optional string next_cursor = 6;
+  optional string prev_cursor = 7;
+}

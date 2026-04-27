@@ -1,0 +1,230 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-rules
+  namespace: default
+  labels:
+    app: prometheus
+    component: monitoring
+data:
+  alerting-rules.yml: |
+    groups:
+      - name: service-health
+        rules:
+          # Service is down
+          - alert: ServiceDown
+            expr: up == 0
+            for: 2m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Service {{ $labels.job }} is down"
+              description: "{{ $labels.instance }} of job {{ $labels.job }} has been down for more than 2 minutes."
+
+          # High error rate
+          - alert: HighErrorRate
+            expr: rate(http_requests_total{status=~"5.."}[5m]) / rate(http_requests_total[5m]) > 0.05
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "High error rate on {{ $labels.service }}"
+              description: "More than 5% of requests are failing with 5xx errors on {{ $labels.service }} for the last 5 minutes."
+
+          # High latency
+          - alert: HighLatency
+            expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m])) > 1
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "High latency on {{ $labels.service }}"
+              description: "95th percentile latency is above 1s on {{ $labels.service }} for the last 5 minutes."
+
+          # High memory usage
+          - alert: HighMemoryUsage
+            expr: process_resident_memory_bytes / 1024 / 1024 / 1024 > 1.5
+            for: 10m
+            labels:
+              severity: warning
+            annotations:
+              summary: "High memory usage on {{ $labels.instance }}"
+              description: "Process on {{ $labels.instance }} is using more than 1.5GB of memory."
+
+      - name: database-health
+        rules:
+          # PostgreSQL connection pool exhaustion
+          - alert: PostgreSQLConnectionPoolExhaustion
+            expr: pg_stat_activity_count / pg_settings_max_connections > 0.8
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "PostgreSQL connection pool nearly exhausted"
+              description: "PostgreSQL connection pool usage is above 80% on {{ $labels.instance }}."
+
+          # PostgreSQL replication lag
+          - alert: PostgreSQLReplicationLag
+            expr: pg_replication_lag_seconds > 30
+            for: 5m
+            labels:
+              severity: critical
+            annotations:
+              summary: "PostgreSQL replication lag is high"
+              description: "PostgreSQL replication lag is {{ $value }}s on {{ $labels.instance }}."
+
+          # Redis memory usage
+          - alert: RedisHighMemoryUsage
+            expr: redis_memory_used_bytes / redis_memory_max_bytes > 0.8
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Redis memory usage is high"
+              description: "Redis memory usage is above 80% on {{ $labels.instance }}."
+
+          # Redis eviction rate
+          - alert: RedisHighEvictionRate
+            expr: rate(redis_evicted_keys_total[5m]) > 10
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "High Redis key eviction rate"
+              description: "Redis is evicting more than 10 keys/sec on {{ $labels.instance }}."
+
+          # ClickHouse low disk space
+          - alert: ClickHouseLowDiskSpace
+            expr: clickhouse_available_disk_space / clickhouse_total_disk_space < 0.2
+            for: 10m
+            labels:
+              severity: critical
+            annotations:
+              summary: "ClickHouse disk space is low"
+              description: "ClickHouse has less than 20% disk space remaining on {{ $labels.instance }}."
+
+      - name: messaging-health
+        rules:
+          # RabbitMQ queue backlog
+          - alert: RabbitMQQueueBacklog
+            expr: rabbitmq_queue_messages > 10000
+            for: 10m
+            labels:
+              severity: warning
+            annotations:
+              summary: "RabbitMQ queue backlog is high"
+              description: "Queue {{ $labels.queue }} has more than 10000 messages pending."
+
+          # RabbitMQ memory alarm
+          - alert: RabbitMQMemoryAlarm
+            expr: rabbitmq_process_resident_memory_bytes / 1024 / 1024 / 1024 > 1
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "RabbitMQ memory usage is high"
+              description: "RabbitMQ is using more than 1GB of memory on {{ $labels.instance }}."
+
+          # Kafka consumer lag
+          - alert: KafkaConsumerLag
+            expr: kafka_consumergroup_lag > 1000
+            for: 15m
+            labels:
+              severity: warning
+            annotations:
+              summary: "High Kafka consumer lag"
+              description: "Consumer group {{ $labels.consumergroup }} has a lag of {{ $value }} on topic {{ $labels.topic }}."
+
+      - name: infrastructure-health
+        rules:
+          # High CPU usage
+          - alert: HighCpuUsage
+            expr: 100 - (avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+            for: 10m
+            labels:
+              severity: warning
+            annotations:
+              summary: "High CPU usage on {{ $labels.instance }}"
+              description: "CPU usage is above 80% on {{ $labels.instance }}."
+
+          # High disk usage
+          - alert: HighDiskUsage
+            expr: (node_filesystem_size_bytes - node_filesystem_avail_bytes) / node_filesystem_size_bytes * 100 > 85
+            for: 10m
+            labels:
+              severity: warning
+            annotations:
+              summary: "High disk usage on {{ $labels.instance }}"
+              description: "Disk usage is above 85% on {{ $labels.instance }}."
+
+          # Pod restart loop
+          - alert: PodCrashLooping
+            expr: rate(kube_pod_container_status_restarts_total[15m]) * 60 * 15 > 0
+            for: 15m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Pod {{ $labels.pod }} is crash looping"
+              description: "Pod {{ $labels.pod }} in namespace {{ $labels.namespace }} has been restarting frequently."
+
+  recording-rules.yml: |
+    groups:
+      - name: service-recording-rules
+        interval: 30s
+        rules:
+          # Request rate per service
+          - record: service:http_requests:rate5m
+            expr: sum by (service) (rate(http_requests_total[5m]))
+
+          # Error rate per service
+          - record: service:http_errors:rate5m
+            expr: sum by (service) (rate(http_requests_total{status=~"5.."}[5m]))
+
+          # Error ratio per service
+          - record: service:http_error_ratio:rate5m
+            expr: service:http_errors:rate5m / service:http_requests:rate5m
+
+          # P95 latency per service
+          - record: service:http_request_duration:p95
+            expr: histogram_quantile(0.95, sum by (service, le) (rate(http_request_duration_seconds_bucket[5m])))
+
+          # P99 latency per service
+          - record: service:http_request_duration:p99
+            expr: histogram_quantile(0.99, sum by (service, le) (rate(http_request_duration_seconds_bucket[5m])))
+
+      - name: recommendation-recording-rules
+        interval: 30s
+        rules:
+          # Recommendation generation rate
+          - record: recommendation:generation:rate5m
+            expr: sum(rate(recommendation_generated_total[5m]))
+
+          # Recommendation cache hit ratio
+          - record: recommendation:cache:hit_ratio
+            expr: rate(recommendation_cache_hits_total[5m]) / (rate(recommendation_cache_hits_total[5m]) + rate(recommendation_cache_misses_total[5m]))
+
+          # Recommendation model inference time
+          - record: recommendation:model_inference:p95
+            expr: histogram_quantile(0.95, sum(rate(model_inference_duration_seconds_bucket[5m])))
+
+      - name: analytics-recording-rules
+        interval: 30s
+        rules:
+          # Event ingestion rate
+          - record: analytics:events:rate5m
+            expr: sum(rate(analytics_events_ingested_total[5m]))
+
+          # Pipeline processing time
+          - record: analytics:pipeline:processing:p95
+            expr: histogram_quantile(0.95, sum(rate(pipeline_processing_duration_seconds_bucket[5m])))
+
+      - name: infrastructure-recording-rules
+        interval: 60s
+        rules:
+          # Database connection pool utilization
+          - record: database:postgres:connection_utilization
+            expr: sum by (instance) (pg_stat_activity_count) / sum by (instance) (pg_settings_max_connections)
+
+          # Cache hit ratio
+          - record: cache:redis:hit_ratio
+            expr: rate(redis_keyspace_hits_total[5m]) / (rate(redis_keyspace_hits_total[5m]) + rate(redis_keyspace_misses_total[5m]))

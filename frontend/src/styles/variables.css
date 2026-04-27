@@ -1,0 +1,24 @@
+:root {
+  --font-sans: "SF Pro Display", "Inter", "Segoe UI", sans-serif;
+  --bg-0: #eef3ff;
+  --bg-1: #e8f0ff;
+  --text-0: #112034;
+  --text-muted: #455a74;
+  --glass-bg: rgba(255, 255, 255, 0.5);
+  --glass-border: rgba(255, 255, 255, 0.7);
+  --accent: #1274ff;
+  --accent-soft: #73b5ff;
+  --shadow-soft: 0 10px 30px rgba(20, 53, 97, 0.12);
+}
+
+:root[data-theme="dark"] {
+  --bg-0: #08111d;
+  --bg-1: #101b2f;
+  --text-0: #eaf2ff;
+  --text-muted: #9fb2d1;
+  --glass-bg: rgba(18, 31, 50, 0.5);
+  --glass-border: rgba(126, 163, 209, 0.2);
+  --accent: #5ca2ff;
+  --accent-soft: #4bd6ff;
+  --shadow-soft: 0 10px 30px rgba(2, 8, 18, 0.5);
+}

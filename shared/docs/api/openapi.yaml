@@ -1,0 +1,996 @@
+openapi: "3.0.3"
+info:
+  title: Real Assessment Platform API
+  description: |
+    REST API for the Real Assessment Platform -- an AI-powered candidate
+    evaluation system that analyzes resumes, conducts interviews, and
+    generates comprehensive scoring reports.
+  version: "1.0.0"
+  contact:
+    name: API Support
+    email: api-support@assessment.example.com
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: https://api.assessment.example.com/api/v1
+    description: Production
+  - url: https://staging-api.assessment.example.com/api/v1
+    description: Staging
+  - url: http://localhost:8080/api/v1
+    description: Local Development
+
+paths:
+  # ========================
+  # Authentication
+  # ========================
+  /auth/register:
+    post:
+      tags: [Authentication]
+      summary: Register a new user account
+      operationId: registerUser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterRequest"
+      responses:
+        "201":
+          description: User registered successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "409":
+          description: Email already registered
+
+  /auth/login:
+    post:
+      tags: [Authentication]
+      summary: Authenticate and receive JWT tokens
+      operationId: login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /auth/refresh:
+    post:
+      tags: [Authentication]
+      summary: Refresh access token using refresh token
+      operationId: refreshToken
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refresh_token]
+              properties:
+                refresh_token:
+                  type: string
+                  description: Valid refresh token
+      responses:
+        "200":
+          description: Token refreshed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+
+  /auth/logout:
+    post:
+      tags: [Authentication]
+      summary: Invalidate refresh token (logout)
+      operationId: logout
+      security:
+        - BearerAuth: []
+      responses:
+        "204":
+          description: Logged out successfully
+
+  /auth/oauth/google:
+    get:
+      tags: [Authentication]
+      summary: Initiate Google OAuth login
+      operationId: oauthGoogle
+      responses:
+        "302":
+          description: Redirect to Google OAuth
+
+  /auth/oauth/google/callback:
+    get:
+      tags: [Authentication]
+      summary: Google OAuth callback handler
+      operationId: oauthGoogleCallback
+      parameters:
+        - name: code
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OAuth login successful
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+
+  # ========================
+  # Users
+  # ========================
+  /users/me:
+    get:
+      tags: [Users]
+      summary: Get current user profile
+      operationId: getCurrentUser
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: User profile
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+    put:
+      tags: [Users]
+      summary: Update current user profile
+      operationId: updateCurrentUser
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateUserRequest"
+      responses:
+        "200":
+          description: Profile updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+
+  /users:
+    get:
+      tags: [Users]
+      summary: List users (admin only)
+      operationId: listUsers
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/Limit"
+        - name: role
+          in: query
+          schema:
+            type: string
+            enum: [admin, interviewer, candidate]
+      responses:
+        "200":
+          description: List of users
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserList"
+
+  /users/{user_id}:
+    get:
+      tags: [Users]
+      summary: Get user by ID
+      operationId: getUser
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/UserId"
+      responses:
+        "200":
+          description: User details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # ========================
+  # Resumes
+  # ========================
+  /resumes:
+    post:
+      tags: [Resumes]
+      summary: Upload a resume for parsing
+      operationId: uploadResume
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: Resume file (PDF, DOCX, TXT)
+                user_id:
+                  type: string
+                  description: Associate with specific user (admin only)
+      responses:
+        "201":
+          description: Resume uploaded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Resume"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+    get:
+      tags: [Resumes]
+      summary: List resumes (with optional filters)
+      operationId: listResumes
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/Limit"
+        - name: user_id
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [pending, parsed, error]
+      responses:
+        "200":
+          description: List of resumes
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ResumeList"
+
+  /resumes/{resume_id}:
+    get:
+      tags: [Resumes]
+      summary: Get resume details including parsed data
+      operationId: getResume
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: resume_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Resume with parsed data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ResumeDetail"
+
+  /resumes/{resume_id}/analyze:
+    post:
+      tags: [Resumes]
+      summary: Trigger AI analysis of a resume
+      operationId: analyzeResume
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: resume_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "202":
+          description: Analysis started (async)
+        "200":
+          description: Analysis complete (sync response)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ResumeAnalysis"
+
+  # ========================
+  # Interviews
+  # ========================
+  /interviews:
+    post:
+      tags: [Interviews]
+      summary: Create a new interview session
+      operationId: createInterview
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateInterviewRequest"
+      responses:
+        "201":
+          description: Interview created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Interview"
+
+    get:
+      tags: [Interviews]
+      summary: List interviews
+      operationId: listInterviews
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/Limit"
+        - name: candidate_id
+          in: query
+          schema:
+            type: string
+        - name: interviewer_id
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [scheduled, in_progress, completed, cancelled]
+      responses:
+        "200":
+          description: List of interviews
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InterviewList"
+
+  /interviews/{interview_id}:
+    get:
+      tags: [Interviews]
+      summary: Get interview details
+      operationId: getInterview
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: interview_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Interview details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InterviewDetail"
+
+  /interviews/{interview_id}/complete:
+    post:
+      tags: [Interviews]
+      summary: Mark interview as complete with final transcript
+      operationId: completeInterview
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: interview_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CompleteInterviewRequest"
+      responses:
+        "200":
+          description: Interview completed, analysis triggered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Interview"
+
+  # ========================
+  # Scoring
+  # ========================
+  /scores/{candidate_id}:
+    get:
+      tags: [Scoring]
+      summary: Get candidate's aggregated scores
+      operationId: getCandidateScores
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: candidate_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Candidate scores
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CandidateScores"
+
+  /scores/{candidate_id}/report:
+    get:
+      tags: [Scoring]
+      summary: Generate comprehensive candidate report
+      operationId: generateReport
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: candidate_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Candidate evaluation report
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScoreReport"
+
+  # ========================
+  # Reports (Admin)
+  # ========================
+  /admin/reports/candidates:
+    get:
+      tags: [Admin]
+      summary: Get ranking of all candidates
+      operationId: getCandidateRankings
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/Limit"
+        - name: sort_by
+          in: query
+          schema:
+            type: string
+            enum: [overall_score, interview_score, resume_score]
+            default: overall_score
+        - name: order
+          in: query
+          schema:
+            type: string
+            enum: [asc, desc]
+            default: desc
+      responses:
+        "200":
+          description: Candidate rankings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CandidateRankingList"
+
+  /admin/system/stats:
+    get:
+      tags: [Admin]
+      summary: Get system-wide statistics
+      operationId: getSystemStats
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: System statistics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SystemStats"
+
+  # ========================
+  # Health
+  # ========================
+  /health:
+    get:
+      tags: [Health]
+      summary: Aggregated health check
+      operationId: healthCheck
+      responses:
+        "200":
+          description: Service healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "ok"
+                  services:
+                    type: object
+
+# ========================
+# Components
+# ========================
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    Page:
+      name: page
+      in: query
+      schema:
+        type: integer
+        default: 1
+        minimum: 1
+    Limit:
+      name: limit
+      in: query
+      schema:
+        type: integer
+        default: 20
+        minimum: 1
+        maximum: 100
+    UserId:
+      name: user_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+  responses:
+    BadRequest:
+      description: Invalid request
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Unauthorized:
+      description: Authentication required
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+
+  schemas:
+    # -- Auth --
+    RegisterRequest:
+      type: object
+      required: [email, password, name]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          format: password
+          minLength: 8
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        role:
+          type: string
+          enum: [candidate, interviewer, admin]
+          default: candidate
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          format: password
+
+    AuthResponse:
+      type: object
+      properties:
+        access_token:
+          type: string
+        refresh_token:
+          type: string
+        token_type:
+          type: string
+          default: Bearer
+        expires_in:
+          type: integer
+        user:
+          $ref: "#/components/schemas/User"
+
+    # -- Users --
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        name:
+          type: string
+        role:
+          type: string
+          enum: [admin, interviewer, candidate]
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        email_verified:
+          type: boolean
+
+    UpdateUserRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        avatar_url:
+          type: string
+        bio:
+          type: string
+
+    UserList:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/User"
+        total:
+          type: integer
+        page:
+          type: integer
+        limit:
+          type: integer
+
+    # -- Resumes --
+    Resume:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        filename:
+          type: string
+        file_size:
+          type: integer
+        content_type:
+          type: string
+        status:
+          type: string
+          enum: [pending, parsed, error]
+        created_at:
+          type: string
+          format: date-time
+
+    ResumeList:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Resume"
+        total:
+          type: integer
+
+    ResumeDetail:
+      allOf:
+        - $ref: "#/components/schemas/Resume"
+        - type: object
+          properties:
+            parsed_data:
+              $ref: "#/components/schemas/ParsedResume"
+
+    ParsedResume:
+      type: object
+      properties:
+        skills:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+              category:
+                type: string
+              proficiency:
+                type: string
+        experience:
+          type: array
+          items:
+            type: object
+            properties:
+              company:
+                type: string
+              title:
+                type: string
+              start_date:
+                type: string
+              end_date:
+                type: string
+              description:
+                type: string
+        education:
+          type: array
+          items:
+            type: object
+            properties:
+              institution:
+                type: string
+              degree:
+                type: string
+              field:
+                type: string
+              graduation_year:
+                type: integer
+
+    ResumeAnalysis:
+      type: object
+      properties:
+        resume_id:
+          type: string
+        analysis:
+          type: object
+          properties:
+            skill_summary:
+              type: string
+            experience_level:
+              type: string
+            strengths:
+              type: array
+              items:
+                type: string
+            weaknesses:
+              type: array
+              items:
+                type: string
+            overall_score:
+              type: number
+              minimum: 0
+              maximum: 100
+
+    # -- Interviews --
+    CreateInterviewRequest:
+      type: object
+      required: [candidate_id, interviewer_id, scheduled_at]
+      properties:
+        candidate_id:
+          type: string
+          format: uuid
+        interviewer_id:
+          type: string
+          format: uuid
+        scheduled_at:
+          type: string
+          format: date-time
+        questions:
+          type: array
+          items:
+            type: string
+        notes:
+          type: string
+
+    Interview:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        candidate_id:
+          type: string
+          format: uuid
+        interviewer_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [scheduled, in_progress, completed, cancelled]
+        scheduled_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+
+    InterviewList:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Interview"
+        total:
+          type: integer
+
+    InterviewDetail:
+      allOf:
+        - $ref: "#/components/schemas/Interview"
+        - type: object
+          properties:
+            questions:
+              type: array
+              items:
+                type: string
+            transcript:
+              type: string
+            notes:
+              type: string
+
+    CompleteInterviewRequest:
+      type: object
+      required: [transcript]
+      properties:
+        transcript:
+          type: string
+          description: Full interview transcript text
+        interviewer_notes:
+          type: string
+        rating:
+          type: integer
+          minimum: 1
+          maximum: 5
+
+    # -- Scoring --
+    CandidateScores:
+      type: object
+      properties:
+        candidate_id:
+          type: string
+        overall_score:
+          type: number
+          minimum: 0
+          maximum: 100
+        components:
+          type: array
+          items:
+            type: object
+            properties:
+              source:
+                type: string
+                enum: [resume, interview, ai_analysis]
+              score:
+                type: number
+              weight:
+                type: number
+        pass_fail:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+
+    ScoreReport:
+      type: object
+      properties:
+        candidate_id:
+          type: string
+        candidate_name:
+          type: string
+        overall_score:
+          type: number
+        recommendation:
+          type: string
+          enum: [strong_hire, hire, consider, reject]
+        sections:
+          type: array
+          items:
+            type: object
+            properties:
+              title:
+                type: string
+              score:
+                type: number
+              summary:
+                type: string
+              strengths:
+                type: array
+                items:
+                  type: string
+              weaknesses:
+                type: array
+                items:
+                  type: string
+        generated_at:
+          type: string
+          format: date-time
+
+    # -- Admin --
+    CandidateRankingList:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              rank:
+                type: integer
+              candidate_id:
+                type: string
+              name:
+                type: string
+              overall_score:
+                type: number
+              status:
+                type: string
+        total:
+          type: integer
+
+    SystemStats:
+      type: object
+      properties:
+        total_users:
+          type: integer
+        total_interviews:
+          type: integer
+        total_resumes:
+          type: integer
+        active_interviews:
+          type: integer
+        avg_score:
+          type: number
+        service_health:
+          type: object
+
+    # -- Error --
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+            details:
+              type: object

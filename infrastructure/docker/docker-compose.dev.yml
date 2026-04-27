@@ -1,0 +1,262 @@
+version: '3.8'
+
+services:
+  # =====================
+  # Application Services - Dev
+  # =====================
+
+  user-service:
+    build:
+      target: development
+    volumes:
+      - ../../services/user-service/src:/app/src:delegated
+      - ../../services/user-service/package.json:/app/package.json
+      - ../../services/user-service/tsconfig.json:/app/tsconfig.json
+      - user-service-node-modules:/app/node_modules
+    environment:
+      NODE_ENV: development
+      LOG_LEVEL: debug
+    ports:
+      - "3001:3001"
+      - "9229:9229"
+    command: npm run dev
+    healthcheck:
+      disable: true
+
+  resume-service:
+    build:
+      target: development
+    volumes:
+      - ../../services/resume-service/src:/app/src:delegated
+      - ../../services/resume-service/package.json:/app/package.json
+      - ../../services/resume-service/tsconfig.json:/app/tsconfig.json
+      - resume-service-node-modules:/app/node_modules
+    environment:
+      NODE_ENV: development
+      LOG_LEVEL: debug
+    ports:
+      - "3002:3002"
+      - "9230:9229"
+    command: npm run dev
+    healthcheck:
+      disable: true
+
+  github-service:
+    build:
+      target: development
+    volumes:
+      - ../../services/github-service/src:/app/src:delegated
+      - ../../services/github-service/package.json:/app/package.json
+      - ../../services/github-service/tsconfig.json:/app/tsconfig.json
+      - github-service-node-modules:/app/node_modules
+    environment:
+      NODE_ENV: development
+      LOG_LEVEL: debug
+    ports:
+      - "3003:3003"
+      - "9231:9229"
+    command: npm run dev
+    healthcheck:
+      disable: true
+
+  interview-service:
+    build:
+      target: development
+    volumes:
+      - ../../services/interview-service/src:/app/src:delegated
+      - ../../services/interview-service/package.json:/app/package.json
+      - ../../services/interview-service/tsconfig.json:/app/tsconfig.json
+      - interview-service-node-modules:/app/node_modules
+    environment:
+      NODE_ENV: development
+      LOG_LEVEL: debug
+    ports:
+      - "3004:3004"
+      - "9232:9229"
+    command: npm run dev
+    healthcheck:
+      disable: true
+
+  ai-service:
+    build:
+      target: development
+    volumes:
+      - ../../services/ai-service/src:/app/src:delegated
+      - ../../services/ai-service/package.json:/app/package.json
+      - ../../services/ai-service/tsconfig.json:/app/tsconfig.json
+      - ai-service-node-modules:/app/node_modules
+    environment:
+      NODE_ENV: development
+      LOG_LEVEL: debug
+    ports:
+      - "3006:3006"
+      - "9233:9229"
+    command: npm run dev
+    healthcheck:
+      disable: true
+
+  scoring-service:
+    build:
+      target: development
+    volumes:
+      - ../../services/scoring-service/src:/app/src:delegated
+      - ../../services/scoring-service/package.json:/app/package.json
+      - ../../services/scoring-service/tsconfig.json:/app/tsconfig.json
+      - scoring-service-node-modules:/app/node_modules
+    environment:
+      NODE_ENV: development
+      LOG_LEVEL: debug
+    ports:
+      - "3007:3007"
+      - "9234:9229"
+    command: npm run dev
+    healthcheck:
+      disable: true
+
+  report-service:
+    build:
+      target: development
+    volumes:
+      - ../../services/report-service/src:/app/src:delegated
+      - ../../services/report-service/package.json:/app/package.json
+      - ../../services/report-service/tsconfig.json:/app/tsconfig.json
+      - report-service-node-modules:/app/node_modules
+    environment:
+      NODE_ENV: development
+      LOG_LEVEL: debug
+    ports:
+      - "3008:3008"
+      - "9235:9229"
+    command: npm run dev
+    healthcheck:
+      disable: true
+
+  notification-service:
+    build:
+      target: development
+    volumes:
+      - ../../services/notification-service/src:/app/src:delegated
+      - ../../services/notification-service/package.json:/app/package.json
+      - ../../services/notification-service/tsconfig.json:/app/tsconfig.json
+      - notification-service-node-modules:/app/node_modules
+    environment:
+      NODE_ENV: development
+      LOG_LEVEL: debug
+    ports:
+      - "3009:3009"
+      - "9236:9229"
+    command: npm run dev
+    healthcheck:
+      disable: true
+
+  analytics-service:
+    build:
+      target: development
+    volumes:
+      - ../../services/analytics-service/src:/app/src:delegated
+      - ../../services/analytics-service/package.json:/app/package.json
+      - ../../services/analytics-service/tsconfig.json:/app/tsconfig.json
+      - analytics-service-node-modules:/app/node_modules
+    environment:
+      NODE_ENV: development
+      LOG_LEVEL: debug
+    ports:
+      - "3010:3010"
+      - "9237:9229"
+    command: npm run dev
+    healthcheck:
+      disable: true
+
+  admin-service:
+    build:
+      target: development
+    volumes:
+      - ../../services/admin-service/src:/app/src:delegated
+      - ../../services/admin-service/package.json:/app/package.json
+      - ../../services/admin-service/tsconfig.json:/app/tsconfig.json
+      - admin-service-node-modules:/app/node_modules
+    environment:
+      NODE_ENV: development
+      LOG_LEVEL: debug
+    ports:
+      - "3011:3011"
+      - "9238:9229"
+    command: npm run dev
+    healthcheck:
+      disable: true
+
+  api-gateway:
+    build:
+      context: ../..
+      dockerfile: services/api-gateway/Dockerfile
+    volumes:
+      - ../../services/api-gateway:/app:delegated
+    environment:
+      PORT: 8000
+      USER_SERVICE_URL: http://user-service:8080
+      RESUME_SERVICE_URL: http://resume-service:8080
+      GITHUB_SERVICE_URL: http://github-service:8082
+      INTERVIEW_SERVICE_URL: http://interview-service:8082
+      AI_SERVICE_URL: http://ai-service:8001
+      REPORT_SERVICE_URL: http://report-service:8080
+      ADMIN_SERVICE_URL: http://admin-service:8080
+    ports:
+      - "8000:8000"
+    command: go run ./cmd
+    healthcheck:
+      disable: true
+
+  # =====================
+  # Infrastructure - Dev Optimizations
+  # =====================
+
+  postgres:
+    ports:
+      - "5432:5432"
+    healthcheck:
+      disable: true
+
+  redis:
+    ports:
+      - "6379:6379"
+    healthcheck:
+      disable: true
+
+  kafka:
+    ports:
+      - "9092:9092"
+      - "29092:29092"
+    healthcheck:
+      disable: true
+
+  zookeeper:
+    ports:
+      - "2181:2181"
+    healthcheck:
+      disable: true
+
+  rabbitmq:
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    healthcheck:
+      disable: true
+
+  clickhouse:
+    ports:
+      - "8123:8123"
+      - "9000:9000"
+    healthcheck:
+      disable: true
+
+volumes:
+  user-service-node-modules:
+  resume-service-node-modules:
+  github-service-node-modules:
+  interview-service-node-modules:
+  ai-service-node-modules:
+  scoring-service-node-modules:
+  report-service-node-modules:
+  notification-service-node-modules:
+  analytics-service-node-modules:
+  admin-service-node-modules:

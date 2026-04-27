@@ -1,0 +1,29 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: interview-service-config
+  namespace: real-ass
+  labels:
+    app.kubernetes.io/name: interview-service
+    app.kubernetes.io/component: backend
+data:
+  SERVICE_PORT: "8083"
+  SERVICE_NAME: "interview-service"
+
+  # Interview settings
+  MAX_INTERVIEW_DURATION_MINUTES: "120"
+  DEFAULT_INTERVIEW_DURATION_MINUTES: "60"
+  QUESTION_COUNT_PER_INTERVIEW: "20"
+
+  # Scheduling settings
+  SLOT_DURATION_MINUTES: "15"
+  MAX_BOOKINGS_PER_DAY: "8"
+  BUFFER_TIME_MINUTES: "5"
+
+  # Recording settings
+  RECORDING_ENABLED: "true"
+  RECORDING_STORAGE_PATH: "/data/recordings"
+
+  # WebSocket settings
+  WS_HEARTBEAT_INTERVAL_SECONDS: "30"
+  WS_MAX_CONNECTIONS: "1000"

@@ -1,0 +1,68 @@
+# PLACEHOLDER: Interview Flow Sequence Diagram
+
+## Instructions to Generate
+
+This file is a placeholder for the interview sequence diagram. Replace it with an actual PNG image.
+
+### Recommended Tools
+
+1. **Draw.io / diagrams.net** - Create a sequence diagram and export as PNG
+2. **Mermaid CLI** - Use a `.mmd` file with sequence diagram syntax:
+   ```bash
+   npm install -g @mermaid-js/mermaid-cli
+   mmdc -i interview-flow.mmd -o interview-flow.png -w 2000
+   ```
+
+### Mermaid Definition (for reference)
+
+```mermaid
+sequenceDiagram
+    participant I as Interviewer
+    participant G as API Gateway
+    participant IS as Interview Service
+    participant DB as PostgreSQL
+    participant K as Kafka
+    participant AI as AI Service
+    participant SC as Scoring Service
+
+    I->>G: POST /interviews {candidate_id, questions}
+    G->>IS: Create interview
+    IS->>DB: INSERT interview + participants
+    IS-->>G: 201 {interview_id, status: scheduled}
+    G-->>I: Interview created
+
+    Note over I,IS: --- Interview Conducted ---
+
+    I->>G: POST /interviews/{id}/complete {transcript}
+    G->>IS: Complete interview
+    IS->>DB: UPDATE status = 'completed'
+    IS->>DB: SAVE transcript
+    IS->>K: Publish interview.completed event
+    IS-->>G: 200 OK
+    G-->>I: Interview completed
+
+    Note over K,SC: --- Async Processing ---
+
+    K->>AI: Consume interview.completed
+    AI->>AI: Analyze transcript (OpenAI)
+    AI->>K: Publish analysis.completed
+    K->>SC: Consume analysis.completed
+    SC->>SC: Aggregate scores (resume + interview)
+    SC->>DB: SAVE candidate_scores
+    SC->>K: Publish score.updated
+```
+
+### Flow Description
+
+1. **Scheduling:** Interviewer creates interview session with candidate and questions
+2. **Conducting:** Interview is held, transcript is recorded
+3. **Completion:** Interviewer marks interview as complete, transcript saved
+4. **AI Analysis:** AI Service consumes event, processes transcript through LLM
+5. **Scoring:** Scoring Service aggregates AI results with existing resume scores
+6. **Notification:** Score update event published for downstream consumers
+
+### File Requirements
+
+- **Format:** PNG
+- **Resolution:** Minimum 2000x1200 (longer flow)
+- **Style:** Standard UML sequence diagram, group async processing separately

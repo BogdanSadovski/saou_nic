@@ -1,0 +1,152 @@
+name: "Deploy to Kubernetes"
+description: "Composite action to deploy services to a Kubernetes cluster"
+
+inputs:
+  namespace:
+    description: "Kubernetes namespace to deploy to"
+    required: true
+  kubeconfig:
+    description: "Base64-encoded kubeconfig content"
+    required: true
+  services:
+    description: "Comma-separated list of services to deploy"
+    required: true
+  image-registry:
+    description: "Container image registry URL"
+    required: true
+  image-repository:
+    description: "Image repository path (e.g., org/repo)"
+    required: true
+  image-tag:
+    description: "Docker image tag to deploy"
+    required: true
+  rollout-timeout:
+    description: "Timeout in seconds for rollout status check"
+    required: false
+    default: "300"
+  k8s-manifest-dir:
+    description: "Directory containing K8s manifests"
+    required: false
+    default: "infrastructure/k8s/services"
+  run-smoke-tests:
+    description: "Whether to run smoke tests after deployment"
+    required: false
+    default: "true"
+  smoke-test-url:
+    description: "URL to health check endpoint for smoke tests"
+    required: false
+    default: ""
+  smoke-test-retries:
+    description: "Number of retries for smoke test"
+    required: false
+    default: "3"
+
+outputs:
+  deployed-services:
+    description: "List of successfully deployed services"
+    value: ${{ steps.deploy.outputs.services }}
+  deployment-time:
+    description: "Timestamp of the deployment"
+    value: ${{ steps.deploy.outputs.timestamp }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Set up kubectl
+      uses: azure/setup-kubectl@v3
+      with:
+        version: "latest"
+      shell: bash
+
+    - name: Configure kubeconfig
+      shell: bash
+      run: |
+        mkdir -p $HOME/.kube
+        echo "${{ inputs.kubeconfig }}" | base64 -d > $HOME/.kube/config
+        chmod 600 $HOME/.kube/config
+        echo "Kubeconfig configured for namespace: ${{ inputs.namespace }}"
+
+    - name: Verify cluster connectivity
+      shell: bash
+      run: |
+        kubectl cluster-info
+        kubectl get nodes
+        echo "Cluster connectivity verified"
+
+    - name: Create namespace if not exists
+      shell: bash
+      run: |
+        kubectl create namespace ${{ inputs.namespace }} --dry-run=client -o yaml | kubectl apply -f -
+        echo "Namespace ${{ inputs.namespace }} ensured"
+
+    - name: Deploy services
+      id: deploy
+      shell: bash
+      run: |
+        IFS=',' read -ra SERVICE_LIST <<< "${{ inputs.services }}"
+        DEPLOYED=""
+        TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+        for svc in "${SERVICE_LIST[@]}"; do
+          svc=$(echo "$svc" | xargs)  # trim whitespace
+          echo "=========================================="
+          echo "Deploying: ${svc}"
+          echo "Image: ${{ inputs.image-registry }}/${{ inputs.image-repository }}/${svc}:${{ inputs.image-tag }}"
+          echo "=========================================="
+
+          kubectl set image deployment/${svc} \
+            ${svc}=${{ inputs.image-registry }}/${{ inputs.image-repository }}/${svc}:${{ inputs.image-tag }} \
+            -n ${{ inputs.namespace }} --record
+
+          DEPLOYED="${DEPLOYED}${svc},"
+        done
+
+        echo "services=${DEPLOYED%,}" >> $GITHUB_OUTPUT
+        echo "timestamp=${TIMESTAMP}" >> $GITHUB_OUTPUT
+
+    - name: Wait for rollout
+      shell: bash
+      run: |
+        IFS=',' read -ra SERVICE_LIST <<< "${{ inputs.services }}"
+
+        for svc in "${SERVICE_LIST[@]}"; do
+          svc=$(echo "$svc" | xargs)
+          echo "Waiting for ${svc} rollout to complete..."
+          kubectl rollout status deployment/${svc} \
+            -n ${{ inputs.namespace }} --timeout=${{ inputs.rollout-timeout }}s
+          echo "${svc} rollout complete"
+        done
+
+    - name: Verify pod status
+      shell: bash
+      run: |
+        echo "Checking pod status in ${{ inputs.namespace }}..."
+        kubectl get pods -n ${{ inputs.namespace }} -l app=interview-platform
+        kubectl get events -n ${{ inputs.namespace }} --sort-by='.lastTimestamp' | tail -20
+
+    - name: Run smoke tests
+      shell: bash
+      if: inputs.run-smoke-tests == 'true' && inputs.smoke-test-url != ''
+      run: |
+        echo "Running smoke tests against ${{ inputs.smoke-test-url }}..."
+
+        MAX_RETRIES=${{ inputs.smoke-test-retries }}
+        RETRY_COUNT=0
+        SUCCESS=false
+
+        while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+          if curl -sf --max-time 30 "${{ inputs.smoke-test-url }}" > /dev/null 2>&1; then
+            SUCCESS=true
+            break
+          fi
+          RETRY_COUNT=$((RETRY_COUNT + 1))
+          echo "Smoke test attempt ${RETRY_COUNT}/${MAX_RETRIES} failed, retrying in 10s..."
+          sleep 10
+        done
+
+        if [ "$SUCCESS" = true ]; then
+          echo "Smoke tests passed on attempt ${RETRY_COUNT}"
+        else
+          echo "::error::Smoke tests failed after ${MAX_RETRIES} attempts"
+          exit 1
+        fi

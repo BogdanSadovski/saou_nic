@@ -1,0 +1,183 @@
+openapi: 3.0.3
+info:
+  title: Interview Module API
+  version: 1.0.0
+  description: Versioned contract for adaptive AI interview module.
+servers:
+  - url: /api/v1
+security:
+  - bearerAuth: []
+paths:
+  /interviews/sessions:
+    post:
+      summary: Create interview session
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: header
+          name: Idempotency-Key
+          schema:
+            type: string
+          required: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateSessionRequest'
+      responses:
+        '201':
+          description: Session created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+  /interviews/sessions/{session_id}:
+    get:
+      summary: Get session details
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/SessionID'
+      responses:
+        '200':
+          description: Session details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+  /interviews/sessions/{session_id}/messages:
+    get:
+      summary: List session messages
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/SessionID'
+      responses:
+        '200':
+          description: Message list
+    post:
+      summary: Send candidate message and receive next AI question asynchronously
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/SessionID'
+        - in: header
+          name: Idempotency-Key
+          schema:
+            type: string
+          required: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SendMessageRequest'
+      responses:
+        '202':
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+  /interviews/sessions/{session_id}/finish:
+    post:
+      summary: Finish interview session
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/SessionID'
+      responses:
+        '200':
+          description: Session marked finished
+  /interviews/sessions/{session_id}/report:
+    get:
+      summary: Get generated report
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/SessionID'
+      responses:
+        '200':
+          description: Report ready
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+        '404':
+          description: Report not ready
+  /interviews/sessions/{session_id}/ws:
+    get:
+      summary: WebSocket stream endpoint
+      description: |
+        Upgrades to WebSocket. Event envelope is versioned (v1):
+        { "version": "v1", "type": "event.type", "timestamp": "RFC3339", "payload": {...} }
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/SessionID'
+      responses:
+        '101':
+          description: Switching protocols
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    SessionID:
+      in: path
+      name: session_id
+      required: true
+      schema:
+        type: string
+        format: uuid
+  schemas:
+    ApiResponse:
+      type: object
+      required:
+        - success
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          additionalProperties: true
+        error:
+          type: string
+    CreateSessionRequest:
+      type: object
+      required:
+        - role
+        - level
+      properties:
+        role:
+          type: string
+          minLength: 1
+        level:
+          type: string
+          minLength: 1
+        duration_minutes:
+          type: integer
+          minimum: 1
+          maximum: 180
+        question_limit:
+          type: integer
+          minimum: 1
+          maximum: 40
+        resume_id:
+          type: string
+        github_profile:
+          type: string
+    SendMessageRequest:
+      type: object
+      required:
+        - content
+      properties:
+        content:
+          type: string
+          minLength: 1
+          maxLength: 4000
+        client_message_id:
+          type: string

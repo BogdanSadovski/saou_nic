@@ -1,0 +1,669 @@
+name: platform
+networks:
+  backend-network:
+    driver: bridge
+  frontend-network:
+    driver: bridge
+  monitoring-network:
+    driver: bridge
+volumes:
+  postgres-data: null
+  redis-data: null
+  clickhouse-data: null
+  rabbitmq-data: null
+  kafka-data: null
+  zookeeper-data: null
+  minio-data: null
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+      ZOOKEEPER_INIT_LIMIT: 5
+      ZOOKEEPER_SYNC_LIMIT: 2
+    ports:
+    - 2181:2181
+    volumes:
+    - zookeeper-data:/var/lib/zookeeper/data
+    - zookeeper-data:/var/lib/zookeeper/log
+    networks:
+    - backend-network
+    healthcheck:
+      test:
+      - CMD
+      - nc
+      - -z
+      - localhost
+      - '2181'
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    depends_on:
+    - zookeeper
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+      KAFKA_MIN_INSYNC_REPLICAS: 1
+      KAFKA_LOG_RETENTION_HOURS: 168
+      KAFKA_LOG_SEGMENT_BYTES: 1073741824
+    ports:
+    - 9092:9092
+    - 29092:29092
+    volumes:
+    - kafka-data:/var/lib/kafka/data
+    networks:
+    - backend-network
+    healthcheck:
+      test:
+      - CMD
+      - kafka-broker-api-versions
+      - --bootstrap-server
+      - localhost:9092
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    restart: unless-stopped
+  rabbitmq:
+    image: rabbitmq:3.12-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER:-rabbitmq_user}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS:-rabbitmq_pass}
+      RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_DEFAULT_VHOST:-/}
+    ports:
+    - 5672:5672
+    - 15672:15672
+    volumes:
+    - rabbitmq-data:/var/lib/rabbitmq
+    networks:
+    - backend-network
+    healthcheck:
+      test:
+      - CMD
+      - rabbitmq-diagnostics
+      - check_running
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres_secret}
+      POSTGRES_DB: ${POSTGRES_DB:-platform_db}
+      POSTGRES_MULTIPLE_DATABASES: user_service,resume_service,github_service,interview_service,scoring_service,report_service,notification_service,analytics_service,admin_service
+    ports:
+    - ${POSTGRES_PORT:-5432}:5432
+    volumes:
+    - postgres-data:/var/lib/postgresql/data
+    - ./init-scripts:/docker-entrypoint-initdb.d:ro
+    networks:
+    - backend-network
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - pg_isready -U ${POSTGRES_USER:-postgres}
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+  redis:
+    image: redis:7.2-alpine
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-redis_secret}
+      --maxmemory 256mb --maxmemory-policy allkeys-lru
+    ports:
+    - ${REDIS_PORT:-6379}:6379
+    volumes:
+    - redis-data:/data
+    networks:
+    - backend-network
+    healthcheck:
+      test:
+      - CMD
+      - redis-cli
+      - -a
+      - ${REDIS_PASSWORD:-redis_secret}
+      - ping
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+  clickhouse:
+    image: clickhouse/clickhouse-server:23.8-alpine
+    environment:
+      CLICKHOUSE_DB: ${CLICKHOUSE_DB:-analytics}
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER:-clickhouse_user}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-clickhouse_pass}
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: '1'
+    ports:
+    - 8123:8123
+    - 9000:9000
+    volumes:
+    - clickhouse-data:/var/lib/clickhouse
+    networks:
+    - backend-network
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - clickhouse-client --host localhost --port 9000 --user "$${CLICKHOUSE_USER}" --password "$${CLICKHOUSE_PASSWORD}" --query "SELECT 1" >/dev/null 2>&1
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+  minio:
+    image: minio/minio:RELEASE.2024-01-16T16-07-38Z
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    command: server /data --console-address ":9001"
+    ports:
+    - 9010:9000
+    - 9011:9001
+    volumes:
+    - minio-data:/data
+    networks:
+    - backend-network
+    healthcheck:
+      test:
+      - CMD
+      - mc
+      - ready
+      - local
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+  user-service:
+    build:
+      context: ../../services/user-service
+      dockerfile: Dockerfile
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      SERVICE_NAME: user-service
+      PORT: 8080
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres_secret}@postgres:5432/user_service?schema=public
+      REDIS_URL: redis://:${REDIS_PASSWORD:-redis_secret}@redis:6379/0
+      JWT_SECRET: ${JWT_SECRET:-super_secret_jwt_key_change_in_production}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-24h}
+      JWT_REFRESH_EXPIRES_IN: ${JWT_REFRESH_EXPIRES_IN:-7d}
+      OAUTH_GOOGLE_CLIENT_ID: ${OAUTH_GOOGLE_CLIENT_ID:-}
+      OAUTH_GOOGLE_CLIENT_SECRET: ${OAUTH_GOOGLE_CLIENT_SECRET:-}
+      OAUTH_GITHUB_CLIENT_ID: ${OAUTH_GITHUB_CLIENT_ID:-}
+      OAUTH_GITHUB_CLIENT_SECRET: ${OAUTH_GITHUB_CLIENT_SECRET:-}
+      KAFKA_BROKERS: kafka:9092
+      RABBITMQ_URL: amqp://${RABBITMQ_DEFAULT_USER:-rabbitmq_user}:${RABBITMQ_DEFAULT_PASS:-rabbitmq_pass}@rabbitmq:5672
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    ports:
+    - 3001:8080
+    depends_on:
+    - postgres
+    - redis
+    - kafka
+    - rabbitmq
+    networks:
+    - backend-network
+    - frontend-network
+    healthcheck:
+      test:
+      - CMD
+      - wget
+      - --spider
+      - -q
+      - http://localhost:8080/api/v1/health
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+  resume-service:
+    build:
+      context: ../../services/resume-service
+      dockerfile: Dockerfile
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      SERVICE_NAME: resume-service
+      PORT: 8080
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres_secret}@postgres:5432/resume_service?schema=public
+      REDIS_URL: redis://:${REDIS_PASSWORD:-redis_secret}@redis:6379/1
+      KAFKA_BROKERS: kafka:9092
+      RABBITMQ_URL: amqp://${RABBITMQ_DEFAULT_USER:-rabbitmq_user}:${RABBITMQ_DEFAULT_PASS:-rabbitmq_pass}@rabbitmq:5672
+      S3_ENDPOINT: ${S3_ENDPOINT:-http://minio:9000}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:-minioadmin}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:-minioadmin}
+      S3_BUCKET: ${S3_BUCKET:-resumes}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres_secret}
+      POSTGRES_DB: resume_service
+    ports:
+    - 3002:8080
+    depends_on:
+    - postgres
+    - redis
+    - kafka
+    - rabbitmq
+    - minio
+    networks:
+    - backend-network
+    - frontend-network
+    healthcheck:
+      test:
+      - CMD
+      - wget
+      - --spider
+      - -q
+      - http://localhost:8080/health
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+  github-service:
+    build:
+      context: ../../services/github-service
+      dockerfile: Dockerfile
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      SERVICE_NAME: github-service
+      PORT: 8082
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres_secret}@postgres:5432/github_service?schema=public
+      REDIS_URL: redis://:${REDIS_PASSWORD:-redis_secret}@redis:6379/2
+      GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}
+      GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:-}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      KAFKA_BROKERS: kafka:9092
+      RABBITMQ_URL: amqp://${RABBITMQ_DEFAULT_USER:-rabbitmq_user}:${RABBITMQ_DEFAULT_PASS:-rabbitmq_pass}@rabbitmq:5672
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    ports:
+    - 3003:8082
+    depends_on:
+    - postgres
+    - redis
+    - kafka
+    - rabbitmq
+    networks:
+    - backend-network
+    - frontend-network
+    healthcheck:
+      test:
+      - CMD
+      - wget
+      - --spider
+      - -q
+      - http://localhost:8082/health
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+  interview-service:
+    build:
+      context: ../../services/interview-service
+      dockerfile: Dockerfile
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      SERVICE_NAME: interview-service
+      PORT: 8082
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres_secret}@postgres:5432/interview_service?schema=public
+      REDIS_URL: redis://:${REDIS_PASSWORD:-redis_secret}@redis:6379/3
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-redis_secret}
+      KAFKA_BROKERS: kafka:9092
+      RABBITMQ_URL: amqp://${RABBITMQ_DEFAULT_USER:-rabbitmq_user}:${RABBITMQ_DEFAULT_PASS:-rabbitmq_pass}@rabbitmq:5672
+      AI_SERVICE_URL: http://ai-service:8001
+      JWT_SECRET: ${JWT_SECRET:-super_secret_jwt_key_change_in_production}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres_secret}
+      POSTGRES_DB: interview_service
+    ports:
+    - 3004:8082
+    depends_on:
+    - postgres
+    - redis
+    - kafka
+    - rabbitmq
+    networks:
+    - backend-network
+    - frontend-network
+    healthcheck:
+      test:
+      - CMD
+      - wget
+      - --spider
+      - -q
+      - http://localhost:8082/health
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+  ai-service:
+    build:
+      context: ../../services/ai-service
+      dockerfile: Dockerfile
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      SERVICE_NAME: ai-service
+      PORT: 8001
+      LLM_API_KEY: ${LLM_API_KEY}
+      LLM_MODEL: ${LLM_MODEL}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      REDIS_URL: redis://:${REDIS_PASSWORD:-redis_secret}@redis:6379/4
+      KAFKA_BROKERS: kafka:9092
+      RABBITMQ_URL: amqp://${RABBITMQ_DEFAULT_USER:-rabbitmq_user}:${RABBITMQ_DEFAULT_PASS:-rabbitmq_pass}@rabbitmq:5672
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    ports:
+    - 3006:8001
+    depends_on:
+    - redis
+    - kafka
+    - rabbitmq
+    networks:
+    - backend-network
+    - frontend-network
+    healthcheck:
+      test:
+      - CMD
+      - python
+      - -c
+      - import urllib.request; urllib.request.urlopen('http://localhost:8001/health', timeout=3)
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+  scoring-service:
+    build:
+      context: ../../services/scoring-service
+      dockerfile: Dockerfile
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      SERVICE_NAME: scoring-service
+      PORT: 8080
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres_secret}@postgres:5432/scoring_service?schema=public
+      REDIS_URL: redis://:${REDIS_PASSWORD:-redis_secret}@redis:6379/5
+      KAFKA_BROKERS: kafka:9092
+      RABBITMQ_URL: amqp://${RABBITMQ_DEFAULT_USER:-rabbitmq_user}:${RABBITMQ_DEFAULT_PASS:-rabbitmq_pass}@rabbitmq:5672
+      AI_SERVICE_URL: http://ai-service:8001
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    ports:
+    - 3007:8080
+    depends_on:
+    - postgres
+    - redis
+    - kafka
+    - rabbitmq
+    networks:
+    - backend-network
+    - frontend-network
+    healthcheck:
+      test:
+      - CMD
+      - wget
+      - --spider
+      - -q
+      - http://localhost:8080/health
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+  report-service:
+    build:
+      context: ../../services/report-service
+      dockerfile: Dockerfile
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      SERVICE_NAME: report-service
+      PORT: 8082
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres_secret}@postgres:5432/report_service?schema=public
+      REDIS_URL: redis://:${REDIS_PASSWORD:-redis_secret}@redis:6379/6
+      KAFKA_BROKERS: kafka:9092
+      RABBITMQ_URL: amqp://${RABBITMQ_DEFAULT_USER:-rabbitmq_user}:${RABBITMQ_DEFAULT_PASS:-rabbitmq_pass}@rabbitmq:5672
+      CLICKHOUSE_HOST: clickhouse
+      CLICKHOUSE_PORT: 8123
+      CLICKHOUSE_DATABASE: ${CLICKHOUSE_DB:-analytics}
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER:-clickhouse_user}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-clickhouse_pass}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres_secret}
+      POSTGRES_DB: report_service
+    ports:
+    - 3008:8082
+    depends_on:
+    - postgres
+    - redis
+    - minio
+    - kafka
+    - rabbitmq
+    networks:
+    - backend-network
+    - frontend-network
+    healthcheck:
+      test:
+      - CMD
+      - wget
+      - --spider
+      - -q
+      - http://localhost:8082/health
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+  notification-service:
+    build:
+      context: ../../services/notification-service
+      dockerfile: Dockerfile
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      SERVICE_NAME: notification-service
+      PORT: 8082
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres_secret}@postgres:5432/notification_service?schema=public
+      REDIS_URL: redis://:${REDIS_PASSWORD:-redis_secret}@redis:6379/7
+      KAFKA_BROKERS: kafka:9092
+      RABBITMQ_URL: amqp://${RABBITMQ_DEFAULT_USER:-rabbitmq_user}:${RABBITMQ_DEFAULT_PASS:-rabbitmq_pass}@rabbitmq:5672
+      SMTP_HOST: ${SMTP_HOST:-smtp.gmail.com}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      SMTP_FROM: ${SMTP_FROM:-noreply@platform.com}
+      SENDGRID_API_KEY: ${SENDGRID_API_KEY:-}
+      TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID:-}
+      TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN:-}
+      TWILIO_PHONE_NUMBER: ${TWILIO_PHONE_NUMBER:-}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    ports:
+    - 3009:8082
+    depends_on:
+    - postgres
+    - redis
+    - kafka
+    - rabbitmq
+    networks:
+    - backend-network
+    - frontend-network
+    healthcheck:
+      test:
+      - CMD
+      - wget
+      - --spider
+      - -q
+      - http://localhost:8082/health
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+  analytics-service:
+    build:
+      context: ../../services/analytics-service
+      dockerfile: Dockerfile
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      SERVICE_NAME: analytics-service
+      PORT: 8082
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres_secret}@postgres:5432/analytics_service?schema=public
+      REDIS_URL: redis://:${REDIS_PASSWORD:-redis_secret}@redis:6379/8
+      CLICKHOUSE_HOST: clickhouse
+      CLICKHOUSE_PORT: 9000
+      CLICKHOUSE_DATABASE: ${CLICKHOUSE_DB:-analytics}
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER:-clickhouse_user}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-clickhouse_pass}
+      KAFKA_BROKERS: kafka:9092
+      RABBITMQ_URL: amqp://${RABBITMQ_DEFAULT_USER:-rabbitmq_user}:${RABBITMQ_DEFAULT_PASS:-rabbitmq_pass}@rabbitmq:5672
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres_secret}
+      POSTGRES_DB: analytics_service
+    ports:
+    - 3010:8082
+    depends_on:
+    - postgres
+    - redis
+    - clickhouse
+    - kafka
+    - rabbitmq
+    networks:
+    - backend-network
+    - frontend-network
+    healthcheck:
+      test:
+      - CMD
+      - wget
+      - --spider
+      - -q
+      - http://localhost:8082/health
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+  admin-service:
+    build:
+      context: ../../services/admin-service
+      dockerfile: Dockerfile
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      SERVICE_NAME: admin-service
+      PORT: 8081
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres_secret}@postgres:5432/admin_service?schema=public
+      REDIS_URL: redis://:${REDIS_PASSWORD:-redis_secret}@redis:6379/9
+      KAFKA_BROKERS: kafka:9092
+      RABBITMQ_URL: amqp://${RABBITMQ_DEFAULT_USER:-rabbitmq_user}:${RABBITMQ_DEFAULT_PASS:-rabbitmq_pass}@rabbitmq:5672
+      JWT_SECRET: ${JWT_SECRET:-super_secret_jwt_key_change_in_production}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    ports:
+    - 3011:8081
+    depends_on:
+    - postgres
+    - redis
+    - kafka
+    - rabbitmq
+    networks:
+    - backend-network
+    - frontend-network
+    healthcheck:
+      test:
+      - CMD
+      - wget
+      - --spider
+      - -q
+      - http://localhost:8081/health
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+  api-gateway:
+    build:
+      context: ../../services/api-gateway
+      dockerfile: Dockerfile
+    environment:
+      PORT: 8000
+      USER_SERVICE_URL: http://user-service:8080
+      RESUME_SERVICE_URL: http://resume-service:8080
+      GITHUB_SERVICE_URL: http://github-service:8082
+      INTERVIEW_SERVICE_URL: http://interview-service:8082
+      AI_SERVICE_URL: http://ai-service:8001
+      REPORT_SERVICE_URL: http://report-service:8082
+      ADMIN_SERVICE_URL: http://admin-service:8081
+    ports:
+    - 8000:8000
+    depends_on:
+    - user-service
+    - resume-service
+    - github-service
+    - interview-service
+    - ai-service
+    - scoring-service
+    - report-service
+    - code-executor-service
+    networks:
+    - backend-network
+    - frontend-network
+    healthcheck:
+      test:
+      - CMD
+      - wget
+      - --spider
+      - -q
+      - http://localhost:8000/health
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+
+  code-executor-service:
+    build:
+      context: ../../services/code-executor-service
+      dockerfile: Dockerfile
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      SERVICE_NAME: code-executor-service
+      PORT: 8083
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    ports:
+    - 8083:8083
+    networks:
+    - backend-network
+    healthcheck:
+      test:
+      - CMD
+      - wget
+      - --spider
+      - -q
+      - http://localhost:8083/healthz
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped

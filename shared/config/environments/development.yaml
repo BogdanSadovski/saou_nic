@@ -1,0 +1,118 @@
+# ============================================================
+# Development Environment Configuration
+# ============================================================
+# Optimized for local development with debug-friendly settings.
+# Single replicas, verbose logging, and local service hosts.
+# ============================================================
+
+environment: development
+
+# --- Application ---
+app:
+  debug: true
+  log_level: debug
+  log_format: console
+  port: 8080
+  workers: 1
+  reload: true
+
+# --- Database ---
+database:
+  host: localhost
+  port: 5432
+  name: assessment_dev
+  user: postgres
+  password: postgres
+  pool_min_size: 1
+  pool_max_size: 5
+  ssl_mode: disable
+
+# --- Redis ---
+redis:
+  host: localhost
+  port: 6379
+  db: 0
+  password: ""
+  ssl: false
+
+# --- Kafka ---
+kafka:
+  bootstrap_servers:
+    - localhost:9092
+  topics:
+    user_events: user-events.dev
+    interview_events: interview-events.dev
+    scoring_events: scoring-events.dev
+    notifications: notifications.dev
+  consumer_group: assessment-dev
+  auto_offset_reset: earliest
+
+# --- AI Service ---
+ai:
+  provider: openai
+  model: gpt-4o-mini
+  max_tokens: 2048
+  temperature: 0.7
+  timeout_seconds: 30
+  mock_responses: true
+
+# --- Authentication ---
+auth:
+  jwt_secret: dev-secret-change-me
+  jwt_algorithm: HS256
+  access_token_expiry_minutes: 60
+  refresh_token_expiry_days: 7
+  oauth:
+    google:
+      enabled: false
+      client_id: ""
+      client_secret: ""
+    github:
+      enabled: false
+      client_id: ""
+      client_secret: ""
+
+# --- Scoring ---
+scoring:
+  auto_score: true
+  score_range:
+    min: 0
+    max: 100
+  passing_threshold: 70
+
+# --- Rate Limiting ---
+rate_limit:
+  enabled: false
+  requests_per_minute: 1000
+
+# --- CORS ---
+cors:
+  allow_origins:
+    - "http://localhost:3000"
+    - "http://localhost:5173"
+  allow_methods:
+    - GET
+    - POST
+    - PUT
+    - DELETE
+    - PATCH
+    - OPTIONS
+  allow_headers:
+    - "*"
+  allow_credentials: true
+
+# --- Kubernetes (Dev - single replicas) ---
+kubernetes:
+  replicas:
+    api_gateway: 1
+    user_service: 1
+    resume_service: 1
+    interview_service: 1
+    ai_service: 1
+    scoring_service: 1
+    admin_service: 1
+  resources:
+    cpu_request: "100m"
+    cpu_limit: "500m"
+    memory_request: "128Mi"
+    memory_limit: "512Mi"

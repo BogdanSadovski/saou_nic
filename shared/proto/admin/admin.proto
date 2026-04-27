@@ -1,0 +1,208 @@
+syntax = "proto3";
+
+package admin;
+
+option go_package = "github.com/real-ass/shared/proto/admin;adminpb";
+
+import "google/protobuf/timestamp.proto";
+
+// AdminUser represents an administrative user.
+message AdminUser {
+  string id = 1;
+  string email = 2;
+  string name = 3;
+  AdminRole role = 4;
+  repeated string permissions = 5;
+  AdminStatus status = 6;
+  google.protobuf.Timestamp created_at = 7;
+  google.protobuf.Timestamp last_login_at = 8;
+}
+
+enum AdminRole {
+  ADMIN_ROLE_UNSPECIFIED = 0;
+  ADMIN_ROLE_SUPER_ADMIN = 1;
+  ADMIN_ROLE_ADMIN = 2;
+  ADMIN_ROLE_MODERATOR = 3;
+  ADMIN_ROLE_SUPPORT = 4;
+}
+
+enum AdminStatus {
+  ADMIN_STATUS_UNSPECIFIED = 0;
+  ADMIN_STATUS_ACTIVE = 1;
+  ADMIN_STATUS_INACTIVE = 2;
+  ADMIN_STATUS_SUSPENDED = 3;
+}
+
+// Subscription represents a user's subscription plan.
+message Subscription {
+  string id = 1;
+  string user_id = 2;
+  SubscriptionPlan plan = 3;
+  SubscriptionStatus status = 4;
+  google.protobuf.Timestamp started_at = 5;
+  google.protobuf.Timestamp expires_at = 6;
+  google.protobuf.Timestamp cancelled_at = 7;
+  SubscriptionLimits limits = 8;
+  string payment_provider_id = 9;
+  string external_id = 10;
+}
+
+enum SubscriptionPlan {
+  SUBSCRIPTION_PLAN_UNSPECIFIED = 0;
+  SUBSCRIPTION_PLAN_FREE = 1;
+  SUBSCRIPTION_PLAN_BASIC = 2;
+  SUBSCRIPTION_PLAN_PROFESSIONAL = 3;
+  SUBSCRIPTION_PLAN_ENTERPRISE = 4;
+}
+
+enum SubscriptionStatus {
+  SUBSCRIPTION_STATUS_UNSPECIFIED = 0;
+  SUBSCRIPTION_STATUS_ACTIVE = 1;
+  SUBSCRIPTION_STATUS_EXPIRED = 2;
+  SUBSCRIPTION_STATUS_CANCELLED = 3;
+  SUBSCRIPTION_STATUS_PAST_DUE = 4;
+  SUBSCRIPTION_STATUS_TRIAL = 5;
+}
+
+message SubscriptionLimits {
+  int32 max_interviews_per_month = 1;
+  int32 max_candidates = 2;
+  int32 max_questions = 3;
+  bool ai_scoring_enabled = 4;
+  bool advanced_analytics = 5;
+  bool custom_branding = 6;
+  bool api_access = 7;
+  bool sso_enabled = 8;
+}
+
+// AuditLog represents an audit log entry for administrative actions.
+message AuditLog {
+  string id = 1;
+  string actor_id = 2;
+  string actor_email = 3;
+  ActionType action = 4;
+  string resource_type = 5;
+  string resource_id = 6;
+  string description = 7;
+  string ip_address = 8;
+  string user_agent = 9;
+  google.protobuf.Timestamp created_at = 10;
+  map<string, string> metadata = 11;
+  string request_payload = 12;
+  string response_payload = 13;
+  int32 response_code = 14;
+}
+
+enum ActionType {
+  ACTION_TYPE_UNSPECIFIED = 0;
+  ACTION_TYPE_CREATE = 1;
+  ACTION_TYPE_READ = 2;
+  ACTION_TYPE_UPDATE = 3;
+  ACTION_TYPE_DELETE = 4;
+  ACTION_TYPE_LOGIN = 5;
+  ACTION_TYPE_LOGOUT = 6;
+  ACTION_TYPE_EXPORT = 7;
+  ACTION_TYPE_IMPORT = 8;
+  ACTION_TYPE_GRANT_PERMISSION = 9;
+  ACTION_TYPE_REVOKE_PERMISSION = 10;
+}
+
+// Admin requests and responses
+message CreateAdminUserRequest {
+  string email = 1;
+  string name = 2;
+  AdminRole role = 3;
+  repeated string permissions = 4;
+}
+
+message UpdateAdminUserRequest {
+  string user_id = 1;
+  optional string name = 2;
+  optional AdminRole role = 3;
+  optional AdminStatus status = 4;
+  repeated string permissions = 5;
+}
+
+message GetAdminUserRequest {
+  string user_id = 1;
+}
+
+message GetAdminUserResponse {
+  AdminUser user = 1;
+}
+
+message ListAdminUsersRequest {
+  int32 page = 1;
+  int32 page_size = 2;
+  optional AdminRole role_filter = 3;
+  optional AdminStatus status_filter = 4;
+}
+
+message ListAdminUsersResponse {
+  repeated AdminUser users = 1;
+  int32 total_count = 2;
+  int32 page = 3;
+  int32 page_size = 4;
+  int32 total_pages = 5;
+}
+
+message GetSubscriptionRequest {
+  string subscription_id = 1;
+}
+
+message GetSubscriptionResponse {
+  Subscription subscription = 1;
+}
+
+message UpdateSubscriptionRequest {
+  string subscription_id = 1;
+  optional SubscriptionPlan plan = 2;
+  optional SubscriptionStatus status = 3;
+  optional google.protobuf.Timestamp expires_at = 4;
+}
+
+message ListSubscriptionsRequest {
+  int32 page = 1;
+  int32 page_size = 2;
+  optional string user_id = 3;
+  optional SubscriptionPlan plan_filter = 4;
+  optional SubscriptionStatus status_filter = 5;
+}
+
+message ListSubscriptionsResponse {
+  repeated Subscription subscriptions = 1;
+  int32 total_count = 2;
+  int32 page = 3;
+  int32 page_size = 4;
+  int32 total_pages = 5;
+}
+
+message GetAuditLogsRequest {
+  int32 page = 1;
+  int32 page_size = 2;
+  optional string actor_id = 3;
+  optional ActionType action_filter = 4;
+  optional string resource_type = 5;
+  optional google.protobuf.Timestamp start_time = 6;
+  optional google.protobuf.Timestamp end_time = 7;
+}
+
+message GetAuditLogsResponse {
+  repeated AuditLog logs = 1;
+  int32 total_count = 2;
+  int32 page = 3;
+  int32 page_size = 4;
+  int32 total_pages = 5;
+}
+
+// AdminService provides administrative operations.
+service AdminService {
+  rpc CreateAdminUser(CreateAdminUserRequest) returns (GetAdminUserResponse);
+  rpc GetAdminUser(GetAdminUserRequest) returns (GetAdminUserResponse);
+  rpc UpdateAdminUser(UpdateAdminUserRequest) returns (GetAdminUserResponse);
+  rpc ListAdminUsers(ListAdminUsersRequest) returns (ListAdminUsersResponse);
+  rpc GetSubscription(GetSubscriptionRequest) returns (GetSubscriptionResponse);
+  rpc UpdateSubscription(UpdateSubscriptionRequest) returns (GetSubscriptionResponse);
+  rpc ListSubscriptions(ListSubscriptionsRequest) returns (ListSubscriptionsResponse);
+  rpc GetAuditLogs(GetAuditLogsRequest) returns (GetAuditLogsResponse);
+}

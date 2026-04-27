@@ -1,0 +1,16 @@
+{
+  "name": "Video Platform",
+  "short_name": "VideoPlatform",
+  "description": "Video Content Management Platform",
+  "start_url": "/",
+  "display": "standalone",
+  "theme_color": "#6366f1",
+  "background_color": "#0f172a",
+  "icons": [
+    {
+      "src": "/favicon.ico",
+      "sizes": "16x16 32x32 48x48",
+      "type": "image/x-icon"
+    }
+  ]
+}

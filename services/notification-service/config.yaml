@@ -1,0 +1,50 @@
+server:
+  host: "0.0.0.0"
+  port: 8082
+  read_timeout: 10s
+  write_timeout: 10s
+
+database:
+  host: "postgres"
+  port: 5432
+  user: "postgres"
+  password: "postgres_secret"
+  name: "platform_db"
+  ssl_mode: "disable"
+  max_open_conns: 25
+  max_idle_conns: 5
+  conn_max_lifetime: 5m
+
+rabbitmq:
+  url: "amqp://rabbitmq_user:rabbitmq_pass@rabbitmq:5672/"
+  exchange: "notifications_exchange"
+  queue: "notification_queue"
+  routing_key: "notification.send"
+  prefetch_count: 10
+
+email:
+  smtp_host: "smtp.gmail.com"
+  smtp_port: 587
+  username: "noreply@example.com"
+  password: "app_password"
+  from: "noreply@example.com"
+  from_name: "HR Automation Platform"
+  max_retries: 3
+  timeout: 30s
+
+firebase:
+  project_id: "hr-automation-project"
+  service_account_key: "firebase-credentials.json"
+
+sms:
+  provider: "twilio"
+  account_sid: "ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  auth_token: "your_auth_token"
+  from_number: "+1234567890"
+
+templates:
+  path: "templates"
+
+log:
+  level: "info"
+  format: "json"

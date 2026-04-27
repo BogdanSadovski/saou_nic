@@ -1,0 +1,29 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ai-service-config
+  namespace: real-ass
+  labels:
+    app.kubernetes.io/name: ai-service
+    app.kubernetes.io/component: backend
+data:
+  SERVICE_PORT: "8084"
+  SERVICE_NAME: "ai-service"
+
+  # AI model settings
+  AI_MODEL_NAME: "gpt-4"
+  AI_MAX_TOKENS: "2048"
+  AI_TEMPERATURE: "0.7"
+  AI_TOP_P: "0.9"
+
+  # Question generation settings
+  QUESTIONS_PER_REQUEST: "10"
+  DIFFICULTY_LEVELS: "easy,medium,hard"
+
+  # Response analysis settings
+  ANALYSIS_ENABLED: "true"
+  FEEDBACK_GENERATION: "true"
+
+  # Rate limiting for AI API calls
+  AI_RATE_LIMIT_PER_MINUTE: "60"
+  AI_REQUEST_TIMEOUT_SECONDS: "30"

@@ -1,0 +1,318 @@
+stages:
+  - lint
+  - test
+  - build
+  - security
+  - deploy-staging
+  - deploy-production
+
+variables:
+  GO_VERSION: "1.21"
+  NODE_VERSION: "20"
+  PYTHON_VERSION: "3.11"
+  REGISTRY: $CI_REGISTRY
+  IMAGE_PREFIX: $CI_PROJECT_PATH
+  DOCKER_TLS_CERTDIR: "/certs"
+  DOCKER_DRIVER: overlay2
+
+# Cache configuration
+cache:
+  key: ${CI_COMMIT_REF_SLUG}
+  paths:
+    - .cache/go-build
+    - .cache/gomod
+    - frontend/node_modules/
+  policy: pull-push
+
+# Default image for jobs
+default:
+  image: alpine:latest
+  retry:
+    max: 2
+    when:
+      - runner_system_failure
+      - stuck_or_timeout_failure
+
+# =====================
+# Lint Stage
+# =====================
+
+lint:go:
+  stage: lint
+  image: golangci/golangci-lint:latest-alpine
+  parallel:
+    matrix:
+      - SERVICE:
+          - user-service
+          - resume-service
+          - github-service
+          - interview-service
+          - scoring-service
+          - report-service
+          - notification-service
+          - analytics-service
+          - admin-service
+  script:
+    - cd services/${SERVICE}
+    - golangci-lint run --timeout=5m
+  rules:
+    - changes:
+        - services/**/*.go
+      when: on_success
+
+lint:frontend:
+  stage: lint
+  image: node:${NODE_VERSION}-alpine
+  script:
+    - cd frontend
+    - npm ci --cache .cache/npm
+    - npm run lint
+    - npx prettier --check "src/**/*.{ts,tsx,css,json}"
+  rules:
+    - changes:
+        - frontend/**/*
+      when: on_success
+
+lint:ai-service:
+  stage: lint
+  image: python:${PYTHON_VERSION}-alpine
+  script:
+    - cd services/ai-service
+    - pip install -r requirements.txt
+    - pip install ruff
+    - ruff check src/
+  rules:
+    - changes:
+        - services/ai-service/**/*.py
+      when: on_success
+
+# =====================
+# Test Stage
+# =====================
+
+test:go:
+  stage: test
+  image: golang:${GO_VERSION}-alpine
+  services:
+    - postgres:16-alpine
+    - redis:7-alpine
+  parallel:
+    matrix:
+      - SERVICE:
+          - user-service
+          - resume-service
+          - github-service
+          - interview-service
+          - scoring-service
+          - report-service
+          - notification-service
+          - analytics-service
+          - admin-service
+  variables:
+    POSTGRES_USER: test_user
+    POSTGRES_PASSWORD: test_password
+    POSTGRES_DB: test_db
+    DATABASE_URL: "postgres://test_user:test_password@postgres:5432/test_db?sslmode=disable"
+    REDIS_URL: "redis://redis:6379/0"
+  script:
+    - cd services/${SERVICE}
+    - go mod download
+    - go test -v -race -coverprofile=coverage.out -covermode=atomic ./...
+  artifacts:
+    reports:
+      coverage: services/${SERVICE}/coverage.out
+    expire_in: 7 days
+    when: always
+  rules:
+    - changes:
+        - services/**/*.go
+      when: on_success
+
+test:ai-service:
+  stage: test
+  image: python:${PYTHON_VERSION}-alpine
+  variables:
+    OPENAI_API_KEY: "test-key-placeholder"
+  script:
+    - cd services/ai-service
+    - pip install -r requirements.txt
+    - pip install pytest pytest-cov pytest-asyncio
+    - pytest tests/ -v --cov=src --cov-report=xml
+  artifacts:
+    reports:
+      coverage: services/ai-service/coverage.xml
+    expire_in: 7 days
+    when: always
+  rules:
+    - changes:
+        - services/ai-service/**/*.py
+      when: on_success
+
+test:frontend:
+  stage: test
+  image: node:${NODE_VERSION}-alpine
+  script:
+    - cd frontend
+    - npm ci --cache .cache/npm
+    - npm test -- --coverage --watchAll=false
+  artifacts:
+    paths:
+      - frontend/coverage/
+    expire_in: 7 days
+    when: always
+  rules:
+    - changes:
+        - frontend/**/*
+      when: on_success
+
+# =====================
+# Build Stage
+# =====================
+
+build:services:
+  stage: build
+  image:
+    name: gcr.io/kaniko-project/executor:debug
+    entrypoint: [""]
+  parallel:
+    matrix:
+      - SERVICE:
+          - user-service
+          - resume-service
+          - github-service
+          - interview-service
+          - scoring-service
+          - report-service
+          - notification-service
+          - analytics-service
+          - admin-service
+          - ai-service
+          - frontend
+  script:
+    - |
+      cat > /kaniko/.docker/config.json <<EOF
+      {
+        "auths": {
+          "${CI_REGISTRY}": {
+            "auth": "$(echo -n ${CI_REGISTRY_USER}:${CI_REGISTRY_PASSWORD} | base64)"
+          }
+        }
+      }
+      EOF
+    - >
+      /kaniko/executor
+      --context "${CI_PROJECT_DIR}"
+      --dockerfile "${CI_PROJECT_DIR}/services/${SERVICE}/Dockerfile"
+      --destination "${CI_REGISTRY_IMAGE}/${SERVICE}:${CI_COMMIT_SHORT_SHA}"
+      --destination "${CI_REGISTRY_IMAGE}/${SERVICE}:latest"
+      --cache=true
+      --cache-dir=/cache
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+      when: on_success
+    - if: $CI_COMMIT_BRANCH == "develop"
+      when: on_success
+    - if: $CI_COMMIT_TAG
+      when: on_success
+
+# =====================
+# Security Stage
+# =====================
+
+security:trivy:
+  stage: security
+  image:
+    name: aquasec/trivy:latest
+    entrypoint: [""]
+  script:
+    - trivy fs --severity HIGH,CRITICAL --exit-code 1 --format table .
+  allow_failure: true
+  rules:
+    - when: on_success
+
+security:gitleaks:
+  stage: security
+  image:
+    name: zricethezav/gitleaks:latest
+    entrypoint: [""]
+  script:
+    - gitleaks detect --source=. --verbose --report-format=sarif --report-path=gitleaks-report.sarif
+  artifacts:
+    paths:
+      - gitleaks-report.sarif
+    expire_in: 30 days
+    when: always
+  allow_failure: true
+  rules:
+    - when: on_success
+
+# =====================
+# Deploy Staging
+# =====================
+
+deploy:staging:
+  stage: deploy-staging
+  image: bitnami/kubectl:latest
+  environment:
+    name: staging
+    url: https://staging.interview-platform.io
+  script:
+    - |
+      mkdir -p $HOME/.kube
+      echo "$STAGING_KUBECONFIG" | base64 -d > $HOME/.kube/config
+    - |
+      SERVICES="user-service resume-service github-service interview-service scoring-service report-service notification-service analytics-service admin-service ai-service frontend"
+      for svc in $SERVICES; do
+        echo "Deploying ${svc} to staging..."
+        kubectl set image deployment/${svc} \
+          ${svc}=${CI_REGISTRY_IMAGE}/${svc}:${CI_COMMIT_SHORT_SHA} \
+          -n interview-platform-staging --record
+      done
+    - |
+      SERVICES="user-service resume-service github-service interview-service scoring-service report-service notification-service analytics-service admin-service ai-service frontend"
+      for svc in $SERVICES; do
+        kubectl rollout status deployment/${svc} \
+          -n interview-platform-staging --timeout=300s
+      done
+    - curl -f --retry 3 --retry-delay 10 https://staging.interview-platform.io/api/health
+  rules:
+    - if: $CI_COMMIT_BRANCH == "develop"
+      when: on_success
+    - if: $CI_COMMIT_BRANCH == "main"
+      when: on_success
+
+# =====================
+# Deploy Production
+# =====================
+
+deploy:production:
+  stage: deploy-production
+  image: bitnami/kubectl:latest
+  environment:
+    name: production
+    url: https://interview-platform.io
+  script:
+    - |
+      mkdir -p $HOME/.kube
+      echo "$PRODUCTION_KUBECONFIG" | base64 -d > $HOME/.kube/config
+    - |
+      VERSION="${CI_COMMIT_TAG:-${CI_COMMIT_SHORT_SHA}}"
+      SERVICES="user-service resume-service github-service interview-service scoring-service report-service notification-service analytics-service admin-service ai-service frontend"
+      for svc in $SERVICES; do
+        echo "Deploying ${svc} to production..."
+        kubectl set image deployment/${svc} \
+          ${svc}=${CI_REGISTRY_IMAGE}/${svc}:${VERSION} \
+          -n interview-platform-production --record
+      done
+    - |
+      SERVICES="user-service resume-service github-service interview-service scoring-service report-service notification-service analytics-service admin-service ai-service frontend"
+      for svc in $SERVICES; do
+        kubectl rollout status deployment/${svc} \
+          -n interview-platform-production --timeout=600s
+      done
+    - curl -f --retry 5 --retry-delay 10 https://interview-platform.io/api/health
+  rules:
+    - if: $CI_COMMIT_TAG
+      when: manual
+  allow_failure: false
+  timeout: 30m

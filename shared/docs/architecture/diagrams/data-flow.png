@@ -1,0 +1,52 @@
+# PLACEHOLDER: Data Flow Diagram
+
+## Instructions to Generate
+
+This file is a placeholder for the data flow diagram. Replace it with an actual PNG image.
+
+### Recommended Tools
+
+1. **Draw.io / diagrams.net**
+   - Export as PNG (2x resolution)
+   - Save as `data-flow.png` in this directory
+
+2. **Mermaid CLI**
+   ```bash
+   npm install -g @mermaid-js/mermaid-cli
+   mmdc -i data-flow.mmd -o data-flow.png -w 2000
+   ```
+
+### Suggested Data Flow Diagram Content
+
+The diagram should show the primary data flows:
+
+**Flow 1: Candidate Evaluation Pipeline**
+```
+User uploads resume --> Resume Service --> S3 storage
+                                    --> AI Service (parse)
+                                    --> Resume Service (save parsed data)
+
+Interviewer conducts interview --> Interview Service
+                              --> Kafka [interview.completed]
+                              --> AI Service (analyze transcript)
+                              --> Kafka [analysis.completed]
+                              --> Scoring Service (aggregate scores)
+                              --> Report generated
+```
+
+**Flow 2: Authentication Flow**
+```
+Login request --> API Gateway --> User Service (validate creds)
+                             --> Generate JWT
+                             --> Return token to client
+
+Subsequent request --> API Gateway (validate JWT)
+                   --> Route to service
+```
+
+### File Requirements
+
+- **Format:** PNG
+- **Resolution:** Minimum 1920x1080
+- **Style:** Arrows showing data direction, labeled with event names/protocols
+- **Color coding:** Different colors for sync (gRPC/HTTP) vs async (Kafka) flows

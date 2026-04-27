@@ -1,0 +1,26 @@
+# Database
+aiopg==1.4.0
+psycopg2-binary==2.9.9
+
+# Cache / Message Broker
+redis==5.0.1
+
+# Message Queue
+kafka-python==2.0.2
+
+# Validation / Serialization
+pydantic==2.5.2
+pydantic-settings==2.1.0
+
+# Logging
+structlog==23.2.0
+
+# Authentication
+PyJWT==2.8.0
+python-jose[cryptography]==3.3.0
+
+# Environment
+python-dotenv==1.0.0
+
+# Async HTTP
+aiohttp==3.9.1

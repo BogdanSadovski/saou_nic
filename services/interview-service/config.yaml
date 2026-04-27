@@ -1,0 +1,32 @@
+server:
+  host: "0.0.0.0"
+  port: 8082
+  read_timeout: 15s
+  write_timeout: 15s
+  shutdown_timeout: 30s
+
+database:
+  host: "postgres"
+  port: 5432
+  user: "postgres"
+  password: "postgres_secret"
+  dbname: "platform_db"
+  sslmode: "disable"
+  max_open_conns: 25
+  max_idle_conns: 5
+  conn_max_lifetime: 5m
+
+redis:
+  host: "redis"
+  port: 6379
+  password: "redis_secret"
+  db: 0
+
+log:
+  level: "info"
+  format: "json"
+
+auth:
+  secret_key: "your-jwt-secret-key-change-in-production"
+  token_expiry: 1h
+  refresh_expiry: 168h

@@ -1,0 +1,118 @@
+# ==========================================
+# OS and editor artifacts
+# ==========================================
+.DS_Store
+Thumbs.db
+
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# ==========================================
+# Logs and runtime
+# ==========================================
+*.log
+logs/
+*.pid
+*.pid.lock
+*.seed
+
+# ==========================================
+# Environment and secrets
+# ==========================================
+.env
+.env.local
+.env.*.local
+.env.*
+!.env.example
+!.env.*.example
+
+*.key
+*.pem
+*.cert
+
+# ==========================================
+# Common build/temp/cache
+# ==========================================
+tmp/
+temp/
+.cache/
+dist/
+build/
+coverage/
+*.local
+
+# ==========================================
+# Go
+# ==========================================
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+vendor/
+
+# ==========================================
+# Python
+# ==========================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.py,cover
+.Python
+
+.venv/
+venv/
+env/
+
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+.tox/
+.nox/
+
+pip-wheel-metadata/
+*.egg-info/
+.eggs/
+*.egg
+
+# ==========================================
+# Node / Frontend
+# ==========================================
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+.npm/
+.pnpm-store/
+.yarn-integrity
+.pnp
+.pnp.js
+
+.vite/
+.next/
+.nuxt/
+
+# ==========================================
+# Tooling / test outputs
+# ==========================================
+playwright-report/
+test-results/
+allure-results/
+allure-report/
+
+# ==========================================
+# Language server and static analysis caches
+# ==========================================
+.pyright/
+

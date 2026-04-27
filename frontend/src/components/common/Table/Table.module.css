@@ -1,0 +1,71 @@
+.container {
+  overflow-x: auto;
+  border-radius: 0.5rem;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+}
+
+.table th,
+.table td {
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--color-border, #e5e7eb);
+}
+
+.table th {
+  background-color: var(--color-table-header, #f9fafb);
+  font-weight: 600;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-secondary, #6b7280);
+}
+
+.table td {
+  color: var(--color-text-primary, #374151);
+  font-size: 0.875rem;
+}
+
+/* Sizes */
+.sm th,
+.sm td {
+  padding: 0.5rem 0.75rem;
+  font-size: 0.75rem;
+}
+
+.md th,
+.md td {
+  padding: 0.75rem 1rem;
+  font-size: 0.875rem;
+}
+
+/* Striped */
+.striped tbody tr:nth-child(even) {
+  background-color: var(--color-table-stripe, #f9fafb);
+}
+
+/* Hoverable */
+.hoverable tbody tr:hover {
+  background-color: var(--color-table-hover, #f3f4f6);
+}
+
+/* Clickable rows */
+.clickable {
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.clickable:hover {
+  background-color: var(--color-table-hover, #f3f4f6);
+}
+
+.loading,
+.empty {
+  padding: 2rem;
+  text-align: center;
+  color: var(--color-text-secondary, #6b7280);
+  font-size: 0.875rem;
+}

@@ -1,0 +1,134 @@
+# ============================================================
+# Staging Environment Configuration
+# ============================================================
+# Mirrors production as closely as possible with realistic data.
+# Production-like settings, moderate replicas, info-level logging.
+# ============================================================
+
+environment: staging
+
+# --- Application ---
+app:
+  debug: false
+  log_level: info
+  log_format: json
+  port: 8080
+  workers: 4
+  reload: false
+
+# --- Database ---
+database:
+  host: postgres-staging.internal
+  port: 5432
+  name: assessment_staging
+  user: assessment_app
+  pool_min_size: 2
+  pool_max_size: 15
+  ssl_mode: require
+
+# --- Redis ---
+redis:
+  host: redis-staging.internal
+  port: 6379
+  db: 0
+  password: "${REDIS_PASSWORD}"
+  ssl: true
+
+# --- Kafka ---
+kafka:
+  bootstrap_servers:
+    - kafka-staging-0.internal:9093
+    - kafka-staging-1.internal:9093
+  topics:
+    user_events: user-events.staging
+    interview_events: interview-events.staging
+    scoring_events: scoring-events.staging
+    notifications: notifications.staging
+  consumer_group: assessment-staging
+  auto_offset_reset: latest
+  security_protocol: SASL_SSL
+
+# --- AI Service ---
+ai:
+  provider: openai
+  model: gpt-4o
+  max_tokens: 4096
+  temperature: 0.3
+  timeout_seconds: 60
+  mock_responses: false
+
+# --- Authentication ---
+auth:
+  jwt_algorithm: RS256
+  access_token_expiry_minutes: 30
+  refresh_token_expiry_days: 7
+  oauth:
+    google:
+      enabled: true
+      client_id: "${GOOGLE_OAUTH_CLIENT_ID}"
+      client_secret: "${GOOGLE_OAUTH_CLIENT_SECRET}"
+      redirect_uri: "https://staging.assessment.example.com/auth/google/callback"
+    github:
+      enabled: true
+      client_id: "${GITHUB_OAUTH_CLIENT_ID}"
+      client_secret: "${GITHUB_OAUTH_CLIENT_SECRET}"
+      redirect_uri: "https://staging.assessment.example.com/auth/github/callback"
+
+# --- Scoring ---
+scoring:
+  auto_score: true
+  score_range:
+    min: 0
+    max: 100
+  passing_threshold: 70
+
+# --- Rate Limiting ---
+rate_limit:
+  enabled: true
+  requests_per_minute: 500
+  burst_limit: 100
+
+# --- CORS ---
+cors:
+  allow_origins:
+    - "https://staging.assessment.example.com"
+    - "https://staging-admin.assessment.example.com"
+  allow_methods:
+    - GET
+    - POST
+    - PUT
+    - DELETE
+    - PATCH
+    - OPTIONS
+  allow_headers:
+    - Authorization
+    - Content-Type
+    - X-Request-ID
+  allow_credentials: true
+
+# --- Monitoring ---
+monitoring:
+  prometheus:
+    enabled: true
+    port: 9090
+    path: /metrics
+  health_check:
+    interval_seconds: 15
+    timeout_seconds: 5
+    path: /health
+
+# --- Kubernetes (Staging - 2 replicas) ---
+kubernetes:
+  replicas:
+    api_gateway: 2
+    user_service: 2
+    resume_service: 2
+    interview_service: 2
+    ai_service: 2
+    scoring_service: 2
+    admin_service: 1
+  resources:
+    cpu_request: "250m"
+    cpu_limit: "1000m"
+    memory_request: "256Mi"
+    memory_limit: "1Gi"

@@ -1,0 +1,219 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+            xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <w:body>
+    <!-- Title -->
+    <w:p>
+      <w:pPr>
+        <w:jc w:val="center"/>
+      </w:pPr>
+      <w:r>
+        <w:rPr>
+          <w:b/>
+          <w:sz w:val="32"/>
+          <w:color w:val="003366"/>
+        </w:rPr>
+        <w:t xml:space="preserve">{{.title}}</w:t>
+      </w:r>
+    </w:p>
+
+    <!-- Subtitle -->
+    <w:p>
+      <w:pPr>
+        <w:jc w:val="center"/>
+      </w:pPr>
+      <w:r>
+        <w:rPr>
+          <w:i/>
+          <w:sz w:val="22"/>
+          <w:color w:val="666666"/>
+        </w:rPr>
+        <w:t xml:space="preserve">{{.subtitle}}</w:t>
+      </w:r>
+    </w:p>
+
+    <!-- Generated Date -->
+    <w:p>
+      <w:pPr>
+        <w:jc w:val="right"/>
+      </w:pPr>
+      <w:r>
+        <w:rPr>
+          <w:sz w:val="18"/>
+          <w:color w:val="808080"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Generated: {{.generated_at}}</w:t>
+      </w:r>
+    </w:p>
+
+    <!-- Separator -->
+    <w:p>
+      <w:pPr>
+        <w:pBdr>
+          <w:bottom w:val="single" w:sz="12" w:space="1" w:color="006699"/>
+        </w:pBdr>
+      </w:pPr>
+    </w:p>
+
+    <!-- Candidate Summary Section -->
+    <w:p>
+      <w:pPr>
+        <w:pStyle w:val="Heading1"/>
+      </w:pPr>
+      <w:r>
+        <w:rPr>
+          <w:b/>
+          <w:sz w:val="26"/>
+          <w:color w:val="006699"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Candidate Summary</w:t>
+      </w:r>
+    </w:p>
+
+    {{with .candidate}}
+    <w:p>
+      <w:r>
+        <w:rPr><w:b/></w:rPr>
+        <w:t xml:space="preserve">Name: </w:t>
+      </w:r>
+      <w:r>
+        <w:t xml:space="preserve">{{.name}}</w:t>
+      </w:r>
+    </w:p>
+    <w:p>
+      <w:r>
+        <w:rPr><w:b/></w:rPr>
+        <w:t xml:space="preserve">Position Applied: </w:t>
+      </w:r>
+      <w:r>
+        <w:t xml:space="preserve">{{.position}}</w:t>
+      </w:r>
+    </w:p>
+    <w:p>
+      <w:r>
+        <w:rPr><w:b/></w:rPr>
+        <w:t xml:space="preserve">Years of Experience: </w:t>
+      </w:r>
+      <w:r>
+        <w:t xml:space="preserve">{{.experience}}</w:t>
+      </w:r>
+    </w:p>
+    <w:p>
+      <w:r>
+        <w:rPr><w:b/></w:rPr>
+        <w:t xml:space="preserve">Contact: </w:t>
+      </w:r>
+      <w:r>
+        <w:t xml:space="preserve">{{.email}}</w:t>
+      </w:r>
+    </w:p>
+    {{end}}
+
+    <!-- Key Strengths -->
+    {{if .strengths}}
+    <w:p>
+      <w:pPr>
+        <w:pStyle w:val="Heading1"/>
+      </w:pPr>
+      <w:r>
+        <w:rPr>
+          <w:b/>
+          <w:sz w:val="26"/>
+          <w:color w:val="006699"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Key Strengths</w:t>
+      </w:r>
+    </w:p>
+    {{range .strengths}}
+    <w:p>
+      <w:r>
+        <w:t xml:space="preserve">- {{.}}</w:t>
+      </w:r>
+    </w:p>
+    {{end}}
+    {{end}}
+
+    <!-- Areas for Development -->
+    {{if .development_areas}}
+    <w:p>
+      <w:pPr>
+        <w:pStyle w:val="Heading1"/>
+      </w:pPr>
+      <w:r>
+        <w:rPr>
+          <w:b/>
+          <w:sz w:val="26"/>
+          <w:color w:val="006699"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Areas for Development</w:t>
+      </w:r>
+    </w:p>
+    {{range .development_areas}}
+    <w:p>
+      <w:r>
+        <w:t xml:space="preserve">- {{.}}</w:t>
+      </w:r>
+    </w:p>
+    {{end}}
+    {{end}}
+
+    <!-- Overall Assessment -->
+    {{if .overall_assessment}}
+    <w:p>
+      <w:pPr>
+        <w:pStyle w:val="Heading1"/>
+      </w:pPr>
+      <w:r>
+        <w:rPr>
+          <w:b/>
+          <w:sz w:val="26"/>
+          <w:color w:val="006699"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Overall Assessment</w:t>
+      </w:r>
+    </w:p>
+    <w:p>
+      <w:r>
+        <w:t xml:space="preserve">{{.overall_assessment}}</w:t>
+      </w:r>
+    </w:p>
+    {{end}}
+
+    <!-- Hiring Recommendation -->
+    {{if .hiring_recommendation}}
+    <w:p>
+      <w:pPr>
+        <w:pStyle w:val="Heading1"/>
+      </w:pPr>
+      <w:r>
+        <w:rPr>
+          <w:b/>
+          <w:sz w:val="26"/>
+          <w:color w:val="006699"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Hiring Recommendation</w:t>
+      </w:r>
+    </w:p>
+    <w:p>
+      <w:r>
+        <w:t xml:space="preserve">{{.hiring_recommendation}}</w:t>
+      </w:r>
+    </w:p>
+    {{end}}
+
+    <!-- Footer -->
+    <w:p>
+      <w:pPr>
+        <w:jc w:val="center"/>
+      </w:pPr>
+      <w:r>
+        <w:rPr>
+          <w:i/>
+          <w:sz w:val="16"/>
+          <w:color w:val="808080"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Confidential - For Internal Use Only</w:t>
+      </w:r>
+    </w:p>
+  </w:body>
+</w:document>

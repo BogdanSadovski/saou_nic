@@ -1,0 +1,29 @@
+server:
+  port: 8081
+  mode: release
+  read_timeout: 15s
+  write_timeout: 15s
+  shutdown_timeout: 10s
+
+database:
+  host: postgres
+  port: 5432
+  user: postgres
+  password: postgres_secret
+  dbname: platform_db
+  ssl_mode: disable
+  max_conns: 10
+  min_conns: 2
+  max_conn_lifetime: 1h
+  max_conn_idle_time: 30m
+
+grpc:
+  port: 50051
+
+jwt:
+  secret: change-me-in-production-use-secure-random-string
+  token_ttl: 24h
+  refresh_token_ttl: 720h
+
+rbac:
+  enabled: true

@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>{{.title}}</title>
+</head>
+<body>
+    <div class="header">
+        <h1>{{.title}}</h1>
+        <p class="subtitle">{{.subtitle}}</p>
+        <p class="date">Generated: {{.generated_at}}</p>
+    </div>
+
+    <div class="section candidate-info">
+        <h2>Candidate Information</h2>
+        {{with .candidate}}
+        <table>
+            <tr><td><strong>Name:</strong></td><td>{{.name}}</td></tr>
+            <tr><td><strong>Email:</strong></td><td>{{.email}}</td></tr>
+            <tr><td><strong>Position:</strong></td><td>{{.position}}</td></tr>
+            <tr><td><strong>Experience:</strong></td><td>{{.experience}}</td></tr>
+        </table>
+        {{end}}
+    </div>
+
+    <div class="section interview-details">
+        <h2>Interview Details</h2>
+        {{with .interview}}
+        <table>
+            <tr><td><strong>Date:</strong></td><td>{{.date}}</td></tr>
+            <tr><td><strong>Interviewer:</strong></td><td>{{.interviewer}}</td></tr>
+            <tr><td><strong>Duration:</strong></td><td>{{.duration}}</td></tr>
+            <tr><td><strong>Type:</strong></td><td>{{.type}}</td></tr>
+        </table>
+        {{end}}
+    </div>
+
+    <div class="section scores">
+        <h2>Assessment Scores</h2>
+        {{range .scores}}
+        <div class="score-item">
+            <span class="category">{{.category}}</span>
+            <span class="value">{{.value}}/{{.max}}</span>
+        </div>
+        {{end}}
+    </div>
+
+    <div class="section feedback">
+        <h2>Summary & Feedback</h2>
+        <p>{{.feedback}}</p>
+    </div>
+
+    {{if .recommendations}}
+    <div class="section recommendations">
+        <h2>Recommendations</h2>
+        <ul>
+            {{range .recommendations}}
+            <li>{{.}}</li>
+            {{end}}
+        </ul>
+    </div>
+    {{end}}
+
+    <div class="footer">
+        <p>Confidential - For Internal Use Only</p>
+    </div>
+</body>
+</html>

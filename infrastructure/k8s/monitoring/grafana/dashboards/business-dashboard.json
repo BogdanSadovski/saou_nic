@@ -1,0 +1,336 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": "-- Grafana --",
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": 3,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "title": "Recommendation Generation Rate",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+      "id": 1,
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "recommendation:generation:rate5m",
+          "legendFormat": "Recommendations/sec",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        }
+      }
+    },
+    {
+      "title": "Recommendation Cache Hit Ratio",
+      "type": "gauge",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+      "id": 2,
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "recommendation:cache:hit_ratio",
+          "legendFormat": "Cache Hit Ratio",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "red", "value": 0},
+              {"color": "yellow", "value": 0.5},
+              {"color": "green", "value": 0.8}
+            ]
+          }
+        }
+      }
+    },
+    {
+      "title": "Recommendation Model Inference Time (P95)",
+      "type": "stat",
+      "gridPos": {"h": 4, "w": 8, "x": 0, "y": 8},
+      "id": 3,
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "recommendation:model_inference:p95",
+          "legendFormat": "P95 Latency",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 0.1},
+              {"color": "red", "value": 0.5}
+            ]
+          }
+        }
+      }
+    },
+    {
+      "title": "Total Recommendations Generated",
+      "type": "stat",
+      "gridPos": {"h": 4, "w": 8, "x": 8, "y": 8},
+      "id": 4,
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "sum(increase(recommendation_generated_total[1h]))",
+          "legendFormat": "Total (1h)",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        }
+      }
+    },
+    {
+      "title": "Active Users",
+      "type": "stat",
+      "gridPos": {"h": 4, "w": 8, "x": 16, "y": 8},
+      "id": 5,
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "sum(active_users_total)",
+          "legendFormat": "Active Users",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        }
+      }
+    },
+    {
+      "title": "Event Ingestion Rate",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 12},
+      "id": 6,
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "analytics:events:rate5m",
+          "legendFormat": "Events/sec",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        }
+      }
+    },
+    {
+      "title": "Analytics Pipeline Processing Time (P95)",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 12},
+      "id": 7,
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "analytics:pipeline:processing:p95",
+          "legendFormat": "Processing Time",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        }
+      }
+    },
+    {
+      "title": "Events by Type",
+      "type": "piechart",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 20},
+      "id": 8,
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "sum by (event_type) (rate(analytics_events_total[1h]))",
+          "legendFormat": "{{event_type}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        }
+      }
+    },
+    {
+      "title": "User Engagement - Views per Session",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 20},
+      "id": 9,
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(user_views_per_session_bucket[5m])) by (le))",
+          "legendFormat": "P50 Views/Session",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(user_views_per_session_bucket[5m])) by (le))",
+          "legendFormat": "P95 Views/Session",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        }
+      }
+    },
+    {
+      "title": "Content Click-Through Rate",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 28},
+      "id": 10,
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "sum(rate(content_clicks_total[5m])) / sum(rate(content_impressions_total[5m]))",
+          "legendFormat": "CTR",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "red", "value": null},
+              {"color": "yellow", "value": 0.02},
+              {"color": "green", "value": 0.05}
+            ]
+          }
+        }
+      }
+    },
+    {
+      "title": "Revenue Per User (30d)",
+      "type": "stat",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 28},
+      "id": 11,
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "sum(increase(revenue_total[30d])) / sum(increase(active_users_total[30d]))",
+          "legendFormat": "ARPU",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "decimals": 2
+        }
+      }
+    },
+    {
+      "title": "Business KPIs Summary",
+      "type": "table",
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 36},
+      "id": 12,
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "sum(increase(recommendation_generated_total[24h]))",
+          "instant": true,
+          "legendFormat": "Recommendations (24h)",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(increase(user_signups_total[24h]))",
+          "instant": true,
+          "legendFormat": "New Users (24h)",
+          "refId": "B"
+        },
+        {
+          "expr": "sum(increase(analytics_events_ingested_total[24h]))",
+          "instant": true,
+          "legendFormat": "Events Processed (24h)",
+          "refId": "C"
+        },
+        {
+          "expr": "avg(rate(content_ctr[5m]))",
+          "instant": true,
+          "legendFormat": "Avg CTR",
+          "refId": "D"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        }
+      },
+      "transformations": [
+        {
+          "id": "reduce",
+          "options": {
+            "reducers": ["lastNotNull"]
+          }
+        }
+      ]
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 38,
+  "tags": ["business", "recommendations", "analytics"],
+  "templating": {
+    "list": [
+      {
+        "current": {"selected": false, "text": "All", "value": "$__all"},
+        "datasource": "Prometheus",
+        "definition": "label_values(event_type)",
+        "hide": 0,
+        "includeAll": true,
+        "multi": true,
+        "name": "event_type",
+        "query": "label_values(event_type)",
+        "refresh": 2,
+        "type": "query"
+      }
+    ]
+  },
+  "time": {"from": "now-24h", "to": "now"},
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Business Metrics Dashboard",
+  "uid": "business-metrics",
+  "version": 1,
+  "weekStart": ""
+}

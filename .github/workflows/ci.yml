@@ -1,0 +1,112 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service:
+          - user-service
+          - resume-service
+          - github-service
+          - interview-service
+          - scoring-service
+          - report-service
+          - notification-service
+          - analytics-service
+          - admin-service
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v3
+        with:
+          working-directory: services/${{ matrix.service }}
+
+      - name: Run tests
+        run: |
+          cd services/${{ matrix.service }}
+          go test -v -race -coverprofile=coverage.out ./...
+          go tool cover -func=coverage.out
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v3
+        with:
+          file: ./services/${{ matrix.service }}/coverage.out
+          flags: ${{ matrix.service }}
+
+  frontend-lint-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: cd frontend && npm ci
+
+      - name: Lint
+        run: cd frontend && npm run lint
+
+      - name: Type check
+        run: cd frontend && npm run type-check
+
+      - name: Run tests
+        run: cd frontend && npm test -- --coverage
+
+  ai-service-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          cd services/ai-service
+          pip install -r requirements.txt
+
+      - name: Lint with flake8
+        run: |
+          cd services/ai-service
+          pip install flake8
+          flake8 src/ tests/
+
+      - name: Run tests
+        run: |
+          cd services/ai-service
+          pytest --cov=src --cov-report=xml
+
+  build-docker:
+    needs: [lint-and-test, frontend-lint-and-test, ai-service-test]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build services
+        run: |
+          make docker-build

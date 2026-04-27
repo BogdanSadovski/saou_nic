@@ -1,0 +1,36 @@
+server:
+  host: "0.0.0.0"
+  port: 8080
+  read_timeout: "15s"
+  write_timeout: "15s"
+  idle_timeout: "60s"
+
+database:
+  host: "postgres"
+  port: 5432
+  user: "postgres"
+  password: "postgres_secret"
+  dbname: "platform_db"
+  ssl_mode: "disable"
+  max_open_conns: 25
+  max_idle_conns: 5
+  conn_max_lifetime: "5m"
+
+grpc:
+  host: "0.0.0.0"
+  port: 9090
+
+logging:
+  level: "info"
+  format: "json"
+
+scoring:
+  default_pass_threshold: 60.0
+  evaluation_timeout: "5m"
+  max_concurrent_evals: 10
+  weights:
+    code_quality: 0.30
+    performance: 0.20
+    security: 0.25
+    documentation: 0.10
+    test_coverage: 0.15

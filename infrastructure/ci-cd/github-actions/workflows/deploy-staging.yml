@@ -1,0 +1,92 @@
+name: Deploy to Staging
+
+on:
+  push:
+    branches: [develop]
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Docker image tag to deploy (leave empty for latest)"
+        required: false
+        default: ""
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: interview-platform
+  NAMESPACE: interview-platform-staging
+
+jobs:
+  deploy:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    environment:
+      name: staging
+      url: https://staging.interview-platform.io
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set image tag
+        id: vars
+        run: |
+          if [ -n "${{ github.event.inputs.image_tag }}" ]; then
+            echo "IMAGE_TAG=${{ github.event.inputs.image_tag }}" >> $GITHUB_OUTPUT
+          else
+            echo "IMAGE_TAG=$(echo "${{ github.sha }}" | cut -c1-8)" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: "latest"
+
+      - name: Configure kubeconfig
+        run: |
+          mkdir -p $HOME/.kube
+          echo "${{ secrets.STAGING_KUBECONFIG }}" | base64 -d > $HOME/.kube/config
+
+      - name: Update image tags
+        run: |
+          SERVICES="user-service resume-service github-service interview-service scoring-service report-service notification-service analytics-service admin-service ai-service frontend"
+          for svc in $SERVICES; do
+            echo "Updating ${svc} to tag ${{ steps.vars.outputs.IMAGE_TAG }}"
+            kubectl set image deployment/${svc} \
+              ${svc}=${{ env.REGISTRY }}/${{ github.repository }}/${svc}:${{ steps.vars.outputs.IMAGE_TAG }} \
+              -n ${{ env.NAMESPACE }} --record
+          done
+
+      - name: Wait for rollout
+        run: |
+          SERVICES="user-service resume-service github-service interview-service scoring-service report-service notification-service analytics-service admin-service ai-service frontend"
+          for svc in $SERVICES; do
+            echo "Waiting for ${svc} rollout to complete..."
+            kubectl rollout status deployment/${svc} \
+              -n ${{ env.NAMESPACE }} --timeout=300s
+          done
+
+      - name: Verify deployment
+        run: |
+          echo "Checking pod status..."
+          kubectl get pods -n ${{ env.NAMESPACE }} -l app=interview-platform
+
+          echo "Checking service endpoints..."
+          kubectl get svc -n ${{ env.NAMESPACE }}
+
+      - name: Run health checks
+        run: |
+          echo "Running health checks..."
+          curl -f --retry 3 --retry-delay 10 \
+            https://staging.interview-platform.io/api/health || exit 1
+
+          echo "Staging deployment completed successfully"
+
+      - name: Post-deployment notification
+        if: always()
+        uses: slackapi/slack-github-action@v1
+        with:
+          payload: |
+            {
+              "text": ":rocket: Staging deployed\nImage: ${{ steps.vars.outputs.IMAGE_TAG }}\nCommit: ${{ github.sha }}\nBy: ${{ github.actor }}\nURL: https://staging.interview-platform.io"
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}

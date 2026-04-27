@@ -1,0 +1,128 @@
+syntax = "proto3";
+
+package scoring;
+
+option go_package = "github.com/real-ass/shared/proto/scoring;scoringpb";
+
+import "google/protobuf/timestamp.proto";
+
+// Score represents a score for a single answer or question.
+message Score {
+  string id = 1;
+  string answer_id = 2;
+  string question_id = 3;
+  string evaluator_id = 4;
+  int32 points = 5;
+  int32 max_points = 6;
+  string feedback = 7;
+  repeated string strengths = 8;
+  repeated string weaknesses = 9;
+  EvaluationCriteria criteria = 10;
+  google.protobuf.Timestamp created_at = 11;
+}
+
+message EvaluationCriteria {
+  int32 correctness = 1;
+  int32 completeness = 2;
+  int32 efficiency = 3;
+  int32 code_quality = 4;
+  int32 communication = 5;
+  int32 problem_solving = 6;
+}
+
+// ScoringRequest represents a request to score an answer.
+message ScoringRequest {
+  string answer_id = 1;
+  string question_id = 2;
+  string candidate_id = 3;
+  string answer_content = 4;
+  string reference_answer = 5;
+  int32 max_score = 6;
+  EvaluationCriteria criteria_weights = 7;
+  map<string, string> metadata = 8;
+}
+
+// ScoringResponse represents the result of scoring.
+message ScoringResponse {
+  Score score = 1;
+  EvaluationResult evaluation = 2;
+  repeated ScoreBreakdown breakdown = 3;
+  string ai_feedback = 4;
+}
+
+// ScoreBreakdown provides detailed breakdown of scoring.
+message ScoreBreakdown {
+  string criterion = 1;
+  int32 score = 2;
+  int32 max_score = 3;
+  string comment = 4;
+}
+
+// EvaluationResult represents the overall evaluation result.
+message EvaluationResult {
+  string id = 1;
+  string session_id = 2;
+  string candidate_id = 3;
+  string interviewer_id = 4;
+  int32 total_score = 5;
+  int32 max_score = 6;
+  string grade = 7;
+  EvaluationStatus status = 8;
+  string summary = 9;
+  repeated string recommendations = 10;
+  repeated Score scores = 11;
+  google.protobuf.Timestamp created_at = 12;
+  EvaluationMetrics metrics = 13;
+}
+
+enum EvaluationStatus {
+  EVALUATION_STATUS_UNSPECIFIED = 0;
+  EVALUATION_STATUS_PENDING = 1;
+  EVALUATION_STATUS_IN_PROGRESS = 2;
+  EVALUATION_STATUS_COMPLETED = 3;
+  EVALUATION_STATUS_REVIEWED = 4;
+}
+
+message EvaluationMetrics {
+  double accuracy_score = 1;
+  double speed_score = 2;
+  double communication_score = 3;
+  double problem_solving_score = 4;
+  double overall_confidence = 5;
+  int32 questions_answered = 6;
+  int32 questions_correct = 7;
+  double average_time_per_question = 8;
+}
+
+message GetEvaluationRequest {
+  string evaluation_id = 1;
+}
+
+message GetEvaluationResponse {
+  EvaluationResult evaluation = 1;
+}
+
+message ListEvaluationsRequest {
+  int32 page = 1;
+  int32 page_size = 2;
+  optional string candidate_id = 3;
+  optional string session_id = 4;
+  optional EvaluationStatus status_filter = 5;
+  string order_by = 6;
+  bool descending = 7;
+}
+
+message ListEvaluationsResponse {
+  repeated EvaluationResult evaluations = 1;
+  int32 total_count = 2;
+  int32 page = 3;
+  int32 page_size = 4;
+  int32 total_pages = 5;
+}
+
+// ScoringService provides scoring and evaluation operations.
+service ScoringService {
+  rpc ScoreAnswer(ScoringRequest) returns (ScoringResponse);
+  rpc GetEvaluation(GetEvaluationRequest) returns (GetEvaluationResponse);
+  rpc ListEvaluations(ListEvaluationsRequest) returns (ListEvaluationsResponse);
+}

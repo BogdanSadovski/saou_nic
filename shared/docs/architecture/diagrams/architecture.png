@@ -1,0 +1,55 @@
+# PLACEHOLDER: Architecture Diagram
+
+## Instructions to Generate
+
+This file is a placeholder for the system architecture diagram. Replace it with an actual PNG image.
+
+### Recommended Tools
+
+1. **Draw.io / diagrams.net** (free, web-based)
+   - Open https://app.diagrams.net
+   - Create a new diagram
+   - Export as PNG (recommended: 2x resolution)
+   - Save as `architecture.png` in this directory
+
+2. **Mermaid CLI** (if you prefer code-based diagrams)
+   ```bash
+   npm install -g @mermaid-js/mermaid-cli
+   mmdc -i architecture.mmd -o architecture.png -w 2000
+   ```
+
+### Suggested Architecture Diagram Content
+
+The diagram should show:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                     CLIENT LAYER                            │
+│   Web App (React)     │    Admin Dashboard     │    CLI     │
+└──────────────────────────────┬──────────────────────────────┘
+                               │ HTTPS
+┌──────────────────────────────v──────────────────────────────┐
+│                    API GATEWAY                              │
+│              (Go, NGINX, Rate Limiter)                      │
+└──┬──────────┬──────────┬──────────┬──────────┬──────────┬──┘
+   │          │          │          │          │          │
+   v          v          v          v          v          v
+┌──────┐ ┌──────┐ ┌──────┐ ┌──────┐ ┌──────┐ ┌──────┐
+│ User │ │Resume│ │Inter │ │  AI  │ │Score │ │Admin │
+│ Svc  │ │ Svc  │ │  Svc │ │ Svc  │ │ Svc  │ │ Svc  │
+│ (Go) │ │ (Go) │ │ (Go) │ │(Py)  │ │(Py)  │ │ (Go) │
+└──┬───┘ └──┬───┘ └──┬───┘ └──┬───┘ └──┬───┘ └──┬───┘
+   │         │        │        │        │        │
+   v         v        v        v        v        v
+┌─────────────────────────────────────────────────────────────┐
+│                  DATA / INFRASTRUCTURE                      │
+│  PostgreSQL (per svc) │ Redis │ Kafka │ S3 │ Jaeger/Prom   │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### File Requirements
+
+- **Format:** PNG
+- **Resolution:** Minimum 1920x1080
+- **Style:** Clean, labeled boxes with clear service names and technology tags
+- **Color coding:** Use different colors for Go services vs Python services

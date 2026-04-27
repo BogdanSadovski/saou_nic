@@ -1,0 +1,813 @@
+project/
+├── services/
+│   ├── user-service/
+│   │   ├── cmd/
+│   │   │   └── main.go
+│   │   ├── internal/
+│   │   │   ├── api/
+│   │   │   │   ├── handlers.go
+│   │   │   │   ├── middleware.go
+│   │   │   │   └── routes.go
+│   │   │   ├── config/
+│   │   │   │   └── config.go
+│   │   │   ├── domain/
+│   │   │   │   ├── models.go
+│   │   │   │   └── repository.go
+│   │   │   ├── repository/
+│   │   │   │   ├── postgres.go
+│   │   │   │   └── user_queries.go
+│   │   │   ├── service/
+│   │   │   │   ├── auth_service.go
+│   │   │   │   ├── oauth_service.go
+│   │   │   │   └── user_service.go
+│   │   │   └── grpc/
+│   │   │       ├── server.go
+│   │   │       └── user_handler.go
+│   │   ├── pkg/
+│   │   │   └── jwt/
+│   │   │       └── token.go
+│   │   ├── migrations/
+│   │   │   ├── 001_create_users.up.sql
+│   │   │   └── 001_create_users.down.sql
+│   │   ├── Dockerfile
+│   │   ├── go.mod
+│   │   ├── go.sum
+│   │   └── config.yaml
+│   │
+│   ├── resume-service/
+│   │   ├── cmd/
+│   │   │   └── main.go
+│   │   ├── internal/
+│   │   │   ├── api/
+│   │   │   │   ├── handlers.go
+│   │   │   │   └── routes.go
+│   │   │   ├── config/
+│   │   │   │   └── config.go
+│   │   │   ├── domain/
+│   │   │   │   ├── models.go
+│   │   │   │   └── repository.go
+│   │   │   ├── repository/
+│   │   │   │   ├── postgres.go
+│   │   │   │   └── s3_storage.go
+│   │   │   ├── service/
+│   │   │   │   ├── resume_service.go
+│   │   │   │   └── nlp_analyzer.go
+│   │   │   └── nlp/
+│   │   │       ├── parser.go
+│   │   │       └── extractor.go
+│   │   ├── pkg/
+│   │   │   └── storage/
+│   │   │       └── uploader.go
+│   │   ├── migrations/
+│   │   │   ├── 001_create_resumes.up.sql
+│   │   │   └── 001_create_resumes.down.sql
+│   │   ├── Dockerfile
+│   │   ├── go.mod
+│   │   ├── go.sum
+│   │   └── config.yaml
+│   │
+│   ├── github-service/
+│   │   ├── cmd/
+│   │   │   └── main.go
+│   │   ├── internal/
+│   │   │   ├── api/
+│   │   │   │   ├── handlers.go
+│   │   │   │   └── routes.go
+│   │   │   ├── config/
+│   │   │   │   └── config.go
+│   │   │   ├── domain/
+│   │   │   │   ├── models.go
+│   │   │   │   └── repository.go
+│   │   │   ├── repository/
+│   │   │   │   └── postgres.go
+│   │   │   ├── service/
+│   │   │   │   ├── github_service.go
+│   │   │   │   ├── repo_analyzer.go
+│   │   │   │   └── contribution_analyzer.go
+│   │   │   └── github/
+│   │   │       ├── client.go
+│   │   │       └── rate_limiter.go
+│   │   ├── pkg/
+│   │   │   └── analyzer/
+│   │   │       └── metrics.go
+│   │   ├── Dockerfile
+│   │   ├── go.mod
+│   │   ├── go.sum
+│   │   └── config.yaml
+│   │
+│   ├── interview-service/
+│   │   ├── cmd/
+│   │   │   └── main.go
+│   │   ├── internal/
+│   │   │   ├── api/
+│   │   │   │   ├── handlers.go
+│   │   │   │   ├── middleware.go
+│   │   │   │   └── routes.go
+│   │   │   ├── config/
+│   │   │   │   └── config.go
+│   │   │   ├── domain/
+│   │   │   │   ├── models.go
+│   │   │   │   └── repository.go
+│   │   │   ├── repository/
+│   │   │   │   ├── postgres.go
+│   │   │   │   └── session_queries.go
+│   │   │   ├── service/
+│   │   │   │   ├── interview_service.go
+│   │   │   │   ├── session_manager.go
+│   │   │   │   └── question_generator.go
+│   │   │   └── websocket/
+│   │   │       ├── handler.go
+│   │   │       └── room.go
+│   │   ├── pkg/
+│   │   │   └── session/
+│   │   │       └── manager.go
+│   │   ├── migrations/
+│   │   │   ├── 001_create_interviews.up.sql
+│   │   │   ├── 001_create_interviews.down.sql
+│   │   │   ├── 002_create_questions.up.sql
+│   │   │   └── 002_create_questions.down.sql
+│   │   ├── Dockerfile
+│   │   ├── go.mod
+│   │   ├── go.sum
+│   │   └── config.yaml
+│   │
+│   ├── ai-service/
+│   │   ├── src/
+│   │   │   ├── __init__.py
+│   │   │   ├── main.py
+│   │   │   ├── config.py
+│   │   │   ├── api/
+│   │   │   │   ├── __init__.py
+│   │   │   │   ├── routes.py
+│   │   │   │   └── dependencies.py
+│   │   │   ├── core/
+│   │   │   │   ├── __init__.py
+│   │   │   │   ├── llm_client.py
+│   │   │   │   ├── prompt_templates.py
+│   │   │   │   └── embeddings.py
+│   │   │   ├── models/
+│   │   │   │   ├── __init__.py
+│   │   │   │   ├── schemas.py
+│   │   │   │   └── responses.py
+│   │   │   ├── services/
+│   │   │   │   ├── __init__.py
+│   │   │   │   ├── question_service.py
+│   │   │   │   ├── analysis_service.py
+│   │   │   │   └── transcription_service.py
+│   │   │   └── utils/
+│   │   │       ├── __init__.py
+│   │   │       ├── helpers.py
+│   │   │       └── validators.py
+│   │   ├── tests/
+│   │   │   ├── __init__.py
+│   │   │   ├── test_api.py
+│   │   │   └── test_services.py
+│   │   ├── Dockerfile
+│   │   ├── requirements.txt
+│   │   ├── pyproject.toml
+│   │   └── .env.example
+│   │
+│   ├── scoring-service/
+│   │   ├── cmd/
+│   │   │   └── main.go
+│   │   ├── internal/
+│   │   │   ├── api/
+│   │   │   │   ├── handlers.go
+│   │   │   │   └── routes.go
+│   │   │   ├── config/
+│   │   │   │   └── config.go
+│   │   │   ├── domain/
+│   │   │   │   ├── models.go
+│   │   │   │   └── repository.go
+│   │   │   ├── repository/
+│   │   │   │   └── postgres.go
+│   │   │   ├── service/
+│   │   │   │   ├── scoring_service.go
+│   │   │   │   ├── evaluation_engine.go
+│   │   │   │   └── rubric_calculator.go
+│   │   │   └── grpc/
+│   │   │       ├── server.go
+│   │   │       └── scoring_handler.go
+│   │   ├── pkg/
+│   │   │   └── scoring/
+│   │   │       ├── algorithms.go
+│   │   │       └── weights.go
+│   │   ├── migrations/
+│   │   │   ├── 001_create_scores.up.sql
+│   │   │   └── 001_create_scores.down.sql
+│   │   ├── Dockerfile
+│   │   ├── go.mod
+│   │   ├── go.sum
+│   │   └── config.yaml
+│   │
+│   ├── report-service/
+│   │   ├── cmd/
+│   │   │   └── main.go
+│   │   ├── internal/
+│   │   │   ├── api/
+│   │   │   │   ├── handlers.go
+│   │   │   │   └── routes.go
+│   │   │   ├── config/
+│   │   │   │   └── config.go
+│   │   │   ├── domain/
+│   │   │   │   ├── models.go
+│   │   │   │   └── repository.go
+│   │   │   ├── repository/
+│   │   │   │   ├── postgres.go
+│   │   │   │   └── s3_storage.go
+│   │   │   ├── service/
+│   │   │   │   ├── report_service.go
+│   │   │   │   ├── pdf_generator.go
+│   │   │   │   └── docx_generator.go
+│   │   │   └── templates/
+│   │   │       ├── interview_report.pdf.tmpl
+│   │   │       └── candidate_summary.docx.tmpl
+│   │   ├── pkg/
+│   │   │   └── generator/
+│   │   │       ├── pdf.go
+│   │   │       └── docx.go
+│   │   ├── assets/
+│   │   │   └── logo.png
+│   │   ├── migrations/
+│   │   │   ├── 001_create_reports.up.sql
+│   │   │   └── 001_create_reports.down.sql
+│   │   ├── Dockerfile
+│   │   ├── go.mod
+│   │   ├── go.sum
+│   │   └── config.yaml
+│   │
+│   ├── notification-service/
+│   │   ├── cmd/
+│   │   │   └── main.go
+│   │   ├── internal/
+│   │   │   ├── api/
+│   │   │   │   ├── handlers.go
+│   │   │   │   └── routes.go
+│   │   │   ├── config/
+│   │   │   │   └── config.go
+│   │   │   ├── domain/
+│   │   │   │   ├── models.go
+│   │   │   │   └── repository.go
+│   │   │   ├── repository/
+│   │   │   │   └── postgres.go
+│   │   │   ├── service/
+│   │   │   │   ├── notification_service.go
+│   │   │   │   ├── email_service.go
+│   │   │   │   ├── push_service.go
+│   │   │   │   └── sms_service.go
+│   │   │   └── consumer/
+│   │   │       ├── rabbitmq.go
+│   │   │       └── handlers.go
+│   │   ├── pkg/
+│   │   │   ├── email/
+│   │   │   │   └── sender.go
+│   │   │   └── push/
+│   │   │       └── firebase.go
+│   │   ├── templates/
+│   │   │   ├── welcome_email.html
+│   │   │   ├── interview_reminder.html
+│   │   │   └── report_ready.html
+│   │   ├── migrations/
+│   │   │   ├── 001_create_notifications.up.sql
+│   │   │   └── 001_create_notifications.down.sql
+│   │   ├── Dockerfile
+│   │   ├── go.mod
+│   │   ├── go.sum
+│   │   └── config.yaml
+│   │
+│   ├── analytics-service/
+│   │   ├── cmd/
+│   │   │   └── main.go
+│   │   ├── internal/
+│   │   │   ├── api/
+│   │   │   │   ├── handlers.go
+│   │   │   │   └── routes.go
+│   │   │   ├── config/
+│   │   │   │   └── config.go
+│   │   │   ├── domain/
+│   │   │   │   ├── models.go
+│   │   │   │   └── repository.go
+│   │   │   ├── repository/
+│   │   │   │   ├── postgres.go
+│   │   │   │   └── clickhouse.go
+│   │   │   ├── service/
+│   │   │   │   ├── analytics_service.go
+│   │   │   │   ├── dashboard_service.go
+│   │   │   │   └── export_service.go
+│   │   │   └── consumer/
+│   │   │       ├── kafka.go
+│   │   │       └── event_handlers.go
+│   │   ├── pkg/
+│   │   │   └── aggregator/
+│   │   │       └── metrics.go
+│   │   ├── migrations/
+│   │   │   ├── 001_create_events.up.sql
+│   │   │   └── 001_create_events.down.sql
+│   │   ├── Dockerfile
+│   │   ├── go.mod
+│   │   ├── go.sum
+│   │   └── config.yaml
+│   │
+│   └── admin-service/
+│       ├── cmd/
+│       │   └── main.go
+│       ├── internal/
+│       │   ├── api/
+│       │   │   ├── handlers.go
+│       │   │   ├── middleware.go
+│       │   │   └── routes.go
+│       │   ├── config/
+│       │   │   └── config.go
+│       │   ├── domain/
+│       │   │   ├── models.go
+│       │   │   └── repository.go
+│       │   ├── repository/
+│       │   │   └── postgres.go
+│       │   ├── service/
+│       │   │   ├── admin_service.go
+│       │   │   ├── user_management.go
+│       │   │   ├── subscription_service.go
+│       │   │   └── audit_service.go
+│       │   └── grpc/
+│       │       ├── server.go
+│       │       └── admin_handler.go
+│       ├── pkg/
+│       │   └── rbac/
+│       │       └── permissions.go
+│       ├── migrations/
+│       │   ├── 001_create_admin_users.up.sql
+│       │   ├── 001_create_admin_users.down.sql
+│       │   ├── 002_create_subscriptions.up.sql
+│       │   └── 002_create_subscriptions.down.sql
+│       ├── Dockerfile
+│       ├── go.mod
+│       ├── go.sum
+│       └── config.yaml
+│
+├── frontend/
+│   ├── public/
+│   │   ├── index.html
+│   │   ├── favicon.ico
+│   │   └── manifest.json
+│   ├── src/
+│   │   ├── assets/
+│   │   │   ├── images/
+│   │   │   │   ├── logo.svg
+│   │   │   │   └── illustrations/
+│   │   │   └── styles/
+│   │   │       ├── globals.css
+│   │   │       └── variables.css
+│   │   ├── components/
+│   │   │   ├── common/
+│   │   │   │   ├── Button/
+│   │   │   │   │   ├── Button.tsx
+│   │   │   │   │   ├── Button.module.css
+│   │   │   │   │   └── index.ts
+│   │   │   │   ├── Input/
+│   │   │   │   │   ├── Input.tsx
+│   │   │   │   │   ├── Input.module.css
+│   │   │   │   │   └── index.ts
+│   │   │   │   ├── Modal/
+│   │   │   │   │   ├── Modal.tsx
+│   │   │   │   │   ├── Modal.module.css
+│   │   │   │   │   └── index.ts
+│   │   │   │   ├── Card/
+│   │   │   │   │   ├── Card.tsx
+│   │   │   │   │   ├── Card.module.css
+│   │   │   │   │   └── index.ts
+│   │   │   │   ├── Table/
+│   │   │   │   │   ├── Table.tsx
+│   │   │   │   │   ├── Table.module.css
+│   │   │   │   │   └── index.ts
+│   │   │   │   ├── Loader/
+│   │   │   │   │   ├── Loader.tsx
+│   │   │   │   │   ├── Loader.module.css
+│   │   │   │   │   └── index.ts
+│   │   │   │   └── ErrorBoundary/
+│   │   │   │       ├── ErrorBoundary.tsx
+│   │   │   │       └── index.ts
+│   │   │   ├── layout/
+│   │   │   │   ├── Header/
+│   │   │   │   │   ├── Header.tsx
+│   │   │   │   │   └── index.ts
+│   │   │   │   ├── Sidebar/
+│   │   │   │   │   ├── Sidebar.tsx
+│   │   │   │   │   └── index.ts
+│   │   │   │   ├── Footer/
+│   │   │   │   │   ├── Footer.tsx
+│   │   │   │   │   └── index.ts
+│   │   │   │   └── MainLayout.tsx
+│   │   │   ├── auth/
+│   │   │   │   ├── LoginForm.tsx
+│   │   │   │   ├── RegisterForm.tsx
+│   │   │   │   ├── OAuthButtons.tsx
+│   │   │   │   └── ProtectedRoute.tsx
+│   │   │   ├── resume/
+│   │   │   │   ├── ResumeUploader.tsx
+│   │   │   │   ├── ResumePreview.tsx
+│   │   │   │   └── ResumeAnalysis.tsx
+│   │   │   ├── interview/
+│   │   │   │   ├── InterviewSetup.tsx
+│   │   │   │   ├── InterviewRoom.tsx
+│   │   │   │   ├── QuestionDisplay.tsx
+│   │   │   │   ├── AnswerRecorder.tsx
+│   │   │   │   ├── VideoPlayer.tsx
+│   │   │   │   └── Timer.tsx
+│   │   │   ├── dashboard/
+│   │   │   │   ├── StatsCard.tsx
+│   │   │   │   ├── RecentInterviews.tsx
+│   │   │   │   ├── PerformanceChart.tsx
+│   │   │   │   └── CandidateList.tsx
+│   │   │   ├── reports/
+│   │   │   │   ├── ReportViewer.tsx
+│   │   │   │   ├── ReportDownload.tsx
+│   │   │   │   └── ScoreBreakdown.tsx
+│   │   │   └── github/
+│   │   │       ├── GitHubConnect.tsx
+│   │   │       ├── RepoList.tsx
+│   │   │       └── ContributionGraph.tsx
+│   │   ├── pages/
+│   │   │   ├── Home/
+│   │   │   │   ├── HomePage.tsx
+│   │   │   │   └── index.ts
+│   │   │   ├── Auth/
+│   │   │   │   ├── LoginPage.tsx
+│   │   │   │   ├── RegisterPage.tsx
+│   │   │   │   └── ForgotPasswordPage.tsx
+│   │   │   ├── Dashboard/
+│   │   │   │   ├── UserDashboard.tsx
+│   │   │   │   ├── AdminDashboard.tsx
+│   │   │   │   └── index.ts
+│   │   │   ├── Interview/
+│   │   │   │   ├── InterviewListPage.tsx
+│   │   │   │   ├── InterviewCreatePage.tsx
+│   │   │   │   ├── InterviewSessionPage.tsx
+│   │   │   │   └── index.ts
+│   │   │   ├── Resume/
+│   │   │   │   ├── ResumeUploadPage.tsx
+│   │   │   │   ├── ResumeAnalysisPage.tsx
+│   │   │   │   └── index.ts
+│   │   │   ├── Reports/
+│   │   │   │   ├── ReportListPage.tsx
+│   │   │   │   ├── ReportDetailPage.tsx
+│   │   │   │   └── index.ts
+│   │   │   ├── Profile/
+│   │   │   │   ├── ProfilePage.tsx
+│   │   │   │   ├── SettingsPage.tsx
+│   │   │   │   └── index.ts
+│   │   │   ├── Admin/
+│   │   │   │   ├── UserManagementPage.tsx
+│   │   │   │   ├── SubscriptionPage.tsx
+│   │   │   │   ├── AnalyticsPage.tsx
+│   │   │   │   └── index.ts
+│   │   │   └── Error/
+│   │   │       ├── NotFoundPage.tsx
+│   │   │       └── ServerErrorPage.tsx
+│   │   ├── hooks/
+│   │   │   ├── useAuth.ts
+│   │   │   ├── useInterview.ts
+│   │   │   ├── useResume.ts
+│   │   │   ├── useReport.ts
+│   │   │   ├── useWebSocket.ts
+│   │   │   ├── useDebounce.ts
+│   │   │   └── useLocalStorage.ts
+│   │   ├── services/
+│   │   │   ├── api.ts
+│   │   │   ├── authService.ts
+│   │   │   ├── userService.ts
+│   │   │   ├── interviewService.ts
+│   │   │   ├── resumeService.ts
+│   │   │   ├── reportService.ts
+│   │   │   ├── githubService.ts
+│   │   │   └── notificationService.ts
+│   │   ├── stores/
+│   │   │   ├── authStore.ts
+│   │   │   ├── interviewStore.ts
+│   │   │   ├── uiStore.ts
+│   │   │   └── notificationStore.ts
+│   │   ├── types/
+│   │   │   ├── user.ts
+│   │   │   ├── interview.ts
+│   │   │   ├── resume.ts
+│   │   │   ├── report.ts
+│   │   │   ├── api.ts
+│   │   │   └── common.ts
+│   │   ├── utils/
+│   │   │   ├── formatters.ts
+│   │   │   ├── validators.ts
+│   │   │   └── constants.ts
+│   │   ├── routes/
+│   │   │   ├── AppRoutes.tsx
+│   │   │   ├── PrivateRoutes.tsx
+│   │   │   └── PublicRoutes.tsx
+│   │   ├── App.tsx
+│   │   ├── main.tsx
+│   │   └── vite-env.d.ts
+│   ├── tests/
+│   │   ├── unit/
+│   │   │   ├── components/
+│   │   │   └── hooks/
+│   │   ├── integration/
+│   │   └── e2e/
+│   │       └── interview.spec.ts
+│   ├── Dockerfile
+│   ├── nginx.conf
+│   ├── package.json
+│   ├── tsconfig.json
+│   ├── vite.config.ts
+│   ├── tailwind.config.js
+│   ├── postcss.config.js
+│   └── .env.example
+│
+├── infrastructure/
+│   ├── docker/
+│   │   ├── docker-compose.yml
+│   │   ├── docker-compose.dev.yml
+│   │   ├── docker-compose.prod.yml
+│   │   ├── docker-compose.monitoring.yml
+│   │   └── .env.example
+│   │
+│   ├── k8s/
+│   │   ├── base/
+│   │   │   ├── namespaces.yaml
+│   │   │   ├── configmaps.yaml
+│   │   │   └── secrets.yaml
+│   │   ├── services/
+│   │   │   ├── user-service/
+│   │   │   │   ├── deployment.yaml
+│   │   │   │   ├── service.yaml
+│   │   │   │   ├── ingress.yaml
+│   │   │   │   ├── hpa.yaml
+│   │   │   │   └── configmap.yaml
+│   │   │   ├── resume-service/
+│   │   │   │   ├── deployment.yaml
+│   │   │   │   ├── service.yaml
+│   │   │   │   └── configmap.yaml
+│   │   │   ├── github-service/
+│   │   │   │   ├── deployment.yaml
+│   │   │   │   └── service.yaml
+│   │   │   ├── interview-service/
+│   │   │   │   ├── deployment.yaml
+│   │   │   │   ├── service.yaml
+│   │   │   │   └── configmap.yaml
+│   │   │   ├── ai-service/
+│   │   │   │   ├── deployment.yaml
+│   │   │   │   ├── service.yaml
+│   │   │   │   └── configmap.yaml
+│   │   │   ├── scoring-service/
+│   │   │   │   ├── deployment.yaml
+│   │   │   │   └── service.yaml
+│   │   │   ├── report-service/
+│   │   │   │   ├── deployment.yaml
+│   │   │   │   └── service.yaml
+│   │   │   ├── notification-service/
+│   │   │   │   ├── deployment.yaml
+│   │   │   │   └── service.yaml
+│   │   │   ├── analytics-service/
+│   │   │   │   ├── deployment.yaml
+│   │   │   │   └── service.yaml
+│   │   │   └── admin-service/
+│   │   │       ├── deployment.yaml
+│   │   │       ├── service.yaml
+│   │   │       └── ingress.yaml
+│   │   ├── databases/
+│   │   │   ├── postgres/
+│   │   │   │   ├── statefulset.yaml
+│   │   │   │   ├── service.yaml
+│   │   │   │   ├── pvc.yaml
+│   │   │   │   └── configmap.yaml
+│   │   │   ├── redis/
+│   │   │   │   ├── statefulset.yaml
+│   │   │   │   ├── service.yaml
+│   │   │   │   └── configmap.yaml
+│   │   │   └── clickhouse/
+│   │   │       ├── statefulset.yaml
+│   │   │       └── service.yaml
+│   │   ├── messaging/
+│   │   │   ├── rabbitmq/
+│   │   │   │   ├── statefulset.yaml
+│   │   │   │   ├── service.yaml
+│   │   │   │   └── configmap.yaml
+│   │   │   └── kafka/
+│   │   │       ├── statefulset.yaml
+│   │   │       ├── service.yaml
+│   │   │       └── configmap.yaml
+│   │   ├── ingress/
+│   │   │   ├── ingress-controller.yaml
+│   │   │   ├── tls-certificates.yaml
+│   │   │   └── main-ingress.yaml
+│   │   └── monitoring/
+│   │       ├── prometheus/
+│   │       │   ├── deployment.yaml
+│   │       │   ├── service.yaml
+│   │       │   ├── configmap.yaml
+│   │       │   └── rules.yaml
+│   │       ├── grafana/
+│   │       │   ├── deployment.yaml
+│   │       │   ├── service.yaml
+│   │       │   ├── dashboards/
+│   │       │   │   ├── services-dashboard.json
+│   │       │   │   ├── infrastructure-dashboard.json
+│   │       │   │   └── business-dashboard.json
+│   │       │   └── configmap.yaml
+│   │       └── loki/
+│   │           ├── deployment.yaml
+│   │           └── service.yaml
+│   │
+│   ├── ci-cd/
+│   │   ├── github-actions/
+│   │   │   ├── workflows/
+│   │   │   │   ├── ci.yml
+│   │   │   │   ├── cd.yml
+│   │   │   │   ├── deploy-staging.yml
+│   │   │   │   ├── deploy-production.yml
+│   │   │   │   └── security-scan.yml
+│   │   │   └── actions/
+│   │   │       ├── build-service/
+│   │   │       │   └── action.yml
+│   │   │       └── deploy-k8s/
+│   │   │           └── action.yml
+│   │   └── gitlab-ci/
+│   │       └── .gitlab-ci.yml
+│   │
+│   └── scripts/
+│       ├── deploy.sh
+│       ├── rollback.sh
+│       ├── seed-db.sh
+│       ├── backup-db.sh
+│       ├── setup-local.sh
+│       ├── health-check.sh
+│       └── migrate.sh
+│
+├── shared/
+│   ├── proto/
+│   │   ├── user/
+│   │   │   ├── user.proto
+│   │   │   └── user_grpc.pb.go
+│   │   ├── interview/
+│   │   │   ├── interview.proto
+│   │   │   └── interview_grpc.pb.go
+│   │   ├── scoring/
+│   │   │   ├── scoring.proto
+│   │   │   └── scoring_grpc.pb.go
+│   │   ├── admin/
+│   │   │   ├── admin.proto
+│   │   │   └── admin_grpc.pb.go
+│   │   └── common/
+│   │       ├── common.proto
+│   │       └── pagination.proto
+│   │
+│   ├── packages/
+│   │   ├── go-common/
+│   │   │   ├── logger/
+│   │   │   │   ├── logger.go
+│   │   │   │   └── config.go
+│   │   │   ├── middleware/
+│   │   │   │   ├── auth.go
+│   │   │   │   ├── cors.go
+│   │   │   │   ├── rate_limit.go
+│   │   │   │   ├── request_id.go
+│   │   │   │   └── recovery.go
+│   │   │   ├── validation/
+│   │   │   │   ├── validator.go
+│   │   │   │   └── rules.go
+│   │   │   ├── database/
+│   │   │   │   ├── postgres.go
+│   │   │   │   ├── redis.go
+│   │   │   │   └── migrations.go
+│   │   │   ├── messaging/
+│   │   │   │   ├── rabbitmq.go
+│   │   │   │   └── kafka.go
+│   │   │   ├── grpc/
+│   │   │   │   ├── client.go
+│   │   │   │   └── interceptor.go
+│   │   │   ├── config/
+│   │   │   │   └── config.go
+│   │   │   ├── errors/
+│   │   │   │   └── errors.go
+│   │   │   ├── go.mod
+│   │   │   └── go.sum
+│   │   └── python-common/
+│   │       ├── logger/
+│   │       │   ├── __init__.py
+│   │       │   └── logger.py
+│   │       ├── middleware/
+│   │       │   ├── __init__.py
+│   │       │   └── auth.py
+│   │       ├── validation/
+│   │       │   ├── __init__.py
+│   │       │   └── validators.py
+│   │       ├── database/
+│   │       │   ├── __init__.py
+│   │       │   └── async_pg.py
+│   │       ├── messaging/
+│   │       │   ├── __init__.py
+│   │       │   └── kafka.py
+│   │       ├── pyproject.toml
+│   │       └── requirements.txt
+│   │
+│   └── config/
+│       ├── environments/
+│       │   ├── development.yaml
+│       │   ├── staging.yaml
+│       │   └── production.yaml
+│       └── secrets/
+│           └── .env.example
+│
+├── docs/
+│   ├── architecture/
+│   │   ├── system-design.md
+│   │   ├── microservices-overview.md
+│   │   ├── data-flow.md
+│   │   ├── deployment-architecture.md
+│   │   └── diagrams/
+│   │       ├── architecture.png
+│   │       ├── data-flow.png
+│   │       └── sequence-diagrams/
+│   │           ├── auth-flow.png
+│   │           └── interview-flow.png
+│   ├── api/
+│   │   ├── openapi.yaml
+│   │   ├── grpc-api.md
+│   │   ├── user-service-api.md
+│   │   ├── resume-service-api.md
+│   │   ├── interview-service-api.md
+│   │   ├── ai-service-api.md
+│   │   ├── scoring-service-api.md
+│   │   └── admin-service-api.md
+│   ├── development/
+│   │   ├── getting-started.md
+│   │   ├── coding-standards.md
+│   │   ├── git-workflow.md
+│   │   ├── testing-guide.md
+│   │   └── debugging-guide.md
+│   ├── deployment/
+│   │   ├── local-setup.md
+│   │   ├── staging-deployment.md
+│   │   ├── production-deployment.md
+│   │   ├── scaling-guide.md
+│   │   └── disaster-recovery.md
+│   └── README.md
+│
+├── tests/
+│   ├── unit/
+│   │   ├── services/
+│   │   │   ├── user-service/
+│   │   │   │   ├── auth_test.go
+│   │   │   │   └── user_test.go
+│   │   │   ├── resume-service/
+│   │   │   │   └── resume_test.go
+│   │   │   ├── interview-service/
+│   │   │   │   └── interview_test.go
+│   │   │   ├── scoring-service/
+│   │   │   │   └── scoring_test.go
+│   │   │   └── ai-service/
+│   │   │       └── llm_test.py
+│   │   └── shared/
+│   │       ├── logger_test.go
+│   │       └── validation_test.go
+│   ├── integration/
+│   │   ├── api/
+│   │   │   ├── user_api_test.go
+│   │   │   ├── interview_api_test.go
+│   │   │   └── scoring_api_test.go
+│   │   └── grpc/
+│   │       ├── user_grpc_test.go
+│   │       └── scoring_grpc_test.go
+│   ├── e2e/
+│   │   ├── auth_flow_test.go
+│   │   ├── interview_flow_test.go
+│   │   ├── report_generation_test.go
+│   │   └── notification_flow_test.go
+│   ├── load/
+│   │   ├── k6/
+│   │   │   ├── interview_load.js
+│   │   │   ├── api_load.js
+│   │   │   └── stress_test.js
+│   │   └── results/
+│   └── testdata/
+│       ├── fixtures/
+│       │   ├── users.json
+│       │   ├── interviews.json
+│       │   └── resumes.json
+│       └── mocks/
+│           ├── github_api_mock.go
+│           └── llm_api_mock.py
+│
+├── .github/
+│   ├── workflows/
+│   │   ├── ci.yml
+│   │   ├── cd.yml
+│   │   └── codeql.yml
+│   ├── ISSUE_TEMPLATE/
+│   │   ├── bug_report.md
+│   │   └── feature_request.md
+│   └── PULL_REQUEST_TEMPLATE.md
+│
+├── .gitignore
+├── .editorconfig
+├── .prettierrc
+├── .eslintrc.json
+├── Makefile
+├── README.md
+└── LICENSE

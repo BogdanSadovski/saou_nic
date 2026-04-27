@@ -1,0 +1,102 @@
+syntax = "proto3";
+
+package user;
+
+option go_package = "github.com/real-ass/shared/proto/user;userpb";
+
+import "google/protobuf/timestamp.proto";
+
+// User represents a user in the system.
+message User {
+  string id = 1;
+  string email = 2;
+  string username = 3;
+  string first_name = 4;
+  string last_name = 5;
+  string avatar_url = 6;
+  Role role = 7;
+  UserStatus status = 8;
+  google.protobuf.Timestamp created_at = 9;
+  google.protobuf.Timestamp updated_at = 10;
+  google.protobuf.Timestamp last_login_at = 11;
+  Profile profile = 12;
+}
+
+message Profile {
+  string bio = 1;
+  string phone = 2;
+  string locale = 3;
+  string timezone = 4;
+  repeated string skills = 5;
+  int32 experience_years = 6;
+}
+
+enum Role {
+  ROLE_UNSPECIFIED = 0;
+  ROLE_CANDIDATE = 1;
+  ROLE_INTERVIEWER = 2;
+  ROLE_ADMIN = 3;
+}
+
+enum UserStatus {
+  USER_STATUS_UNSPECIFIED = 0;
+  USER_STATUS_ACTIVE = 1;
+  USER_STATUS_INACTIVE = 2;
+  USER_STATUS_SUSPENDED = 3;
+  USER_STATUS_PENDING = 4;
+}
+
+message GetUserRequest {
+  string user_id = 1;
+}
+
+message GetUserResponse {
+  User user = 1;
+}
+
+message CreateUserRequest {
+  string email = 1;
+  string username = 2;
+  string password = 3;
+  string first_name = 4;
+  string last_name = 5;
+  Role role = 6;
+  Profile profile = 7;
+}
+
+message UpdateUserRequest {
+  string user_id = 1;
+  optional string email = 2;
+  optional string username = 3;
+  optional string first_name = 4;
+  optional string last_name = 5;
+  optional string avatar_url = 6;
+  optional UserStatus status = 7;
+  optional Profile profile = 8;
+}
+
+message ListUsersRequest {
+  int32 page = 1;
+  int32 page_size = 2;
+  optional string search = 3;
+  optional Role role_filter = 4;
+  optional UserStatus status_filter = 5;
+  string order_by = 6;
+  bool descending = 7;
+}
+
+message ListUsersResponse {
+  repeated User users = 1;
+  int32 total_count = 2;
+  int32 page = 3;
+  int32 page_size = 4;
+  int32 total_pages = 5;
+}
+
+// UserService provides user management operations.
+service UserService {
+  rpc GetUser(GetUserRequest) returns (GetUserResponse);
+  rpc CreateUser(CreateUserRequest) returns (GetUserResponse);
+  rpc UpdateUser(UpdateUserRequest) returns (GetUserResponse);
+  rpc ListUsers(ListUsersRequest) returns (ListUsersResponse);
+}

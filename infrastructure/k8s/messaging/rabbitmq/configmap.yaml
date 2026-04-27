@@ -1,0 +1,66 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: rabbitmq-config
+  namespace: default
+  labels:
+    app: rabbitmq
+    component: messaging
+data:
+  rabbitmq.conf: |
+    # RabbitMQ Configuration
+    default_user = guest
+    default_pass = guest
+
+    # Networking
+    listeners.tcp.default = 5672
+    management.tcp.port = 15672
+
+    # Memory and Disk Alarms
+    vm_memory_high_watermark.relative = 0.6
+    disk_free_limit.absolute = 2GB
+
+    # Message TTL and Queue settings
+    default_consumer_timeout = 1800000
+
+    # Logging
+    log.console = true
+    log.console.level = info
+    log.file = false
+
+    # Management Plugin
+    management.load_definitions = /etc/rabbitmq/definitions.json
+
+    # Cluster settings
+    cluster_formation.peer_discovery_backend = k8s
+    cluster_formation.k8s.host = kubernetes.default.svc.cluster.local
+    cluster_formation.k8s.address_type = hostname
+    cluster_formation.node_cleanup.only_log_warning = true
+
+  definitions.json: |
+    {
+      "vhosts": [
+        {"name": "/"},
+        {"name": "/analytics"},
+        {"name": "/recommendations"}
+      ],
+      "queues": [
+        {"name": "user_events", "vhost": "/", "durable": true, "auto_delete": false},
+        {"name": "recommendation_requests", "vhost": "/recommendations", "durable": true, "auto_delete": false},
+        {"name": "recommendation_results", "vhost": "/recommendations", "durable": true, "auto_delete": false},
+        {"name": "analytics_events", "vhost": "/analytics", "durable": true, "auto_delete": false},
+        {"name": "analytics_aggregations", "vhost": "/analytics", "durable": true, "auto_delete": false}
+      ],
+      "exchanges": [
+        {"name": "events", "vhost": "/", "type": "topic", "durable": true, "auto_delete": false},
+        {"name": "recommendations", "vhost": "/recommendations", "type": "direct", "durable": true, "auto_delete": false},
+        {"name": "analytics", "vhost": "/analytics", "type": "topic", "durable": true, "auto_delete": false}
+      ],
+      "bindings": [
+        {"source": "events", "vhost": "/", "destination": "user_events", "destination_type": "queue", "routing_key": "user.*"},
+        {"source": "recommendations", "vhost": "/recommendations", "destination": "recommendation_requests", "destination_type": "queue", "routing_key": "request"},
+        {"source": "recommendations", "vhost": "/recommendations", "destination": "recommendation_results", "destination_type": "queue", "routing_key": "result"},
+        {"source": "analytics", "vhost": "/analytics", "destination": "analytics_events", "destination_type": "queue", "routing_key": "#"},
+        {"source": "analytics", "vhost": "/analytics", "destination": "analytics_aggregations", "destination_type": "queue", "routing_key": "aggregate.#"}
+      ]
+    }

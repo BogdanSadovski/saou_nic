@@ -1,0 +1,30 @@
+# Resume Service Configuration
+
+server:
+  port: "8080"
+  read_timeout: "15s"
+  write_timeout: "15s"
+  idle_timeout: "60s"
+
+database:
+  host: "postgres"
+  port: "5432"
+  user: "postgres"
+  password: "postgres_secret"
+  dbname: "platform_db"
+  sslmode: "disable"
+  max_conns: 10
+
+s3:
+  endpoint: "http://minio:9000"
+  access_key_id: "minioadmin"
+  secret_access_key: "minioadmin"
+  region: "us-east-1"
+  bucket: "resumes"
+  use_ssl: false
+
+nlp:
+  model_path: "./models"
+  max_tokens: 512
+  enable_ner: true
+  enable_parsing: true

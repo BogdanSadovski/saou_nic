@@ -1,0 +1,56 @@
+# PLACEHOLDER: Authentication Flow Sequence Diagram
+
+## Instructions to Generate
+
+This file is a placeholder for the authentication sequence diagram. Replace it with an actual PNG image.
+
+### Recommended Tools
+
+1. **Draw.io / diagrams.net** - Create a sequence diagram and export as PNG
+2. **Mermaid CLI** - Use a `.mmd` file with sequence diagram syntax:
+   ```bash
+   npm install -g @mermaid-js/mermaid-cli
+   mmdc -i auth-flow.mmd -o auth-flow.png -w 2000
+   ```
+
+### Mermaid Definition (for reference)
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant G as API Gateway
+    participant U as User Service
+    participant DB as PostgreSQL
+    participant R as Redis
+
+    C->>G: POST /auth/login {email, password}
+    G->>U: gRPC: ValidateCredentials(email, password)
+    U->>DB: SELECT * FROM users WHERE email = ?
+    DB-->>U: User record (hashed password)
+    U->>U: bcrypt.Compare(password, hash)
+    alt Credentials valid
+        U->>U: Generate JWT (access + refresh)
+        U->>R: Store refresh token
+        U-->>G: {access_token, refresh_token}
+        G-->>C: 200 OK {tokens}
+    else Credentials invalid
+        U-->>G: 401 Unauthorized
+        G-->>C: 401 {error: "invalid credentials"}
+    end
+```
+
+### Flow Description
+
+1. Client submits login credentials to API Gateway
+2. Gateway forwards to User Service via gRPC
+3. User Service queries PostgreSQL for user record
+4. Password hash comparison using bcrypt
+5. On success: JWT access token + refresh token generated
+6. Refresh token stored in Redis for revocation support
+7. Tokens returned to client
+
+### File Requirements
+
+- **Format:** PNG
+- **Resolution:** Minimum 1600x900
+- **Style:** Standard UML sequence diagram with lifelines

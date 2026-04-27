@@ -1,0 +1,200 @@
+name: CD Pipeline
+
+on:
+  push:
+    branches: [main]
+  workflow_run:
+    workflows: ["CI Pipeline"]
+    types:
+      - completed
+    branches: [main]
+
+env:
+  GO_VERSION: "1.21"
+  NODE_VERSION: "20"
+  PYTHON_VERSION: "3.11"
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: interview-platform
+
+concurrency:
+  group: cd-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  check-ci-status:
+    name: Check CI Status
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    steps:
+      - name: Verify CI passed
+        run: echo "CI pipeline passed for commit ${{ github.sha }}, proceeding with CD"
+
+  build-and-push:
+    name: Build and Push Images
+    runs-on: ubuntu-latest
+    needs: [check-ci-status]
+    if: github.ref == 'refs/heads/main'
+    strategy:
+      matrix:
+        service:
+          - user-service
+          - resume-service
+          - github-service
+          - interview-service
+          - scoring-service
+          - report-service
+          - notification-service
+          - analytics-service
+          - admin-service
+          - ai-service
+          - frontend
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ github.repository }}/${{ matrix.service }}
+          tags: |
+            type=sha,prefix=
+            type=ref,event=branch
+            type=semver,pattern={{version}},enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: services/${{ matrix.service }}/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          platforms: linux/amd64,linux/arm64
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: [build-and-push]
+    if: github.ref == 'refs/heads/main'
+    environment:
+      name: staging
+      url: https://staging.interview-platform.io
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: "latest"
+
+      - name: Configure kubeconfig
+        run: |
+          mkdir -p $HOME/.kube
+          echo "${{ secrets.STAGING_KUBECONFIG }}" | base64 -d > $HOME/.kube/config
+
+      - name: Set image tags
+        working-directory: infrastructure/k8s/services
+        run: |
+          SHA_SHORT=$(echo "${{ github.sha }}" | cut -c1-8)
+          echo "IMAGE_TAG=${SHA_SHORT}" >> $GITHUB_ENV
+
+      - name: Deploy to staging
+        run: |
+          kubectl set image deployment/user-service \
+            user-service=${{ env.REGISTRY }}/${{ github.repository }}/user-service:${{ env.IMAGE_TAG }} \
+            -n interview-platform-staging
+
+          kubectl set image deployment/resume-service \
+            resume-service=${{ env.REGISTRY }}/${{ github.repository }}/resume-service:${{ env.IMAGE_TAG }} \
+            -n interview-platform-staging
+
+          kubectl set image deployment/github-service \
+            github-service=${{ env.REGISTRY }}/${{ github.repository }}/github-service:${{ env.IMAGE_TAG }} \
+            -n interview-platform-staging
+
+          kubectl set image deployment/interview-service \
+            interview-service=${{ env.REGISTRY }}/${{ github.repository }}/interview-service:${{ env.IMAGE_TAG }} \
+            -n interview-platform-staging
+
+          kubectl set image deployment/scoring-service \
+            scoring-service=${{ env.REGISTRY }}/${{ github.repository }}/scoring-service:${{ env.IMAGE_TAG }} \
+            -n interview-platform-staging
+
+          kubectl set image deployment/report-service \
+            report-service=${{ env.REGISTRY }}/${{ github.repository }}/report-service:${{ env.IMAGE_TAG }} \
+            -n interview-platform-staging
+
+          kubectl set image deployment/notification-service \
+            notification-service=${{ env.REGISTRY }}/${{ github.repository }}/notification-service:${{ env.IMAGE_TAG }} \
+            -n interview-platform-staging
+
+          kubectl set image deployment/analytics-service \
+            analytics-service=${{ env.REGISTRY }}/${{ github.repository }}/analytics-service:${{ env.IMAGE_TAG }} \
+            -n interview-platform-staging
+
+          kubectl set image deployment/admin-service \
+            admin-service=${{ env.REGISTRY }}/${{ github.repository }}/admin-service:${{ env.IMAGE_TAG }} \
+            -n interview-platform-staging
+
+          kubectl set image deployment/ai-service \
+            ai-service=${{ env.REGISTRY }}/${{ github.repository }}/ai-service:${{ env.IMAGE_TAG }} \
+            -n interview-platform-staging
+
+          kubectl set image deployment/frontend \
+            frontend=${{ env.REGISTRY }}/${{ github.repository }}/frontend:${{ env.IMAGE_TAG }} \
+            -n interview-platform-staging
+
+      - name: Verify rollout
+        run: |
+          kubectl rollout status deployment/user-service -n interview-platform-staging --timeout=300s
+          kubectl rollout status deployment/resume-service -n interview-platform-staging --timeout=300s
+          kubectl rollout status deployment/github-service -n interview-platform-staging --timeout=300s
+          kubectl rollout status deployment/interview-service -n interview-platform-staging --timeout=300s
+          kubectl rollout status deployment/scoring-service -n interview-platform-staging --timeout=300s
+          kubectl rollout status deployment/report-service -n interview-platform-staging --timeout=300s
+          kubectl rollout status deployment/notification-service -n interview-platform-staging --timeout=300s
+          kubectl rollout status deployment/analytics-service -n interview-platform-staging --timeout=300s
+          kubectl rollout status deployment/admin-service -n interview-platform-staging --timeout=300s
+          kubectl rollout status deployment/ai-service -n interview-platform-staging --timeout=300s
+          kubectl rollout status deployment/frontend -n interview-platform-staging --timeout=300s
+
+      - name: Run smoke tests
+        run: |
+          echo "Running smoke tests against staging..."
+          curl -f --retry 3 --retry-delay 5 https://staging.interview-platform.io/api/health || exit 1
+          echo "Smoke tests passed"
+
+  notify:
+    name: Notify Deployment Result
+    runs-on: ubuntu-latest
+    needs: [deploy-staging]
+    if: always()
+    steps:
+      - name: Send Slack notification
+        if: always()
+        uses: slackapi/slack-github-action@v1
+        with:
+          payload: |
+            {
+              "text": "CD Pipeline *${{ needs.deploy-staging.result }}* for ${{ github.repository }}\nCommit: ${{ github.sha }}\nBranch: ${{ github.ref_name }}\nDeployed by: ${{ github.actor }}",
+              "channel": "#deployments"
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}

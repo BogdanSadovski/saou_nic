@@ -1,0 +1,57 @@
+app:
+  name: code-executor-service
+  version: 1.0.0
+  env: development
+
+server:
+  host: 0.0.0.0
+  port: 8083
+  read_timeout: 30s
+  write_timeout: 30s
+  max_header_bytes: 1048576
+
+executor:
+  max_execution_time: 10s
+  max_memory_limit: 512M
+  max_output_size: 1048576  # 1MB
+  sandbox_timeout: 15s
+  cleanup_interval: 60s
+  supported_languages:
+    - python
+    - javascript
+    - go
+    - java
+  
+  python:
+    binary: /usr/bin/python3
+    timeout: 10s
+    memory_limit: 512M
+    
+  javascript:
+    binary: /usr/bin/node
+    timeout: 10s
+    memory_limit: 256M
+    
+  go:
+    binary: /usr/bin/go
+    timeout: 10s
+    memory_limit: 512M
+    
+  java:
+    binary: /usr/bin/java
+    timeout: 15s
+    memory_limit: 1G
+
+logging:
+  level: debug
+  format: json
+
+security:
+  require_token: true
+  max_code_size: 1048576  # 1MB
+  disallowed_patterns:
+    - "import os"
+    - "import subprocess"
+    - "exec("
+    - "eval("
+    - "system("

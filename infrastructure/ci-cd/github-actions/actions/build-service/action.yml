@@ -1,0 +1,95 @@
+name: "Build Go Service"
+description: "Composite action to build a Go service Docker image"
+
+inputs:
+  service-name:
+    description: "Name of the service to build (e.g., user-service)"
+    required: true
+  docker-context:
+    description: "Docker build context path"
+    required: false
+    default: "."
+  dockerfile:
+    description: "Path to Dockerfile"
+    required: false
+    default: "services/${{ inputs.service-name }}/Dockerfile"
+  image-name:
+    description: "Full image name with registry"
+    required: true
+  push-image:
+    description: "Whether to push the image"
+    required: false
+    default: "false"
+  platforms:
+    description: "Target platforms for multi-arch build"
+    required: false
+    default: "linux/amd64"
+  build-args:
+    description: "Additional build arguments"
+    required: false
+    default: ""
+  cache-from:
+    description: "Cache sources"
+    required: false
+    default: "type=gha"
+  cache-to:
+    description: "Cache destination"
+    required: false
+    default: "type=gha,mode=max"
+
+outputs:
+  image-digest:
+    description: "Docker image digest"
+    value: ${{ steps.build.outputs.digest }}
+  image-id:
+    description: "Docker image ID"
+    value: ${{ steps.build.outputs.imageid }}
+  image-tags:
+    description: "Comma-separated list of image tags"
+    value: ${{ steps.meta.outputs.tags }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Set up QEMU
+      uses: docker/setup-qemu-action@v3
+      shell: bash
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+      shell: bash
+
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ inputs.image-name }}
+        tags: |
+          type=sha,prefix=
+          type=ref,event=branch
+          type=semver,pattern={{version}}
+
+    - name: Build Docker image
+      id: build
+      uses: docker/build-push-action@v5
+      with:
+        context: ${{ inputs.docker-context }}
+        file: ${{ inputs.dockerfile }}
+        push: ${{ inputs.push-image }}
+        load: ${{ inputs.push-image == 'false' }}
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        platforms: ${{ inputs.platforms }}
+        build-args: ${{ inputs.build-args }}
+        cache-from: ${{ inputs.cache-from }}
+        cache-to: ${{ inputs.cache-to }}
+        provenance: false
+        sbom: false
+
+    - name: Verify image
+      shell: bash
+      if: inputs.push-image == 'false'
+      run: |
+        echo "Verifying built image..."
+        docker images ${{ inputs.image-name }} --format "{{.Repository}}:{{.Tag}} {{.Size}}"
+        echo "Build complete for ${{ inputs.service-name }}"

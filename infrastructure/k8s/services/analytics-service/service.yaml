@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: analytics-service
+  namespace: real-ass
+  labels:
+    app.kubernetes.io/name: analytics-service
+    app.kubernetes.io/component: backend
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8088"
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8088
+      targetPort: 8088
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: analytics-service

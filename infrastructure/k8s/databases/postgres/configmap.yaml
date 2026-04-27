@@ -1,0 +1,59 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-config
+  namespace: default
+  labels:
+    app: postgres
+    component: database
+data:
+  postgres.conf: |
+    # PostgreSQL Custom Configuration
+    listen_addresses = '*'
+    port = 5432
+    max_connections = 200
+
+    # Memory Settings
+    shared_buffers = 256MB
+    effective_cache_size = 1GB
+    work_mem = 4MB
+    maintenance_work_mem = 64MB
+
+    # WAL Settings
+    wal_level = replica
+    max_wal_size = 1GB
+    min_wal_size = 80MB
+
+    # Logging
+    log_destination = 'stderr'
+    logging_collector = on
+    log_directory = 'log'
+    log_filename = 'postgresql-%Y-%m-%d.log'
+    log_statement = 'ddl'
+    log_min_duration_statement = 1000
+
+    # Autovacuum
+    autovacuum = on
+    autovacuum_max_workers = 3
+    autovacuum_naptime = 60s
+
+    # Performance
+    random_page_cost = 1.1
+    effective_io_concurrency = 200
+    default_statistics_target = 100
+
+  init.sql: |
+    -- Initialize application databases
+    CREATE DATABASE recommendation_db;
+    CREATE DATABASE analytics_db;
+    CREATE DATABASE auth_db;
+
+    -- Create application users
+    CREATE USER recommendation_app WITH PASSWORD 'recommendation_secret';
+    CREATE USER analytics_app WITH PASSWORD 'analytics_secret';
+    CREATE USER auth_app WITH PASSWORD 'auth_secret';
+
+    -- Grant privileges
+    GRANT ALL PRIVILEGES ON DATABASE recommendation_db TO recommendation_app;
+    GRANT ALL PRIVILEGES ON DATABASE analytics_db TO analytics_app;
+    GRANT ALL PRIVILEGES ON DATABASE auth_db TO auth_app;

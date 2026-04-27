@@ -1,0 +1,39 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: redis-config
+  namespace: default
+  labels:
+    app: redis
+    component: cache
+data:
+  redis.conf: |
+    # Redis Configuration
+    bind 0.0.0.0
+    port 6379
+    protected-mode no
+
+    # Persistence - AOF enabled for durability
+    appendonly yes
+    appendfilename "appendonly.aof"
+    appendfsync everysec
+    auto-aof-rewrite-percentage 100
+    auto-aof-rewrite-min-size 64mb
+
+    # Memory Management
+    maxmemory 512mb
+    maxmemory-policy allkeys-lru
+
+    # Slow log
+    slowlog-log-slower-than 10000
+    slowlog-max-len 128
+
+    # Connection
+    tcp-keepalive 300
+    timeout 300
+
+    # Logging
+    loglevel notice
+
+    # Keyspace notifications for cache invalidation
+    notify-keyspace-events "Ex"
