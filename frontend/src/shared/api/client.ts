@@ -82,6 +82,16 @@ apiClient.interceptors.response.use(
     const requestUrl = config.url ?? "";
     const isRefreshCall = requestUrl.includes("/auth/refresh");
 
+    // If our dev proxy synthesised a 503 with body {error:"backend_unreachable"}
+    // (because api-gateway/upstream is down), normalise it into a synthetic
+    // network error so callers can show "backend offline" instead of a
+    // confusing 503-from-upstream message.
+    const data = error.response?.data as { error?: string } | undefined;
+    if (status === 503 && data?.error === "backend_unreachable") {
+      // Mark as network error for downstream handlers
+      (error as { code?: string }).code = "ERR_NETWORK";
+    }
+
     if (status === 401 && !isRefreshCall && !(config as { __isRetryAfterRefresh?: boolean }).__isRetryAfterRefresh) {
       const refreshToken = localStorage.getItem(REFRESH_TOKEN_KEY);
       if (!refreshToken) {
