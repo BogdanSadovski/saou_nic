@@ -45,9 +45,22 @@ help:
 # Development
 dev-up:
 	docker compose -f infrastructure/docker/docker-compose.yml up -d
+	@echo "Waiting for postgres..."
+	@until docker exec platform-postgres-1 pg_isready -U postgres >/dev/null 2>&1; do sleep 1; done
+	@$(MAKE) -s dev-migrate
 
 dev-down:
 	docker compose -f infrastructure/docker/docker-compose.yml down
+
+# Reset everything: stop, drop volumes, start fresh + migrate.
+dev-reset:
+	docker compose -f infrastructure/docker/docker-compose.yml down -v
+	$(MAKE) dev-up
+
+# Apply all *.up.sql migrations against their service-specific databases.
+# Safe to run multiple times — the script tolerates already-applied migrations.
+dev-migrate:
+	./scripts/run-migrations.sh
 
 # Build all services
 build-all: user-service resume-service github-service interview-service scoring-service report-service notification-service analytics-service admin-service api-gateway ai-service frontend
