@@ -106,4 +106,41 @@ export const reportsApi = {
       recent_interviews: payload.recent_interviews ?? [],
     };
   },
+
+  /**
+   * Build an empty analytics report skeleton. Used by UI as a graceful
+   * fallback when the backend is unreachable or the report endpoint
+   * returns 404, so the page can still render its shell, search and
+   * "create your first interview" CTA instead of an error wall.
+   */
+  emptyReport(userId = "anonymous"): UserInterviewAnalyticsReport {
+    return {
+      user_id: userId,
+      generated_at: new Date().toISOString(),
+      totals: {
+        total_interviews: 0,
+        completed_interviews: 0,
+        in_progress_interviews: 0,
+        expired_interviews: 0,
+        completion_rate: 0,
+      },
+      performance: {
+        average_score: 0,
+        best_score: 0,
+        latest_score: 0,
+        reports_generated: 0,
+        avg_question_count: 0,
+        avg_session_minutes: 0,
+      },
+      role_distribution: [],
+      mode_distribution: [],
+      timeline: [],
+      top_strengths: [],
+      top_weaknesses: [],
+      top_recommendations: [],
+      completed_interviews: [],
+      incomplete_interviews: [],
+      recent_interviews: [],
+    };
+  },
 };

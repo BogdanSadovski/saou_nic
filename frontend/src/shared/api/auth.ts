@@ -12,10 +12,20 @@ type TokenPayload = {
   refreshToken?: string;
 };
 
-const mapTokens = (payload: TokenPayload): AuthTokens => ({
-  accessToken: payload.access_token ?? payload.accessToken ?? "",
-  refreshToken: payload.refresh_token ?? payload.refreshToken ?? "",
-});
+/**
+ * Map a backend token payload to our shape and reject any response that
+ * is missing a usable access token. Previously this returned `""` for
+ * missing tokens and the auth store stored the empty string as if the
+ * user were authenticated, leading to silent 401 storms downstream.
+ */
+const mapTokens = (payload: TokenPayload | null | undefined): AuthTokens => {
+  const accessToken = payload?.access_token ?? payload?.accessToken ?? "";
+  const refreshToken = payload?.refresh_token ?? payload?.refreshToken ?? "";
+  if (!accessToken) {
+    throw new Error("Сервер не вернул токен авторизации");
+  }
+  return { accessToken, refreshToken };
+};
 
 export const authApi = {
   async login(email: string, password: string): Promise<AuthTokens> {

@@ -10,8 +10,16 @@ import (
 )
 
 // WebSocketManager manages real-time connections for sessions.
+//
+// Concurrency model:
+//   - sessions/writeMu maps are guarded by `mu`.
+//   - Each *websocket.Conn has a dedicated write mutex held while writing,
+//     to satisfy gorilla/websocket's "only one goroutine writes at a time"
+//     contract (concurrent broadcasts to the same conn would otherwise
+//     corrupt frames or panic).
 type WebSocketManager struct {
 	sessions map[uuid.UUID]map[*websocket.Conn]struct{}
+	writeMu  map[*websocket.Conn]*sync.Mutex
 	mu       sync.RWMutex
 	upgrader websocket.Upgrader
 	logger   *logrus.Logger
@@ -21,6 +29,7 @@ type WebSocketManager struct {
 func NewWebSocketManager(logger *logrus.Logger) *WebSocketManager {
 	return &WebSocketManager{
 		sessions: make(map[uuid.UUID]map[*websocket.Conn]struct{}),
+		writeMu:  make(map[*websocket.Conn]*sync.Mutex),
 		upgrader: websocket.Upgrader{
 			CheckOrigin: func(r *http.Request) bool {
 				return true
@@ -30,6 +39,26 @@ func NewWebSocketManager(logger *logrus.Logger) *WebSocketManager {
 		},
 		logger: logger,
 	}
+}
+
+// connWriteLock returns the write mutex for the given connection, creating
+// one if necessary. Safe to call concurrently.
+func (wsm *WebSocketManager) connWriteLock(conn *websocket.Conn) *sync.Mutex {
+	wsm.mu.RLock()
+	if m, ok := wsm.writeMu[conn]; ok {
+		wsm.mu.RUnlock()
+		return m
+	}
+	wsm.mu.RUnlock()
+
+	wsm.mu.Lock()
+	defer wsm.mu.Unlock()
+	if m, ok := wsm.writeMu[conn]; ok {
+		return m
+	}
+	m := &sync.Mutex{}
+	wsm.writeMu[conn] = m
+	return m
 }
 
 // CollaborationWebSocket handles WebSocket connection for collaboration.
@@ -121,6 +150,7 @@ func (wsm *WebSocketManager) unregisterClient(sessionID uuid.UUID, conn *websock
 			delete(wsm.sessions, sessionID)
 		}
 	}
+	delete(wsm.writeMu, conn)
 }
 
 func (wsm *WebSocketManager) broadcast(sessionID uuid.UUID, message interface{}, exclude *websocket.Conn) {
@@ -145,6 +175,9 @@ func (wsm *WebSocketManager) broadcastAll(sessionID uuid.UUID, message interface
 }
 
 func (wsm *WebSocketManager) sendMessage(conn *websocket.Conn, message interface{}) error {
+	lock := wsm.connWriteLock(conn)
+	lock.Lock()
+	defer lock.Unlock()
 	return conn.WriteJSON(message)
 }
 

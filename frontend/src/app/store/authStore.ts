@@ -21,22 +21,39 @@ export const useAuthStore = create<AuthState>((set) => ({
   token: null,
   initialize: () => {
     const token = localStorage.getItem(TOKEN_KEY);
+    // A non-empty string in storage. Empty/whitespace-only token is treated
+    // as unauthenticated and cleaned up to prevent inconsistent UI state.
+    const hasToken = Boolean(token && token.trim());
+    if (token && !hasToken) {
+      localStorage.removeItem(TOKEN_KEY);
+      localStorage.removeItem(REFRESH_TOKEN_KEY);
+    }
     set({
-      isAuthenticated: Boolean(token),
+      isAuthenticated: hasToken,
       isInitialized: true,
-      token,
+      token: hasToken ? token : null,
     });
   },
   login: async (email, password) => {
     const tokens = await authApi.login(email, password);
+    if (!tokens.accessToken) {
+      throw new Error("Не удалось войти: сервер вернул пустой токен");
+    }
     localStorage.setItem(TOKEN_KEY, tokens.accessToken);
-    localStorage.setItem(REFRESH_TOKEN_KEY, tokens.refreshToken);
+    if (tokens.refreshToken) {
+      localStorage.setItem(REFRESH_TOKEN_KEY, tokens.refreshToken);
+    }
     set({ isAuthenticated: true, token: tokens.accessToken, isInitialized: true });
   },
   register: async (email, password, fullName) => {
     const tokens = await authApi.register(email, password, fullName);
+    if (!tokens.accessToken) {
+      throw new Error("Не удалось зарегистрироваться: сервер вернул пустой токен");
+    }
     localStorage.setItem(TOKEN_KEY, tokens.accessToken);
-    localStorage.setItem(REFRESH_TOKEN_KEY, tokens.refreshToken);
+    if (tokens.refreshToken) {
+      localStorage.setItem(REFRESH_TOKEN_KEY, tokens.refreshToken);
+    }
     set({ isAuthenticated: true, token: tokens.accessToken, isInitialized: true });
   },
   logout: () => {

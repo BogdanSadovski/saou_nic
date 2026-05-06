@@ -24,8 +24,17 @@ export default function ReportsPage() {
     } catch (e) {
       const status = (e as { response?: { status?: number } })?.response?.status;
       const message = e instanceof Error ? e.message : "Не удалось загрузить отчет";
-      setError(message);
-      setAuthIssue(status === 401 || /401|auth|authorization|token/i.test(message));
+      // 404 means the user doesn't have any interview data yet — render a
+      // friendly empty state instead of a hard error so the page still
+      // works (search, exports, recommendations) without a backend report.
+      if (status === 404) {
+        setReport(reportsApi.emptyReport());
+        setError(null);
+        setAuthIssue(false);
+      } else {
+        setError(message);
+        setAuthIssue(status === 401 || /401|auth|authorization|token/i.test(message));
+      }
     } finally {
       setLoading(false);
     }
