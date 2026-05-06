@@ -196,7 +196,10 @@ func (s *ScoringService) calculateTotalScore(breakdown []domain.CriterionScore) 
 		if w == 0 {
 			w = 1.0
 		}
-		weightedSum += cs.WeightedScore * w
+		// cs.WeightedScore already has cs.Weight baked in by the producer; do
+		// not multiply by w again here to avoid double-weighting. Just sum the
+		// already-weighted scores and normalize by total weight.
+		weightedSum += cs.WeightedScore
 		totalWeight += w
 	}
 
@@ -211,7 +214,10 @@ func (s *ScoringService) convertToCriterionScores(results scoring.CriterionResul
 	scores := make([]domain.CriterionScore, 0, len(results.Results))
 	for _, r := range results.Results {
 		weight := 1.0
-		weightedScore := (r.Score / r.MaxScore) * 100
+		var weightedScore float64
+		if r.MaxScore > 0 {
+			weightedScore = (r.Score / r.MaxScore) * 100
+		}
 
 		scores = append(scores, domain.CriterionScore{
 			CriterionName: r.Name,

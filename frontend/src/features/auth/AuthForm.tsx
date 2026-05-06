@@ -16,9 +16,9 @@ export function AuthForm() {
   const t = useTranslation();
 
   const [mode, setMode] = useState<AuthMode>("signin");
-  const [fullName, setFullName] = useState("Богдан Кандидат");
-  const [email, setEmail] = useState("demo@realsync.ai");
-  const [password, setPassword] = useState("password");
+  const [fullName, setFullName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   const submit = async (event: React.FormEvent<HTMLFormElement>) => {

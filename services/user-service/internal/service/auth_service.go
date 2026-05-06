@@ -87,9 +87,19 @@ func (s *AuthService) Login(ctx context.Context, email, password string) (*jwtpk
 }
 
 func (s *AuthService) RefreshTokens(ctx context.Context, refreshToken string) (*jwtpkg.Tokens, error) {
-	tokens, err := s.tokenMgr.RefreshTokens(refreshToken)
+	claims, err := s.tokenMgr.ValidateToken(refreshToken)
 	if err != nil {
-		return nil, fmt.Errorf("failed to refresh tokens: %w", err)
+		return nil, fmt.Errorf("invalid refresh token: %w", err)
+	}
+
+	user, err := s.userRepo.GetByID(ctx, claims.UserID)
+	if err != nil {
+		return nil, fmt.Errorf("user not found: %w", err)
+	}
+
+	tokens, err := s.tokenMgr.GenerateTokens(user.ID, user.Email, string(user.Role))
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate tokens: %w", err)
 	}
 
 	return tokens, nil

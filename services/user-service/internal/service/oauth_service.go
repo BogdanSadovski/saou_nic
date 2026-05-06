@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"strings"
 
 	"github.com/real-ass/user-service/internal/domain"
 	jwtpkg "github.com/real-ass/user-service/pkg/jwt"
@@ -184,13 +186,26 @@ func (s *OAuthService) getGoogleUserInfo(ctx context.Context, code string) (*dom
 }
 
 func (s *OAuthService) getGitHubUserInfo(ctx context.Context, code string) (*domain.OAuthUserInfo, error) {
-	// Exchange code for token
-	tokenResp, err := http.PostForm("https://github.com/login/oauth/access_token", map[string][]string{
+	form := url.Values{
 		"code":          {code},
 		"client_id":     {s.config.GitHubClientID},
 		"client_secret": {s.config.GitHubClientSecret},
 		"redirect_uri":  {s.config.GitHubRedirectURL},
-	})
+	}
+
+	tokenReq, err := http.NewRequestWithContext(
+		ctx,
+		http.MethodPost,
+		"https://github.com/login/oauth/access_token",
+		strings.NewReader(form.Encode()),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build token request: %w", err)
+	}
+	tokenReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	tokenReq.Header.Set("Accept", "application/json")
+
+	tokenResp, err := http.DefaultClient.Do(tokenReq)
 	if err != nil {
 		return nil, fmt.Errorf("failed to exchange code: %w", err)
 	}
@@ -201,11 +216,20 @@ func (s *OAuthService) getGitHubUserInfo(ctx context.Context, code string) (*dom
 		return nil, fmt.Errorf("failed to read token response: %w", err)
 	}
 
-	// Parse access_token from response (format: access_token=xxx&scope=xxx&token_type=bearer)
-	accessToken := ""
-	for _, param := range string(tokenBody) {
-		// Simplified parsing; in production use proper URL query parsing
-		_ = param
+	var tokenPayload struct {
+		AccessToken string `json:"access_token"`
+		Error       string `json:"error"`
+		ErrorDesc   string `json:"error_description"`
+	}
+	if err := json.Unmarshal(tokenBody, &tokenPayload); err != nil {
+		return nil, fmt.Errorf("failed to parse token response: %w", err)
+	}
+	if tokenPayload.Error != "" {
+		return nil, fmt.Errorf("github oauth error: %s: %s", tokenPayload.Error, tokenPayload.ErrorDesc)
+	}
+	accessToken := tokenPayload.AccessToken
+	if accessToken == "" {
+		return nil, fmt.Errorf("github did not return an access token")
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://api.github.com/user", nil)

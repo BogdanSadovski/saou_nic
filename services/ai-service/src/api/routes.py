@@ -116,21 +116,9 @@ async def analyze_answer(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         logger.exception("Unexpected error analyzing answer")
-        return AnalysisResponse(
-            scores=AnalysisScores(
-                correctness=0,
-                completeness=0,
-                clarity=0,
-                relevance=0,
-            ),
-            overall_score=0,
-            feedback="Анализ временно недоступен. Пожалуйста, попробуйте позже.",
-            strengths=[],
-            weaknesses=["Сервис анализа ИИ сейчас недоступен"],
-            suggested_improvements=[
-                "Повторите запрос на анализ через несколько минут"
-            ],
-        )
+        raise HTTPException(
+            status_code=500, detail="Internal server error"
+        ) from exc
 
 
 @router.post(
@@ -167,12 +155,9 @@ async def transcribe_audio(
     language: Annotated[
         str | None, Query(description="Language code (e.g. 'en', 'ru')")
     ] = None,
-    container: Annotated[DIContainer, Depends(_get_container)] = None,
+    container: Annotated[DIContainer, Depends(_get_container)] = ...,
 ) -> TranscriptionResponse:
     """Transcribe audio content to text."""
-    if container is None:
-        container = get_di_container()
-
     if not file.content_type or not file.content_type.startswith("audio/"):
         raise HTTPException(
             status_code=400,
@@ -912,23 +897,23 @@ def _build_resume_prompt(request: ResumeInsightsRequest) -> str:
     excerpt = (request.text_excerpt or "").strip()[:6000] or "нет"
 
     return (
-        "Сформируй аналитический отчет по резюме кандидата.\\n"
-        "Пиши только на русском языке.\\n"
-        "Не выдумывай факты: опирайся на входные данные и фрагмент резюме.\\n"
-        "Дай: сильные стороны, зоны роста, конкретный план улучшения и рекомендации для интервью.\\n"
-        "Добавь language_insights и interview_tracks, где первый track — лучший старт для кандидата.\\n\\n"
-        f"Файл: {request.file_name}\\n"
-        f"Content-Type: {request.content_type or 'нет'}\\n"
-        f"Предпочтительные роли: {role_preferences}\\n"
-        f"Слов в резюме: {request.word_count}\\n"
-        f"Символов в резюме: {request.character_count}\\n"
-        f"Опытов (entries): {request.experience_entries}\\n"
-        f"Образований (entries): {request.education_entries}\\n\\n"
-        "Навыки:\\n"
-        f"{skills}\\n\\n"
-        "Языки программирования:\\n"
-        f"{languages}\\n\\n"
-        "Фрагмент резюме:\\n"
+        "Сформируй аналитический отчет по резюме кандидата.\n"
+        "Пиши только на русском языке.\n"
+        "Не выдумывай факты: опирайся на входные данные и фрагмент резюме.\n"
+        "Дай: сильные стороны, зоны роста, конкретный план улучшения и рекомендации для интервью.\n"
+        "Добавь language_insights и interview_tracks, где первый track — лучший старт для кандидата.\n\n"
+        f"Файл: {request.file_name}\n"
+        f"Content-Type: {request.content_type or 'нет'}\n"
+        f"Предпочтительные роли: {role_preferences}\n"
+        f"Слов в резюме: {request.word_count}\n"
+        f"Символов в резюме: {request.character_count}\n"
+        f"Опытов (entries): {request.experience_entries}\n"
+        f"Образований (entries): {request.education_entries}\n\n"
+        "Навыки:\n"
+        f"{skills}\n\n"
+        "Языки программирования:\n"
+        f"{languages}\n\n"
+        "Фрагмент резюме:\n"
         f"{excerpt}"
     )
 
@@ -1196,29 +1181,29 @@ def _build_developer_prompt(request: DeveloperInsightsRequest) -> str:
     ) or "- нет данных"
 
     return (
-        "Сформируй аналитический профиль разработчика по GitHub-данным.\\n"
-        "Пиши только на русском языке.\\n"
-        "Не выдумывай факты: опирайся только на входные метрики.\\n"
-        "Оцени объективно: без завышений и без чрезмерного негатива.\\n"
-        "Рекомендованные позиции должны быть конкретными и реалистичными для собеседования.\\n\\n"
-        "Сделай акцент на языках программирования: по каждому ключевому языку дай уверенность, доказательства и темы для интервью.\\n"
-        "Сформируй interview_tracks так, чтобы первый track был самым сильным направлением для кандидата.\\n"
-        f"GitHub username: {request.github_username}\\n"
-        f"Имя профиля: {request.profile_name or 'нет'}\\n"
-        f"Bio: {(request.bio or 'нет')[:500]}\\n"
-        f"Предпочтительные роли: {role_preferences}\\n"
-        f"Followers: {request.followers}\\n"
-        f"Following: {request.following}\\n"
-        f"Public repos: {request.public_repos}\\n"
-        f"Sampled repos: {request.sampled_repos}\\n"
-        f"Total stars: {request.total_stars}\\n"
-        f"Total forks: {request.total_forks}\\n"
-        f"Total open issues: {request.total_open_issues}\\n\\n"
-        "Language distribution:\\n"
-        f"{language_distribution}\\n\\n"
-        "Monthly activity:\\n"
-        f"{monthly_activity}\\n\\n"
-        "Top repositories:\\n"
+        "Сформируй аналитический профиль разработчика по GitHub-данным.\n"
+        "Пиши только на русском языке.\n"
+        "Не выдумывай факты: опирайся только на входные метрики.\n"
+        "Оцени объективно: без завышений и без чрезмерного негатива.\n"
+        "Рекомендованные позиции должны быть конкретными и реалистичными для собеседования.\n\n"
+        "Сделай акцент на языках программирования: по каждому ключевому языку дай уверенность, доказательства и темы для интервью.\n"
+        "Сформируй interview_tracks так, чтобы первый track был самым сильным направлением для кандидата.\n"
+        f"GitHub username: {request.github_username}\n"
+        f"Имя профиля: {request.profile_name or 'нет'}\n"
+        f"Bio: {(request.bio or 'нет')[:500]}\n"
+        f"Предпочтительные роли: {role_preferences}\n"
+        f"Followers: {request.followers}\n"
+        f"Following: {request.following}\n"
+        f"Public repos: {request.public_repos}\n"
+        f"Sampled repos: {request.sampled_repos}\n"
+        f"Total stars: {request.total_stars}\n"
+        f"Total forks: {request.total_forks}\n"
+        f"Total open issues: {request.total_open_issues}\n\n"
+        "Language distribution:\n"
+        f"{language_distribution}\n\n"
+        "Monthly activity:\n"
+        f"{monthly_activity}\n\n"
+        "Top repositories:\n"
         f"{top_repositories}"
     )
 

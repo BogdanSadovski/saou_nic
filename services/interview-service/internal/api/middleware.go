@@ -2,7 +2,9 @@ package api
 
 import (
 	"context"
+	"fmt"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -51,12 +53,27 @@ func Logging(logger *logrus.Logger) Middleware {
 
 // CORS middleware handles Cross-Origin Resource Sharing
 func CORS() Middleware {
+	allowedOrigins := strings.Split(strings.TrimSpace(os.Getenv("CORS_ALLOWED_ORIGINS")), ",")
+	originSet := make(map[string]struct{}, len(allowedOrigins))
+	for _, o := range allowedOrigins {
+		o = strings.TrimSpace(o)
+		if o != "" {
+			originSet[o] = struct{}{}
+		}
+	}
+
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Set("Access-Control-Allow-Origin", "*")
+			origin := r.Header.Get("Origin")
+			if origin != "" {
+				if _, ok := originSet[origin]; ok {
+					w.Header().Set("Access-Control-Allow-Origin", origin)
+					w.Header().Set("Vary", "Origin")
+					w.Header().Set("Access-Control-Allow-Credentials", "true")
+				}
+			}
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, Idempotency-Key")
-			w.Header().Set("Access-Control-Allow-Credentials", "true")
 
 			if r.Method == http.MethodOptions {
 				w.WriteHeader(http.StatusOK)
@@ -131,6 +148,9 @@ func (m *AuthMiddleware) Authenticate(next http.Handler) http.Handler {
 
 func (m *AuthMiddleware) validateToken(tokenString string) (*Claims, error) {
 	token, err := jwt.ParseWithClaims(tokenString, &Claims{}, func(token *jwt.Token) (interface{}, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+		}
 		return []byte(m.secretKey), nil
 	})
 	if err != nil {

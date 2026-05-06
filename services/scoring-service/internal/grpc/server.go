@@ -23,8 +23,8 @@ func NewServer(addr string, scoringHandler *ScoringHandler) (*Server, error) {
 	}
 
 	grpcServer := grpc.NewServer(
-		grpc.UnaryInterceptor(loggingInterceptor),
 		grpc.ChainUnaryInterceptor(
+			loggingInterceptor,
 			recoveryInterceptor,
 		),
 	)

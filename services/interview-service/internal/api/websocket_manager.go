@@ -125,19 +125,18 @@ func (wsm *WebSocketManager) unregisterClient(sessionID uuid.UUID, conn *websock
 
 func (wsm *WebSocketManager) broadcast(sessionID uuid.UUID, message interface{}, exclude *websocket.Conn) {
 	wsm.mu.RLock()
-	clients := wsm.sessions[sessionID]
+	clients := make([]*websocket.Conn, 0, len(wsm.sessions[sessionID]))
+	for conn := range wsm.sessions[sessionID] {
+		if conn != exclude {
+			clients = append(clients, conn)
+		}
+	}
 	wsm.mu.RUnlock()
 
-	for conn := range clients {
-		if conn == exclude {
-			continue
+	for _, conn := range clients {
+		if err := wsm.sendMessage(conn, message); err != nil {
+			wsm.logger.WithError(err).Warn("failed to broadcast websocket message")
 		}
-
-		go func(c *websocket.Conn) {
-			if err := wsm.sendMessage(c, message); err != nil {
-				wsm.logger.WithError(err).Warn("failed to broadcast websocket message")
-			}
-		}(conn)
 	}
 }
 

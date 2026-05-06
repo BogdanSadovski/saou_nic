@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -26,8 +27,12 @@ type TokenValidator func(token *jwt.Token) (*jwt.RegisteredClaims, error)
 
 // JWTAuthConfig holds configuration for the JWT auth middleware.
 type JWTAuthConfig struct {
-	// Validator is the function to validate the JWT token.
+	// Validator is an optional function for additional claims validation.
+	// Signature validation is performed by the middleware using SigningKey.
 	Validator TokenValidator
+	// SigningKey is the HMAC secret used to verify token signatures.
+	// REQUIRED.
+	SigningKey []byte
 	// TokenLookup is the header/query/cookie to look for the token.
 	// Format: "header:<name>" or "query:<name>" or "cookie:<name>"
 	// Default: "header:Authorization"
@@ -51,6 +56,9 @@ func DefaultJWTAuthConfig(validator TokenValidator) JWTAuthConfig {
 
 // JWTAuth creates a JWT authentication middleware for Fiber.
 func JWTAuth(cfg JWTAuthConfig) fiber.Handler {
+	if len(cfg.SigningKey) == 0 {
+		panic("middleware.JWTAuth: SigningKey is required")
+	}
 	if cfg.TokenLookup == "" {
 		cfg.TokenLookup = "header:Authorization"
 	}
@@ -83,13 +91,7 @@ func JWTAuth(cfg JWTAuthConfig) fiber.Handler {
 		case "query":
 			tokenStr = c.Query(parts[1])
 		case "cookie":
-			cookie, err := c.Cookie(parts[1])
-			if err != nil {
-				return c.Status(http.StatusUnauthorized).JSON(fiber.Map{
-					"error": "missing authentication token",
-				})
-			}
-			tokenStr = cookie
+			tokenStr = c.Cookies(parts[1])
 		default:
 			return c.Status(http.StatusUnauthorized).JSON(fiber.Map{
 				"error": "invalid token lookup source",
@@ -103,32 +105,46 @@ func JWTAuth(cfg JWTAuthConfig) fiber.Handler {
 		}
 
 		token, err := jwt.ParseWithClaims(tokenStr, &jwt.RegisteredClaims{}, func(t *jwt.Token) (interface{}, error) {
-			// We delegate full validation to the Validator function
-			return nil, nil
+			if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
+				return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
+			}
+			return cfg.SigningKey, nil
 		})
-		if err != nil && cfg.Validator == nil {
+		if err != nil || !token.Valid {
 			return c.Status(http.StatusUnauthorized).JSON(fiber.Map{
 				"error": "invalid authentication token",
 			})
 		}
 
+		claims, ok := token.Claims.(*jwt.RegisteredClaims)
+		if !ok {
+			return c.Status(http.StatusUnauthorized).JSON(fiber.Map{
+				"error": "invalid token claims",
+			})
+		}
+
 		if cfg.Validator != nil {
-			claims, err := cfg.Validator(token)
+			validated, err := cfg.Validator(token)
 			if err != nil {
 				return c.Status(http.StatusUnauthorized).JSON(fiber.Map{
 					"error": "invalid authentication token: " + err.Error(),
 				})
 			}
-			ctx := context.WithValue(c.Context(), ContextKeyUserID, claims.Subject)
-			c.SetUserContext(ctx)
-			c.Locals(string(ContextKeyUserID), claims.Subject)
-			c.Locals(string(ContextKeyUserEmail), claims.Subject)
-			c.Locals(string(ContextKeyUserClaims), claims)
+			if validated != nil {
+				claims = validated
+			}
 		}
+
+		ctx := context.WithValue(c.Context(), ContextKeyUserID, claims.Subject)
+		c.SetUserContext(ctx)
+		c.Locals(string(ContextKeyUserID), claims.Subject)
+		c.Locals(string(ContextKeyUserEmail), claims.Subject)
+		c.Locals(string(ContextKeyUserClaims), claims)
 
 		return c.Next()
 	}
 }
+
 
 // extractFromHeader extracts the token from an Authorization header.
 func extractFromHeader(c *fiber.Ctx, headerName, authScheme string) string {

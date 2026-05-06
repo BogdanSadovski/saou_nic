@@ -48,7 +48,7 @@ export default function AdminPage() {
       const matchStatus = status === "All" ? true : row.status === status;
       return matchName && matchStatus;
     });
-  }, [query, status]);
+  }, [rows, query, status]);
 
   const getStatusText = (s: string): string => {
     const statusMap: Record<string, string> = {

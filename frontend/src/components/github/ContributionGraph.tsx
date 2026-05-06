@@ -14,7 +14,7 @@ interface ContributionGraphProps {
 const ContributionGraph: React.FC<ContributionGraphProps> = ({
   contributions,
   username = "user",
-  year = 2026,
+  year = new Date().getFullYear(),
 }) => {
   const defaultContributions: ContributionDay[] = Array.from({ length: 365 }, (_, i) => {
     const date = new Date(year, 0, 1);

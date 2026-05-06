@@ -23,7 +23,11 @@ func (c *RubricCalculator) CalculateFromRubric(rubric *domain.Rubric, metrics sc
 
 		// Normalize the score to the criterion's max score
 		normalizedScore := (rawScore / 100) * criterion.MaxScore
-		weightedScore := normalizedScore * criterion.Weight
+		weight := criterion.Weight
+		if weight == 0 {
+			weight = 1.0
+		}
+		weightedScore := normalizedScore * weight
 
 		scores = append(scores, domain.CriterionScore{
 			CriterionName: criterion.Name,
@@ -59,6 +63,9 @@ func (c *RubricCalculator) CalculateWeightedTotal(scores []domain.CriterionScore
 		w := cs.Weight
 		if w == 0 {
 			w = 1.0
+		}
+		if cs.MaxScore <= 0 {
+			continue
 		}
 		weightedSum += (cs.Score / cs.MaxScore) * 100 * w
 		totalWeight += w
