@@ -45,8 +45,6 @@ help:
 # Development
 dev-up:
 	docker compose -f infrastructure/docker/docker-compose.yml up -d
-	@echo "Waiting for postgres..."
-	@until docker exec platform-postgres-1 pg_isready -U postgres >/dev/null 2>&1; do sleep 1; done
 	@$(MAKE) -s dev-migrate
 
 dev-down:
