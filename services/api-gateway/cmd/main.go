@@ -183,10 +183,15 @@ func main() {
 	wsProxy := makeProxy(mustURL(getEnv("INTERVIEW_SERVICE_URL", "http://interview-service:8082")))
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) {
+	healthHandler := func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"status":"ok","service":"api-gateway"}`))
-	})
+	}
+	// Expose health under both `/health` (infra/Docker convention) and
+	// `/api/health` (so SPA clients can reach it via the same `/api/*`
+	// proxy without a separate hop).
+	mux.HandleFunc("/health", healthHandler)
+	mux.HandleFunc("/api/health", healthHandler)
 
 	mux.Handle("/ws", wsProxy)
 
