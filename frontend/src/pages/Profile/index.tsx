@@ -1,9 +1,12 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 
 import {
+  TIER_CATALOG,
+  getTierTitle,
   useAuthStore,
   usePreferencesStore,
+  useSubscriptionStore,
   useUIStore,
   useUserStore,
 } from "@/app/store";
@@ -71,6 +74,33 @@ export default function ProfilePage() {
   const theme = useUIStore((s) => s.theme);
   const setTheme = useUIStore((s) => s.setTheme);
   const prefs = usePreferencesStore();
+
+  // Subscription -----------------------------------------------------------
+  const subscription = useSubscriptionStore();
+  const cancelSubscription = useSubscriptionStore((s) => s.cancel);
+  const refreshSubscription = useSubscriptionStore((s) => s.refresh);
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  useEffect(() => {
+    // Pull fresh state from localStorage in case the user came back
+    // from /billing/checkout — the store may already be primed but a
+    // full reload during checkout would have wiped in-memory state.
+    refreshSubscription();
+    const paid = searchParams.get("paid");
+    if (paid === "cancelled") {
+      pushToast("Платёж отменён");
+      const next = new URLSearchParams(searchParams);
+      next.delete("paid");
+      setSearchParams(next, { replace: true });
+    } else if (paid && paid !== "free") {
+      pushToast(`Тариф ${getTierTitle(paid as never)} активирован`);
+      const next = new URLSearchParams(searchParams);
+      next.delete("paid");
+      setSearchParams(next, { replace: true });
+    }
+    // We only want this effect to fire once on mount + when the URL changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleSaveProfile = async () => {
     setSavingProfile(true);
@@ -279,6 +309,98 @@ export default function ProfilePage() {
             </div>
           ))}
         </div>
+      </GlassCard>
+
+      {/* Subscription / billing */}
+      <GlassCard>
+        <div className="section-header">
+          <h3>Подписка</h3>
+          {subscription.tier !== "free" ? (
+            <span className={`report-status report-status-${subscription.tier}`}>
+              Активный тариф: {getTierTitle(subscription.tier)}
+            </span>
+          ) : (
+            <span className="report-status">Тариф: Free</span>
+          )}
+        </div>
+
+        {subscription.intent ? (
+          <div className="subscription-summary">
+            <div>
+              <strong>{getTierTitle(subscription.tier)}</strong>
+              <span className="muted"> · продлится до {new Date(subscription.intent.expiresAt).toLocaleDateString("ru-RU")}</span>
+            </div>
+            <div className="muted">
+              Карта •••• {subscription.intent.cardLast4} ·{" "}
+              {subscription.intent.amount.toLocaleString("ru-RU")} ₽
+            </div>
+            <div className="modal-actions">
+              <GlassButton
+                onClick={() =>
+                  navigate(
+                    `/billing/checkout?tier=${subscription.tier}&amount=${subscription.intent?.amount ?? 0}`,
+                  )
+                }
+                type="button"
+                variant="ghost"
+              >
+                Продлить
+              </GlassButton>
+              <GlassButton
+                onClick={() => {
+                  cancelSubscription();
+                  pushToast("Подписка отменена");
+                }}
+                type="button"
+                variant="ghost"
+              >
+                Отменить
+              </GlassButton>
+            </div>
+          </div>
+        ) : null}
+
+        <div className="tier-grid">
+          {TIER_CATALOG.map((tier) => {
+            const isCurrent = subscription.tier === tier.tier;
+            return (
+              <div
+                className={`tier-card${tier.highlight ? " is-highlight" : ""}${isCurrent ? " is-current" : ""}`}
+                key={tier.tier}
+              >
+                <div className="tier-card-head">
+                  <span className="tier-name">{tier.title}</span>
+                  {tier.highlight ? <span className="tier-badge">Популярный</span> : null}
+                </div>
+                <div className="tier-price">
+                  <strong>{tier.price.toLocaleString("ru-RU")} ₽</strong>
+                  <span className="muted">/мес</span>
+                </div>
+                <ul className="tier-perks">
+                  {tier.perks.map((perk) => (
+                    <li key={perk}>{perk}</li>
+                  ))}
+                </ul>
+                <button
+                  className={`tier-cta${tier.highlight ? " is-primary" : ""}`}
+                  disabled={isCurrent}
+                  onClick={() =>
+                    navigate(`/billing/checkout?tier=${tier.tier}&amount=${tier.price}`)
+                  }
+                  type="button"
+                >
+                  {isCurrent ? "Текущий тариф" : `Перейти на ${tier.title}`}
+                </button>
+              </div>
+            );
+          })}
+        </div>
+
+        <p className="muted tier-disclaimer">
+          Оплата проходит через защищённый платёжный шлюз — данные карты
+          не сохраняются на нашей стороне. Подписка продлевается ежемесячно,
+          её можно отменить в один клик.
+        </p>
       </GlassCard>
 
       {/* Connected accounts */}

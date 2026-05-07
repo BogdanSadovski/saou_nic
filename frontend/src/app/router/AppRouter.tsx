@@ -17,6 +17,7 @@ const PublicProfilePage = lazy(() => import("@/pages/PublicProfile/index"));
 const ReportsPage = lazy(() => import("@/pages/Reports/index"));
 const ResumePage = lazy(() => import("@/pages/Resume/index"));
 const AdminPage = lazy(() => import("@/pages/Admin/index"));
+const CheckoutPage = lazy(() => import("@/pages/Billing/Checkout"));
 const ErrorPage = lazy(() => import("@/pages/Error/index"));
 
 export function AppRouter() {
@@ -100,8 +101,21 @@ export function AppRouter() {
             }
           />
           <Route path="404" element={<ErrorPage />} />
-          <Route path="*" element={<Navigate replace to="/404" />} />
         </Route>
+
+        {/* External-style checkout — intentionally rendered OUTSIDE
+            AppShell so navbar/sidebar/banner don't appear. The page
+            looks like a 3rd-party hosted gateway (Stripe-like). */}
+        <Route
+          path="billing/checkout"
+          element={
+            <ProtectedRoute>
+              <CheckoutPage />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route path="*" element={<Navigate replace to="/404" />} />
       </Routes>
     </Suspense>
   );
