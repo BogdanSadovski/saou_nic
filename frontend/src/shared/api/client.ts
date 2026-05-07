@@ -150,7 +150,17 @@ apiClient.interceptors.response.use(
     const isNetworkError =
       status === undefined &&
       (RETRIABLE_NETWORK_CODES.has(error.code ?? "") || error.message === "Network Error");
-    const retriable = isSafeMethod && (isNetworkError || (status !== undefined && RETRIABLE_STATUSES.has(status)));
+    // Auth endpoints are POST but their server-side handlers are
+    // idempotent enough at the gateway/upstream-restart level: a 502/503/504
+    // there is almost always an in-flight rolling restart, not "the user
+    // already exists". Allow these specific paths to retry once on 5xx.
+    const isAuthRetryable =
+      method === "post" &&
+      (requestUrl.includes("/auth/login") || requestUrl.includes("/auth/register"));
+    const retryableOnStatus = status !== undefined && RETRIABLE_STATUSES.has(status);
+    const retriable =
+      (isSafeMethod && (isNetworkError || retryableOnStatus)) ||
+      (isAuthRetryable && (isNetworkError || retryableOnStatus));
 
     const retries = (config as { __retryCount?: number }).__retryCount ?? 0;
     if (!retriable || retries >= MAX_RETRIES) {

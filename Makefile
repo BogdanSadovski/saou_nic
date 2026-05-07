@@ -60,6 +60,12 @@ dev-reset:
 dev-migrate:
 	./scripts/run-migrations.sh
 
+# Promote a user to the admin role.
+# Usage: make grant-admin EMAIL=user@example.com
+grant-admin:
+	@if [ -z "$(EMAIL)" ]; then echo "Usage: make grant-admin EMAIL=user@example.com" >&2; exit 1; fi
+	@./scripts/grant-admin.sh "$(EMAIL)"
+
 # Build all services
 build-all: user-service resume-service github-service interview-service scoring-service report-service notification-service analytics-service admin-service api-gateway ai-service frontend
 

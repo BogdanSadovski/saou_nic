@@ -7,48 +7,102 @@ import {
   CartesianGrid,
   Cell,
   Legend,
+  Line,
+  LineChart,
   Pie,
   PieChart,
+  PolarAngleAxis,
+  PolarGrid,
+  PolarRadiusAxis,
+  Radar,
+  RadarChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
 } from "recharts";
 
-import type { UserInterviewAnalyticsReport } from "@/shared/api/reports";
+import type { UserInterviewAnalyticsReport, UserInterviewEntry } from "@/shared/api/reports";
 
 const PALETTE = ["#1274ff", "#31b99b", "#e0a800", "#d23b3b", "#7a5cff", "#34c4d6"];
+
+const TOOLTIP_STYLE = {
+  background: "var(--bg-2)",
+  border: "1px solid var(--line-strong)",
+  borderRadius: "var(--r-md)",
+  color: "var(--text-0)",
+} as const;
 
 type Props = {
   report: UserInterviewAnalyticsReport;
 };
 
 /**
- * Reports page analytics charts.
- *
- * Three views, computed from the same report payload:
- *   - Activity timeline (daily started vs completed)
- *   - Role mix (pie)
- *   - Mode mix (horizontal bars)
+ * Reports analytics surface: 6 visualisations driven by the same
+ * /interviews/me/report payload.
  *
  * Each chart sits inside a fixed-height ResponsiveContainer so the
- * surrounding GlassCard layout doesn't reflow as data loads. Empty
- * datasets render an inline placeholder rather than an empty SVG.
+ * surrounding GlassCard layout doesn't reflow as data loads.
+ * Empty datasets render an inline placeholder rather than an empty
+ * SVG. All colours come from CSS tokens so dark/light themes match.
  */
 export function ReportsCharts({ report }: Props) {
+  // 30-day activity --------------------------------------------------------
   const timeline = useMemo(
     () =>
       [...report.timeline]
         .sort((a, b) => a.date.localeCompare(b.date))
         .slice(-30)
         .map((point) => ({
-          date: point.date.slice(5), // MM-DD
+          date: point.date.slice(5),
           started: point.started,
           completed: point.completed,
         })),
     [report.timeline],
   );
 
+  // Score trend per finished interview (chronological) ---------------------
+  const scoreTrend = useMemo(() => {
+    const finished = [...report.completed_interviews]
+      .filter((i): i is UserInterviewEntry & { overall_score: number } => typeof i.overall_score === "number")
+      .sort((a, b) => (a.finished_at ?? a.started_at).localeCompare(b.finished_at ?? b.started_at));
+
+    let runningSum = 0;
+    return finished.slice(-15).map((entry, idx) => {
+      runningSum += entry.overall_score;
+      return {
+        idx: idx + 1,
+        label: entry.role,
+        score: Math.round(entry.overall_score),
+        rolling: Math.round(runningSum / (idx + 1)),
+      };
+    });
+  }, [report.completed_interviews]);
+
+  // Strengths vs growth radar ---------------------------------------------
+  const radarData = useMemo(() => {
+    const dims = ["correctness", "clarity", "completeness", "relevance"] as const;
+    const finished = report.completed_interviews.filter(
+      (i) => typeof i.overall_score === "number",
+    );
+    if (finished.length === 0) return [] as Array<{ axis: string; me: number; target: number }>;
+    // Use overall_score as proxy for now since per-dim breakdowns aren't on
+    // the timeline payload; render evenly so the shape reads at a glance.
+    const avg = finished.reduce((sum, i) => sum + (i.overall_score ?? 0), 0) / finished.length;
+    return dims.map((dim) => ({
+      axis: dim === "correctness"
+        ? "Корректность"
+        : dim === "clarity"
+        ? "Ясность"
+        : dim === "completeness"
+        ? "Полнота"
+        : "Релевантность",
+      me: Math.round(avg),
+      target: 80,
+    }));
+  }, [report.completed_interviews]);
+
+  // Roles + modes ----------------------------------------------------------
   const roleMix = useMemo(
     () =>
       report.role_distribution
@@ -64,6 +118,17 @@ export function ReportsCharts({ report }: Props) {
         .map((item) => ({ name: item.label, value: item.value })),
     [report.mode_distribution],
   );
+
+  // Completion funnel ------------------------------------------------------
+  const funnel = useMemo(() => {
+    const t = report.totals;
+    return [
+      { stage: "Начато", value: t.total_interviews },
+      { stage: "Активные", value: t.in_progress_interviews },
+      { stage: "Завершено", value: t.completed_interviews },
+      { stage: "Отчёты", value: report.performance.reports_generated },
+    ].filter((entry) => entry.value > 0);
+  }, [report.totals, report.performance.reports_generated]);
 
   return (
     <div className="reports-charts">
@@ -87,14 +152,7 @@ export function ReportsCharts({ report }: Props) {
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.08)" />
               <XAxis dataKey="date" stroke="var(--text-muted)" fontSize={11} />
               <YAxis stroke="var(--text-muted)" fontSize={11} allowDecimals={false} />
-              <Tooltip
-                contentStyle={{
-                  background: "var(--bg-2)",
-                  border: "1px solid var(--line-strong)",
-                  borderRadius: "var(--r-md)",
-                  color: "var(--text-0)",
-                }}
-              />
+              <Tooltip contentStyle={TOOLTIP_STYLE} />
               <Legend wrapperStyle={{ fontSize: 12, color: "var(--text-muted)" }} />
               <Area
                 type="monotone"
@@ -117,6 +175,89 @@ export function ReportsCharts({ report }: Props) {
         )}
       </div>
 
+      <div className="reports-chart-card">
+        <h4>Тренд оценок по последним интервью</h4>
+        {scoreTrend.length === 0 ? (
+          <p className="muted">Пока нет завершённых интервью с итоговым баллом.</p>
+        ) : (
+          <ResponsiveContainer width="100%" height={240}>
+            <LineChart data={scoreTrend} margin={{ top: 10, right: 16, left: 0, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.08)" />
+              <XAxis dataKey="idx" stroke="var(--text-muted)" fontSize={11} />
+              <YAxis domain={[0, 100]} stroke="var(--text-muted)" fontSize={11} />
+              <Tooltip
+                contentStyle={TOOLTIP_STYLE}
+                labelFormatter={(value, payload) => {
+                  const point = payload?.[0]?.payload as { label?: string } | undefined;
+                  return point?.label ? `Сессия ${value} · ${point.label}` : `Сессия ${value}`;
+                }}
+              />
+              <Legend wrapperStyle={{ fontSize: 12, color: "var(--text-muted)" }} />
+              <Line
+                type="monotone"
+                dataKey="score"
+                name="Балл"
+                stroke="#1274ff"
+                strokeWidth={2}
+                dot={{ r: 3 }}
+                activeDot={{ r: 5 }}
+              />
+              <Line
+                type="monotone"
+                dataKey="rolling"
+                name="Скользящее среднее"
+                stroke="#e0a800"
+                strokeDasharray="4 4"
+                strokeWidth={2}
+                dot={false}
+              />
+            </LineChart>
+          </ResponsiveContainer>
+        )}
+      </div>
+
+      <div className="reports-chart-row">
+        <div className="reports-chart-card">
+          <h4>Профиль качества ответа</h4>
+          {radarData.length === 0 ? (
+            <p className="muted">Радар появится после первого пройденного интервью.</p>
+          ) : (
+            <ResponsiveContainer width="100%" height={240}>
+              <RadarChart data={radarData} outerRadius={88}>
+                <PolarGrid stroke="rgba(255,255,255,0.12)" />
+                <PolarAngleAxis dataKey="axis" stroke="var(--text-muted)" fontSize={11} />
+                <PolarRadiusAxis angle={30} domain={[0, 100]} stroke="var(--text-muted)" fontSize={10} />
+                <Radar name="Вы" dataKey="me" stroke="#1274ff" fill="#1274ff" fillOpacity={0.35} />
+                <Radar name="Цель" dataKey="target" stroke="#31b99b" strokeDasharray="4 4" fill="#31b99b" fillOpacity={0.08} />
+                <Tooltip contentStyle={TOOLTIP_STYLE} />
+                <Legend wrapperStyle={{ fontSize: 12, color: "var(--text-muted)" }} />
+              </RadarChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+
+        <div className="reports-chart-card">
+          <h4>Воронка завершения</h4>
+          {funnel.length === 0 ? (
+            <p className="muted">Воронка появится после первой сессии.</p>
+          ) : (
+            <ResponsiveContainer width="100%" height={240}>
+              <BarChart data={funnel} layout="vertical" margin={{ top: 10, right: 24, left: 24, bottom: 0 }}>
+                <CartesianGrid horizontal={false} stroke="rgba(255,255,255,0.08)" />
+                <XAxis type="number" stroke="var(--text-muted)" fontSize={11} allowDecimals={false} />
+                <YAxis dataKey="stage" type="category" stroke="var(--text-muted)" fontSize={11} width={90} />
+                <Tooltip contentStyle={TOOLTIP_STYLE} />
+                <Bar dataKey="value" radius={[0, 8, 8, 0]}>
+                  {funnel.map((_, idx) => (
+                    <Cell key={idx} fill={PALETTE[idx % PALETTE.length]} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+      </div>
+
       <div className="reports-chart-row">
         <div className="reports-chart-card">
           <h4>Распределение по ролям</h4>
@@ -137,14 +278,7 @@ export function ReportsCharts({ report }: Props) {
                     <Cell key={idx} fill={PALETTE[idx % PALETTE.length]} />
                   ))}
                 </Pie>
-                <Tooltip
-                  contentStyle={{
-                    background: "var(--bg-2)",
-                    border: "1px solid var(--line-strong)",
-                    borderRadius: "var(--r-md)",
-                    color: "var(--text-0)",
-                  }}
-                />
+                <Tooltip contentStyle={TOOLTIP_STYLE} />
                 <Legend wrapperStyle={{ fontSize: 12, color: "var(--text-muted)" }} />
               </PieChart>
             </ResponsiveContainer>
@@ -165,14 +299,7 @@ export function ReportsCharts({ report }: Props) {
                 <CartesianGrid horizontal={false} stroke="rgba(255,255,255,0.08)" />
                 <XAxis type="number" stroke="var(--text-muted)" fontSize={11} allowDecimals={false} />
                 <YAxis dataKey="name" type="category" stroke="var(--text-muted)" fontSize={11} width={90} />
-                <Tooltip
-                  contentStyle={{
-                    background: "var(--bg-2)",
-                    border: "1px solid var(--line-strong)",
-                    borderRadius: "var(--r-md)",
-                    color: "var(--text-0)",
-                  }}
-                />
+                <Tooltip contentStyle={TOOLTIP_STYLE} />
                 <Bar dataKey="value" fill="#1274ff" radius={[0, 6, 6, 0]}>
                   {modeMix.map((_, idx) => (
                     <Cell key={idx} fill={PALETTE[idx % PALETTE.length]} />

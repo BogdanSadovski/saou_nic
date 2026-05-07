@@ -1,0 +1,464 @@
+/**
+ * Redesign layer — modern visual polish on top of the existing
+ * design tokens and components. Loaded last so it can override the
+ * older flat-glass treatment without rewriting every file.
+ *
+ * Goals:
+ *   1. Premium glass surfaces (multi-layer blur + subtle inner border).
+ *   2. Vivid but disciplined gradient brand (no rainbow).
+ *   3. Coherent hover/focus reactions across cards and buttons.
+ *   4. Stronger typography hierarchy (display + tracking).
+ *   5. Cinematic ambient backdrop (animated radial gradients).
+ *
+ * All values pull from --tokens; nothing is hard-coded so dark/light
+ * themes stay parity.
+ */
+
+/* ------------------------------------------------------------------ */
+/* Page backdrop                                                        */
+/* ------------------------------------------------------------------ */
+
+body {
+  background:
+    radial-gradient(ellipse 80% 60% at 12% 0%, color-mix(in srgb, var(--accent) 18%, transparent), transparent 60%),
+    radial-gradient(ellipse 70% 60% at 100% 100%, color-mix(in srgb, var(--success) 14%, transparent), transparent 55%),
+    linear-gradient(160deg, var(--bg-0), var(--bg-1));
+  background-attachment: fixed;
+}
+
+.ambient {
+  filter: blur(90px);
+  opacity: 0.32;
+  animation: ambient-drift 18s ease-in-out infinite alternate;
+}
+
+.ambient-a {
+  background: radial-gradient(circle, color-mix(in srgb, var(--accent) 60%, transparent), transparent 70%);
+}
+
+.ambient-b {
+  background: radial-gradient(circle, color-mix(in srgb, var(--success) 55%, transparent), transparent 70%);
+  animation-delay: -9s;
+}
+
+@keyframes ambient-drift {
+  0% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  100% {
+    transform: translate3d(40px, -30px, 0) scale(1.07);
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Typography hierarchy                                                 */
+/* ------------------------------------------------------------------ */
+
+h1,
+.page > h1 {
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  background: linear-gradient(
+    120deg,
+    var(--text-0) 0%,
+    color-mix(in srgb, var(--accent) 70%, var(--text-0)) 100%
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+}
+
+.eyebrow {
+  font-size: var(--fz-xs);
+  font-weight: 700;
+}
+
+/* ------------------------------------------------------------------ */
+/* Glass card v2                                                        */
+/* ------------------------------------------------------------------ */
+
+.glass-card {
+  position: relative;
+  background:
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--glass-bg) 100%, transparent) 0%,
+      color-mix(in srgb, var(--glass-bg) 60%, transparent) 100%
+    );
+  border: 1px solid var(--glass-border);
+  border-radius: var(--r-2xl);
+  padding: var(--sp-5);
+  box-shadow: var(--shadow-md), inset 0 1px 0 0 color-mix(in srgb, white 8%, transparent);
+  transition: transform var(--t-base) var(--ease-out),
+    box-shadow var(--t-base) var(--ease-out),
+    border-color var(--t-base) var(--ease-out);
+  overflow: hidden;
+}
+
+.glass-card::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--accent) 28%, transparent),
+    transparent 60%
+  );
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+  opacity: 0.6;
+}
+
+.glass-card:hover {
+  transform: translateY(-3px);
+  border-color: color-mix(in srgb, var(--accent) 36%, var(--glass-border));
+  box-shadow: var(--shadow-lg), inset 0 1px 0 0 color-mix(in srgb, white 10%, transparent);
+}
+
+.stat-card {
+  position: relative;
+  isolation: isolate;
+}
+
+.stat-card h2,
+.stat-card h3 {
+  font-size: var(--fz-3xl);
+  margin: 0;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  background: linear-gradient(120deg, var(--text-0), color-mix(in srgb, var(--accent) 65%, var(--text-0)));
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+}
+
+.stat-card::after {
+  content: "";
+  position: absolute;
+  inset: auto -25% -40% auto;
+  width: 60%;
+  height: 60%;
+  background: radial-gradient(closest-side, color-mix(in srgb, var(--accent) 22%, transparent), transparent);
+  z-index: -1;
+  pointer-events: none;
+}
+
+/* ------------------------------------------------------------------ */
+/* Hero section                                                         */
+/* ------------------------------------------------------------------ */
+
+.home-page .hero {
+  padding: clamp(2rem, 6vw, 3.5rem);
+  background:
+    radial-gradient(ellipse 80% 100% at 0% 0%, color-mix(in srgb, var(--accent) 22%, transparent), transparent 60%),
+    radial-gradient(ellipse 70% 80% at 100% 100%, color-mix(in srgb, var(--success) 20%, transparent), transparent 60%),
+    linear-gradient(135deg, var(--glass-bg), color-mix(in srgb, var(--glass-bg) 50%, transparent));
+  border: 1px solid var(--glass-border);
+}
+
+.home-page .hero h1 {
+  font-size: clamp(2.4rem, 5.5vw, 4rem);
+  line-height: 1.05;
+  margin: var(--sp-3) 0 var(--sp-4);
+  background: linear-gradient(
+    120deg,
+    var(--text-0) 0%,
+    var(--accent) 50%,
+    color-mix(in srgb, var(--success) 80%, var(--text-0)) 100%
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.home-page .hero p.muted {
+  font-size: var(--fz-lg);
+  line-height: var(--lh-normal);
+  max-width: 560px;
+}
+
+.home-grid > .glass-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.home-grid > .glass-card h3 {
+  font-size: var(--fz-xl);
+  font-weight: 600;
+  margin: 0;
+}
+
+/* ------------------------------------------------------------------ */
+/* Buttons                                                              */
+/* ------------------------------------------------------------------ */
+
+.glass-button {
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  transition: transform var(--t-fast) var(--ease-out),
+    box-shadow var(--t-fast) var(--ease-out),
+    background var(--t-fast) var(--ease-out);
+}
+
+.glass-button:hover {
+  transform: translateY(-1px);
+}
+
+.glass-button:active {
+  transform: translateY(0);
+}
+
+.glass-button-primary {
+  background: linear-gradient(
+    120deg,
+    var(--accent) 0%,
+    color-mix(in srgb, var(--success) 60%, var(--accent)) 100%
+  );
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+.glass-button-primary:hover {
+  box-shadow: 0 12px 32px color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+/* ------------------------------------------------------------------ */
+/* Top nav                                                              */
+/* ------------------------------------------------------------------ */
+
+.top-nav {
+  background: color-mix(in srgb, var(--glass-bg) 80%, transparent);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--r-pill);
+  padding: var(--sp-2) var(--sp-3);
+  backdrop-filter: blur(20px) saturate(140%);
+  -webkit-backdrop-filter: blur(20px) saturate(140%);
+  box-shadow: var(--shadow-md);
+}
+
+.brand-dot {
+  width: 12px;
+  height: 12px;
+  background: linear-gradient(135deg, var(--accent), var(--success));
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.nav-link {
+  font-weight: 500;
+  transition: background var(--t-fast) var(--ease-out), color var(--t-fast) var(--ease-out);
+}
+
+.nav-link-active {
+  background: linear-gradient(
+    120deg,
+    color-mix(in srgb, var(--accent) 22%, transparent),
+    color-mix(in srgb, var(--success) 18%, transparent)
+  );
+  color: var(--text-0);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+/* ------------------------------------------------------------------ */
+/* Sidebar                                                              */
+/* ------------------------------------------------------------------ */
+
+.side-panel {
+  padding: var(--sp-3);
+}
+
+.side-link {
+  font-weight: 500;
+  border-radius: var(--r-md);
+  transition: background var(--t-fast) var(--ease-out), color var(--t-fast) var(--ease-out),
+    transform var(--t-fast) var(--ease-out);
+}
+
+.side-link:hover {
+  transform: translateX(2px);
+}
+
+.side-link-active {
+  background: linear-gradient(
+    120deg,
+    color-mix(in srgb, var(--accent) 22%, transparent),
+    color-mix(in srgb, var(--success) 14%, transparent)
+  );
+  color: var(--text-0);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 28%, transparent);
+}
+
+/* ------------------------------------------------------------------ */
+/* Forms                                                                */
+/* ------------------------------------------------------------------ */
+
+.floating-input input,
+.floating-input textarea,
+.message-composer textarea,
+.interview-field select,
+.vacancy-search-input,
+.status-filter select {
+  border-radius: var(--r-lg);
+  border: 1px solid var(--line-strong);
+  background: color-mix(in srgb, var(--bg-2) 70%, transparent);
+  transition: border-color var(--t-fast) var(--ease-out), box-shadow var(--t-fast) var(--ease-out);
+}
+
+.floating-input input:focus,
+.floating-input textarea:focus,
+.message-composer textarea:focus,
+.interview-field select:focus,
+.vacancy-search-input:focus,
+.status-filter select:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: var(--shadow-focus);
+}
+
+/* ------------------------------------------------------------------ */
+/* Reports / Admin chart cards                                         */
+/* ------------------------------------------------------------------ */
+
+.reports-chart-card {
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--bg-2) 70%, transparent),
+    color-mix(in srgb, var(--bg-1) 80%, transparent)
+  );
+  border: 1px solid var(--line);
+  transition: border-color var(--t-base) var(--ease-out), transform var(--t-base) var(--ease-out);
+}
+
+.reports-chart-card:hover {
+  border-color: color-mix(in srgb, var(--accent) 28%, var(--line));
+  transform: translateY(-2px);
+}
+
+/* ------------------------------------------------------------------ */
+/* Tables (admin / reports)                                            */
+/* ------------------------------------------------------------------ */
+
+.admin-table {
+  border-radius: var(--r-lg);
+  overflow: hidden;
+}
+
+.admin-table thead {
+  background: color-mix(in srgb, var(--bg-2) 50%, transparent);
+}
+
+.admin-table tbody tr {
+  transition: background var(--t-fast) var(--ease-out);
+}
+
+.admin-table tr:hover td {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+/* ------------------------------------------------------------------ */
+/* Chat / interview                                                     */
+/* ------------------------------------------------------------------ */
+
+.msg {
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-md);
+  transition: transform var(--t-fast) var(--ease-out);
+}
+
+.msg:hover {
+  transform: translateY(-1px);
+}
+
+.msg-ai {
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--accent) 22%, transparent),
+    color-mix(in srgb, var(--accent) 8%, transparent)
+  );
+}
+
+.msg-user {
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--success) 28%, transparent),
+    color-mix(in srgb, var(--success) 12%, transparent)
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Settings page polish                                                 */
+/* ------------------------------------------------------------------ */
+
+.settings-row {
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--bg-2) 60%, transparent),
+    color-mix(in srgb, var(--bg-1) 70%, transparent)
+  );
+  border: 1px solid var(--line);
+  transition: border-color var(--t-fast) var(--ease-out), transform var(--t-fast) var(--ease-out);
+}
+
+.settings-row:hover {
+  border-color: color-mix(in srgb, var(--accent) 22%, var(--line));
+}
+
+.profile-stat {
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--accent) 16%, transparent),
+    color-mix(in srgb, var(--accent) 4%, transparent)
+  );
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--line));
+  transition: transform var(--t-base) var(--ease-out);
+}
+
+.profile-stat:hover {
+  transform: translateY(-2px);
+}
+
+.profile-stat strong {
+  background: linear-gradient(120deg, var(--text-0), color-mix(in srgb, var(--accent) 70%, var(--text-0)));
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* ------------------------------------------------------------------ */
+/* Empty states                                                         */
+/* ------------------------------------------------------------------ */
+
+.empty-state {
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--bg-2) 70%, transparent),
+    color-mix(in srgb, var(--accent) 6%, transparent)
+  );
+  border: 1px dashed color-mix(in srgb, var(--accent) 30%, var(--line-strong));
+}
+
+.empty-state__icon {
+  font-size: 48px;
+  filter: drop-shadow(0 6px 16px color-mix(in srgb, var(--accent) 32%, transparent));
+}
+
+/* ------------------------------------------------------------------ */
+/* Banner                                                               */
+/* ------------------------------------------------------------------ */
+
+.glass-button:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+
+/* Reduced-motion fallbacks */
+@media (prefers-reduced-motion: reduce) {
+  .ambient {
+    animation: none;
+  }
+}

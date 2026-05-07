@@ -76,7 +76,9 @@ export function AuthForm() {
       } else if (status === 409) {
         setError("Пользователь с таким email уже существует.");
       } else if (status && status >= 500) {
-        setError("Сервер авторизации временно недоступен. Попробуйте через минуту.");
+        setError(
+          "Сервер авторизации перезапускается. Подождите 5–10 секунд и нажмите кнопку ещё раз — ваши данные сохранены.",
+        );
       } else {
         const serverMessage = err.response?.data?.error ?? err.response?.data?.message;
         setError(serverMessage || "Не удалось выполнить запрос. Проверьте подключение и данные.");
