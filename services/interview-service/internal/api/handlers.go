@@ -2681,6 +2681,7 @@ func (h *Handler) generateInitialQuestion(ctx context.Context, sessionID uuid.UU
 	h.rememberAskedQuestion(ctx, session.UserID, session.Role, aiMsg.Content)
 
 	h.broadcastSessionEvent(session.SessionID, "ai.typing.stopped", map[string]bool{"typing": false})
+	h.streamAIMessageContent(session.SessionID, aiMsg.Content)
 	h.broadcastSessionEvent(session.SessionID, "message.ai", aiMsg)
 	h.recordAuditEvent(ctx, session.SessionID, "llm_response", map[string]interface{}{"topic": aiMsg.Topic, "difficulty": aiMsg.Difficulty, "pressure": session.PressureLevel})
 }
@@ -2861,7 +2862,7 @@ func (h *Handler) AddInterviewModuleMessage(w http.ResponseWriter, r *http.Reque
 	h.rememberAskedQuestion(r.Context(), session.UserID, session.Role, aiMsg.Content)
 
 	h.broadcastSessionEvent(session.SessionID, "ai.typing.stopped", map[string]bool{"typing": false})
-	h.broadcastSessionEvent(session.SessionID, "ai.message.chunk", map[string]string{"chunk": aiMsg.Content})
+	h.streamAIMessageContent(session.SessionID, aiMsg.Content)
 	h.broadcastSessionEvent(session.SessionID, "message.ai", aiMsg)
 
 	remainingSec := int(time.Until(session.ExpiresAt) / time.Second)
@@ -3803,6 +3804,139 @@ func (h *Handler) broadcastSessionEvent(sessionID uuid.UUID, eventType string, p
 	}
 }
 
+// streamAIMessageContent simulates token-by-token streaming over the
+// existing WS channel. The frontend already handles ai.message.chunk
+// events (see chatStore.pushStreamChunk), so by emitting word-grouped
+// chunks with a small inter-chunk delay we get a typewriter-style
+// experience without introducing a real LLM streaming hop.
+//
+// Behaviour:
+//   - Splits the message preserving whitespace, then groups 1-3 tokens
+//     per chunk so the buffer grows in human-readable bursts (not single
+//     letters).
+//   - Sleeps proportionally to chunk length, capped, so a 700-char
+//     question streams in ~1.5-2.5s — perceived as "thinking, typing
+//     fast" rather than "instant" or "stuck".
+//   - Total stream is bounded by an upper deadline (maxDuration) so a
+//     pathological message can never block downstream message.ai.
+//   - Aborts immediately if the session has no live WS connections,
+//     since chunks are useless without subscribers.
+func (h *Handler) streamAIMessageContent(sessionID uuid.UUID, content string) {
+	if strings.TrimSpace(content) == "" {
+		return
+	}
+
+	h.moduleMu.RLock()
+	hasSubscribers := len(h.moduleWS[sessionID]) > 0
+	h.moduleMu.RUnlock()
+	if !hasSubscribers {
+		return
+	}
+
+	chunks := splitIntoStreamChunks(content)
+	if len(chunks) == 0 {
+		return
+	}
+
+	const (
+		perChunkBaseMS  = 18
+		perCharMS       = 4
+		maxChunkPauseMS = 110
+		maxDuration     = 2500 * time.Millisecond
+	)
+
+	deadline := time.Now().Add(maxDuration)
+	for _, chunk := range chunks {
+		h.broadcastSessionEvent(sessionID, "ai.message.chunk", map[string]string{"chunk": chunk})
+
+		// Inter-chunk pause scales with chunk size, capped, and never exceeds
+		// the overall deadline.
+		pause := time.Duration(perChunkBaseMS+len(chunk)*perCharMS) * time.Millisecond
+		if pause > time.Duration(maxChunkPauseMS)*time.Millisecond {
+			pause = time.Duration(maxChunkPauseMS) * time.Millisecond
+		}
+		if remaining := time.Until(deadline); remaining < pause {
+			pause = remaining
+		}
+		if pause <= 0 {
+			continue
+		}
+		time.Sleep(pause)
+	}
+}
+
+// splitIntoStreamChunks groups the message into 1-3 token bursts while
+// preserving the trailing whitespace so the concatenated chunks
+// reconstruct the original content byte-for-byte. Code/punctuation
+// boundaries get their own chunk so JSON-ish or technical answers
+// remain readable mid-stream.
+func splitIntoStreamChunks(content string) []string {
+	if content == "" {
+		return nil
+	}
+	// Tokenise: word + trailing whitespace + trailing punctuation cluster.
+	tokens := tokenizeForStream(content)
+	if len(tokens) == 0 {
+		return []string{content}
+	}
+
+	chunks := make([]string, 0, len(tokens))
+	var buf strings.Builder
+	tokensInBuf := 0
+	for _, tok := range tokens {
+		buf.WriteString(tok)
+		tokensInBuf++
+		// Flush every 1-3 tokens; on punctuation/newline we flush early
+		// so the typewriter pauses naturally at sentence breaks.
+		if tokensInBuf >= 3 || endsAtBoundary(tok) {
+			chunks = append(chunks, buf.String())
+			buf.Reset()
+			tokensInBuf = 0
+		}
+	}
+	if buf.Len() > 0 {
+		chunks = append(chunks, buf.String())
+	}
+	return chunks
+}
+
+func tokenizeForStream(s string) []string {
+	out := make([]string, 0, len(s)/4+1)
+	var current strings.Builder
+	flush := func() {
+		if current.Len() > 0 {
+			out = append(out, current.String())
+			current.Reset()
+		}
+	}
+	for _, r := range s {
+		current.WriteRune(r)
+		if r == ' ' || r == '\n' || r == '\t' {
+			flush()
+		}
+	}
+	flush()
+	return out
+}
+
+func endsAtBoundary(token string) bool {
+	if token == "" {
+		return false
+	}
+	// Strip the trailing whitespace we kept on each token, then look at
+	// the last meaningful rune.
+	trimmed := strings.TrimRight(token, " \t\n")
+	if trimmed == "" {
+		return false
+	}
+	last := trimmed[len(trimmed)-1]
+	switch last {
+	case '.', '!', '?', ':', ';', ',', ')', ']', '}', '"':
+		return true
+	}
+	return false
+}
+
 func (h *Handler) userIDFromContext(ctx context.Context) string {
 	if v := ctx.Value(ContextKeyUserID); v != nil {
 		if s, ok := v.(string); ok {
@@ -3834,21 +3968,96 @@ func (h *Handler) acquireSessionLock(ctx context.Context, sessionID uuid.UUID) (
 	return unlock, nil
 }
 
+// classifyAnswer scores a candidate answer on a small set of textual
+// signals and returns one of "weak" / "neutral" / "strong". The result
+// drives difficulty/pressure adjustments and topic-switch decisions.
+//
+// Weighting (heuristic, intentionally bounded so a single signal can't
+// dominate):
+//   - Length tier (short < 80 chars → -2, long > 350 chars → +1)
+//   - Uncertainty markers ("не знаю", "затрудняюсь" etc.) → -3
+//   - Engineering-density vocabulary (trade-off, latency, p95, метрик,
+//     consistency, idempot...) → +1 each, capped at +3
+//   - Code block / fenced snippet → +2 (live coding answers)
+//   - Numeric reasoning ("в 2 раза", "100ms", "10x") → +1
+//   - Structural cues (bullets, "сначала ... затем") → +1
+//
+// Negative cumulative score → weak, ≥3 → strong, otherwise neutral.
 func (h *Handler) classifyAnswer(answer string) string {
 	trimmed := strings.TrimSpace(answer)
 	if trimmed == "" {
 		return "weak"
 	}
+	lowered := strings.ToLower(trimmed)
+	score := 0
+
+	switch {
+	case len(trimmed) < 30:
+		score -= 3
+	case len(trimmed) < 80:
+		score -= 2
+	case len(trimmed) > 600:
+		score += 2
+	case len(trimmed) > 350:
+		score += 1
+	}
+
 	if h.isUncertainAnswer(trimmed) {
-		return "weak"
+		score -= 3
 	}
-	if len(trimmed) < 80 {
-		return "weak"
+
+	techMarkers := []string{
+		"trade-off", "tradeoff", "компромисс",
+		"latency", "p95", "p99", "throughput", "qps",
+		"метрик", "monitoring", "observability",
+		"consistency", "идемпотент", "idempot",
+		"transaction", "транзакц",
+		"timeout", "retry", "circuit breaker",
+		"cache", "кэш", "ttl",
+		"sharding", "partition", "репликац",
+		"deadlock", "race condition", "гонк",
 	}
-	if len(trimmed) > 220 && (strings.Contains(strings.ToLower(trimmed), "trade-off") || strings.Contains(strings.ToLower(trimmed), "метрик") || strings.Contains(strings.ToLower(trimmed), "latency")) {
+	techHits := 0
+	for _, marker := range techMarkers {
+		if strings.Contains(lowered, marker) {
+			techHits++
+		}
+	}
+	if techHits > 3 {
+		techHits = 3
+	}
+	score += techHits
+
+	// Fenced code or inline backticks → strong signal of practice answer.
+	if strings.Contains(trimmed, "```") || strings.Count(trimmed, "`") >= 4 {
+		score += 2
+	}
+
+	// Numeric reasoning — answers that put a number on the claim.
+	if matched, _ := regexp.MatchString(`\b\d+\s*(ms|сек|секунд|min|мин|%|x|раз|qps|rps|gb|mb)\b`, lowered); matched {
+		score += 1
+	}
+
+	// Structural cues.
+	if strings.Contains(trimmed, "\n- ") || strings.Contains(trimmed, "\n* ") {
+		score += 1
+	}
+	if strings.Contains(lowered, "сначала") && (strings.Contains(lowered, "затем") || strings.Contains(lowered, "потом")) {
+		score += 1
+	}
+	// Counter-questions show engagement.
+	if strings.Contains(trimmed, "?") && len(trimmed) > 120 {
+		score += 1
+	}
+
+	switch {
+	case score <= -2:
+		return "weak"
+	case score >= 3:
 		return "strong"
+	default:
+		return "neutral"
 	}
-	return "neutral"
 }
 
 func (h *Handler) updateDifficultyAndPressure(session *InterviewModuleSession, signal string) {

@@ -1,0 +1,164 @@
+/**
+ * Reusable component primitives layered on top of design tokens:
+ * streaming chat caret, skeleton loaders, empty states, fade-ins.
+ *
+ * Keep these tightly scoped — page-specific styles live next to their
+ * components. This file is the home for cross-cutting UX patterns.
+ */
+
+/* ------------------------------------------------------------------ */
+/* Streaming AI chat bubble                                            */
+/* ------------------------------------------------------------------ */
+
+.msg-streaming {
+  position: relative;
+  background: var(--accent-fade);
+  border-radius: var(--r-lg);
+  padding: var(--sp-3) var(--sp-4);
+  animation: msg-streaming-fade var(--t-slow) var(--ease-out);
+  white-space: pre-wrap;
+  line-height: var(--lh-normal);
+}
+
+.msg-streaming p {
+  margin: 0;
+  color: var(--text-0);
+  display: inline;
+}
+
+.msg-caret {
+  display: inline-block;
+  width: 7px;
+  height: 1em;
+  margin-left: 2px;
+  background: var(--accent);
+  vertical-align: text-bottom;
+  border-radius: 1px;
+  animation: msg-caret-blink 1.05s steps(1, end) infinite;
+  transform: translateY(2px);
+}
+
+@keyframes msg-caret-blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+@keyframes msg-streaming-fade {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Skeleton loader                                                     */
+/* ------------------------------------------------------------------ */
+
+.skeleton {
+  display: block;
+  background: linear-gradient(
+    90deg,
+    var(--bg-1) 0%,
+    var(--line-strong) 50%,
+    var(--bg-1) 100%
+  );
+  background-size: 200% 100%;
+  border-radius: var(--r-md);
+  animation: skeleton-shimmer 1.4s linear infinite;
+}
+
+.skeleton-text {
+  height: 14px;
+  width: 100%;
+  margin-bottom: var(--sp-2);
+}
+
+.skeleton-text-sm {
+  width: 60%;
+}
+
+.skeleton-card {
+  height: 120px;
+  width: 100%;
+  border-radius: var(--r-lg);
+}
+
+.skeleton-stack > * + * {
+  margin-top: var(--sp-3);
+}
+
+@keyframes skeleton-shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Empty state                                                         */
+/* ------------------------------------------------------------------ */
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: var(--sp-12) var(--sp-6);
+  gap: var(--sp-3);
+  color: var(--text-muted);
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--r-xl);
+  background: var(--glass-bg);
+  backdrop-filter: blur(12px);
+  animation: msg-streaming-fade var(--t-slow) var(--ease-out);
+}
+
+.empty-state__icon {
+  font-size: var(--fz-3xl);
+  line-height: 1;
+}
+
+.empty-state__title {
+  font-size: var(--fz-xl);
+  font-weight: 600;
+  color: var(--text-0);
+  margin: 0;
+}
+
+.empty-state__hint {
+  font-size: var(--fz-sm);
+  margin: 0;
+  max-width: 420px;
+  line-height: var(--lh-normal);
+}
+
+.empty-state__cta {
+  margin-top: var(--sp-3);
+}
+
+/* ------------------------------------------------------------------ */
+/* Fade-in helpers                                                     */
+/* ------------------------------------------------------------------ */
+
+.fade-in {
+  animation: fade-in var(--t-base) var(--ease-out);
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

@@ -1,24 +1,124 @@
+/**
+ * Design tokens — single source of truth for colour, spacing,
+ * typography, motion and surface treatments. Components must NOT
+ * hardcode values: pull from these vars so light/dark/contrast
+ * variants stay consistent.
+ */
+
 :root {
+  /* Typography */
   --font-sans: "SF Pro Display", "Inter", "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", "SF Mono", ui-monospace, monospace;
+
+  --fz-xs: 12px;
+  --fz-sm: 13px;
+  --fz-md: 14px;
+  --fz-lg: 16px;
+  --fz-xl: 20px;
+  --fz-2xl: 24px;
+  --fz-3xl: 32px;
+
+  --lh-tight: 1.2;
+  --lh-normal: 1.5;
+  --lh-loose: 1.7;
+
+  /* Spacing scale (4-pt grid) */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+  --sp-8: 32px;
+  --sp-10: 40px;
+  --sp-12: 48px;
+  --sp-16: 64px;
+
+  /* Radius */
+  --r-sm: 6px;
+  --r-md: 10px;
+  --r-lg: 14px;
+  --r-xl: 18px;
+  --r-2xl: 24px;
+  --r-pill: 999px;
+
+  /* Surface — light */
   --bg-0: #eef3ff;
   --bg-1: #e8f0ff;
+  --bg-2: #ffffff;
   --text-0: #112034;
   --text-muted: #455a74;
+  --text-subtle: #6b7e96;
   --glass-bg: rgba(255, 255, 255, 0.5);
   --glass-border: rgba(255, 255, 255, 0.7);
+  --line: rgba(17, 32, 52, 0.08);
+  --line-strong: rgba(17, 32, 52, 0.18);
+
+  /* Brand & semantic */
   --accent: #1274ff;
+  --accent-strong: #0a5dd9;
   --accent-soft: #73b5ff;
+  --accent-fade: rgba(18, 116, 255, 0.12);
+  --success: #2bb673;
+  --success-fade: rgba(43, 182, 115, 0.14);
+  --warning: #e0a800;
+  --warning-fade: rgba(224, 168, 0, 0.14);
+  --danger: #d23b3b;
+  --danger-fade: rgba(210, 59, 59, 0.14);
+
+  /* Shadows */
   --shadow-soft: 0 10px 30px rgba(20, 53, 97, 0.12);
+  --shadow-md: 0 6px 20px rgba(20, 53, 97, 0.08);
+  --shadow-lg: 0 16px 40px rgba(20, 53, 97, 0.18);
+  --shadow-focus: 0 0 0 3px var(--accent-fade);
+
+  /* Motion */
+  --t-fast: 120ms;
+  --t-base: 200ms;
+  --t-slow: 320ms;
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  /* Z-stack */
+  --z-banner: 90;
+  --z-modal: 100;
+  --z-toast: 120;
 }
 
 :root[data-theme="dark"] {
   --bg-0: #08111d;
   --bg-1: #101b2f;
+  --bg-2: #142340;
   --text-0: #eaf2ff;
   --text-muted: #9fb2d1;
+  --text-subtle: #7689a6;
   --glass-bg: rgba(18, 31, 50, 0.5);
   --glass-border: rgba(126, 163, 209, 0.2);
+  --line: rgba(234, 242, 255, 0.08);
+  --line-strong: rgba(234, 242, 255, 0.18);
+
   --accent: #5ca2ff;
+  --accent-strong: #82bbff;
   --accent-soft: #4bd6ff;
+  --accent-fade: rgba(92, 162, 255, 0.18);
+  --success: #51d39c;
+  --success-fade: rgba(81, 211, 156, 0.18);
+  --warning: #ffc24a;
+  --warning-fade: rgba(255, 194, 74, 0.18);
+  --danger: #ff6363;
+  --danger-fade: rgba(255, 99, 99, 0.18);
+
   --shadow-soft: 0 10px 30px rgba(2, 8, 18, 0.5);
+  --shadow-md: 0 6px 20px rgba(2, 8, 18, 0.4);
+  --shadow-lg: 0 16px 40px rgba(2, 8, 18, 0.6);
+  --shadow-focus: 0 0 0 3px var(--accent-fade);
+}
+
+/* High-contrast / reduced motion fall-backs for accessibility. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --t-fast: 0ms;
+    --t-base: 0ms;
+    --t-slow: 0ms;
+  }
 }
