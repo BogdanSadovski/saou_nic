@@ -1,6 +1,8 @@
 export { BackendStatusBanner } from "./BackendStatusBanner";
 export { ChatBubble } from "./ChatBubble";
 export { EmptyState } from "./EmptyState";
+export { Icon } from "./Icon";
+export type { IconName } from "./Icon";
 export { FloatingInput } from "./FloatingInput";
 export { GlassButton } from "./GlassButton";
 export { GlassCard } from "./GlassCard";

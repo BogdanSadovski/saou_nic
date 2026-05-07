@@ -19,6 +19,7 @@ import {
   FloatingInput,
   GlassButton,
   GlassCard,
+  Icon,
   Skeleton,
   useToast,
 } from "@/shared/ui";
@@ -137,14 +138,101 @@ export default function ProfilePage() {
     navigate("/auth", { replace: true });
   };
 
+  // Initials for the hero avatar.
+  const initials = (() => {
+    const src = (user.fullName || user.email || "").trim();
+    if (!src) return "·";
+    const parts = src.split(/[\s@]+/).filter(Boolean);
+    if (parts.length === 1) return parts[0]!.slice(0, 2).toUpperCase();
+    return (parts[0]![0]! + parts[1]![0]!).toUpperCase();
+  })();
+
+  const handleCopyId = async () => {
+    if (!user.id) return;
+    try {
+      await navigator.clipboard.writeText(user.id);
+      pushToast("ID скопирован");
+    } catch {
+      pushToast("Не удалось скопировать");
+    }
+  };
+
   return (
     <section className="page profile-page">
-      <h1>{t.profileTitle}</h1>
+      {/* Hero card with avatar, identity, quick stats */}
+      <GlassCard className="profile-hero">
+        <div className="profile-hero-main">
+          <div className="profile-avatar-xl" aria-hidden="true">
+            {initials}
+          </div>
+          <div className="profile-hero-info">
+            <span className="eyebrow">Личный профиль</span>
+            <h1 className="profile-hero-name">
+              {user.fullName || user.email || "Профиль"}
+            </h1>
+            <p className="muted profile-hero-email">
+              <Icon name="user" size={14} />
+              <span>{user.email || "—"}</span>
+            </p>
+            <div className="profile-hero-tags">
+              <span className={`report-status report-status-${user.role === "admin" ? "pending" : "active"}`}>
+                <Icon name="shield" size={12} /> {user.role}
+              </span>
+              {subscription.tier !== "free" ? (
+                <span className={`report-status report-status-${subscription.tier}`}>
+                  <Icon name="sparkles" size={12} /> {getTierTitle(subscription.tier)}
+                </span>
+              ) : (
+                <span className="report-status">
+                  <Icon name="credit" size={12} /> Free
+                </span>
+              )}
+              {user.connectedGithub ? (
+                <span className="report-status">
+                  <Icon name="github" size={12} /> GitHub подключён
+                </span>
+              ) : null}
+            </div>
+            {user.id ? (
+              <button className="profile-id-pill" onClick={() => void handleCopyId()} type="button" title="Скопировать ID">
+                <span className="muted">ID:</span>
+                <code>{user.id.slice(0, 8)}…</code>
+                <Icon name="resume" size={14} />
+              </button>
+            ) : null}
+          </div>
+        </div>
+        <div className="profile-hero-quick">
+          {reportLoading ? (
+            <Skeleton variant="card" height={64} />
+          ) : (
+            <>
+              <div className="profile-hero-quick-item">
+                <Icon name="mic" size={16} />
+                <span className="muted">Интервью</span>
+                <strong>{report?.totals.total_interviews ?? 0}</strong>
+              </div>
+              <div className="profile-hero-quick-item">
+                <Icon name="chart" size={16} />
+                <span className="muted">Средний балл</span>
+                <strong>{Math.round(report?.performance.average_score ?? 0)}</strong>
+              </div>
+              <div className="profile-hero-quick-item">
+                <Icon name="sparkles" size={16} />
+                <span className="muted">Лучший балл</span>
+                <strong>{Math.round(report?.performance.best_score ?? 0)}</strong>
+              </div>
+            </>
+          )}
+        </div>
+      </GlassCard>
 
       <div className="profile-grid">
         {/* Account info */}
         <GlassCard>
-          <h3>Учётная запись</h3>
+          <h3 className="card-title-with-icon">
+            <Icon name="user" size={18} /> Учётная запись
+          </h3>
           <p className="muted">{t.manageLocalIdentity}</p>
 
           <FloatingInput
@@ -170,14 +258,19 @@ export default function ProfilePage() {
               {savingProfile ? "Сохраняем..." : t.saveChanges}
             </GlassButton>
             <GlassButton onClick={handleLogout} type="button" variant="ghost">
-              Выйти
+              <span className="btn-with-icon">
+                <Icon name="logout" size={16} />
+                <span>Выйти</span>
+              </span>
             </GlassButton>
           </div>
         </GlassCard>
 
         {/* Activity stats */}
         <GlassCard>
-          <h3>Моя активность</h3>
+          <h3 className="card-title-with-icon">
+            <Icon name="chart" size={18} /> Моя активность
+          </h3>
           {reportLoading ? (
             <Skeleton count={4} />
           ) : !report || report.totals.total_interviews === 0 ? (
@@ -224,7 +317,9 @@ export default function ProfilePage() {
 
       {/* Settings */}
       <GlassCard>
-        <h3>Настройки</h3>
+        <h3 className="card-title-with-icon">
+          <Icon name="settings" size={18} /> Настройки
+        </h3>
         <div className="settings-grid">
           <div className="settings-row">
             <div>
@@ -287,7 +382,9 @@ export default function ProfilePage() {
 
       {/* Notifications */}
       <GlassCard>
-        <h3>Уведомления</h3>
+        <h3 className="card-title-with-icon">
+          <Icon name="bell" size={18} /> Уведомления
+        </h3>
         <p className="muted">Будем присылать только то, что вы сами выбрали.</p>
         <div className="settings-grid">
           {(
@@ -314,7 +411,9 @@ export default function ProfilePage() {
       {/* Subscription / billing */}
       <GlassCard>
         <div className="section-header">
-          <h3>Подписка</h3>
+          <h3 className="card-title-with-icon">
+            <Icon name="credit" size={18} /> Подписка
+          </h3>
           {subscription.tier !== "free" ? (
             <span className={`report-status report-status-${subscription.tier}`}>
               Активный тариф: {getTierTitle(subscription.tier)}
@@ -405,13 +504,17 @@ export default function ProfilePage() {
 
       {/* Connected accounts */}
       <GlassCard>
-        <h3>Связанные аккаунты</h3>
+        <h3 className="card-title-with-icon">
+          <Icon name="github" size={18} /> Связанные аккаунты
+        </h3>
         <GithubConnectCard />
       </GlassCard>
 
       {/* Data + danger zone */}
       <GlassCard>
-        <h3>Данные и приватность</h3>
+        <h3 className="card-title-with-icon">
+          <Icon name="shield" size={18} /> Данные и приватность
+        </h3>
         <div className="settings-grid">
           <div className="settings-row">
             <div>
