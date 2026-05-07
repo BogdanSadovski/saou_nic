@@ -1,15 +1,63 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
+import { reportsApi } from "@/shared/api";
+import type { UserInterviewAnalyticsReport } from "@/shared/api/reports";
 import { useTranslation } from "@/shared/i18n";
+import {
+  EmptyState,
+  GlassButton,
+  GlassCard,
+  Modal,
+  Skeleton,
+  useToast,
+} from "@/shared/ui";
 import { DashboardCards } from "@/widgets/dashboard-cards/DashboardCards";
-import { GlassButton, GlassCard, Modal, useToast } from "@/shared/ui";
 
 export default function DashboardPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [report, setReport] = useState<UserInterviewAnalyticsReport | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [hasError, setHasError] = useState(false);
   const navigate = useNavigate();
   const { pushToast } = useToast();
   const t = useTranslation();
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      try {
+        const data = await reportsApi.getMyInterviewReport();
+        if (!cancelled) {
+          setReport(data);
+          setHasError(false);
+        }
+      } catch (e) {
+        const status = (e as { response?: { status?: number } })?.response?.status;
+        if (!cancelled) {
+          if (status === 404) {
+            // First-run user, no data yet — render the empty CTA, not an error.
+            setReport(reportsApi.emptyReport());
+            setHasError(false);
+          } else {
+            setHasError(true);
+          }
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const recentItems = (report?.recent_interviews ?? []).slice(0, 5);
+  const topRecommendations = (report?.top_recommendations ?? []).slice(0, 3);
+  const hasAnyInterviews = (report?.totals.total_interviews ?? 0) > 0;
 
   return (
     <section className="page">
@@ -25,18 +73,55 @@ export default function DashboardPage() {
       <div className="two-col">
         <GlassCard>
           <h3>{t.recentInterviews}</h3>
-          <ul className="simple-list">
-            <li>Бэкенд: системный дизайн - 88</li>
-            <li>Продуктовое мышление - 83</li>
-            <li>Лидерский раунд - 91</li>
-          </ul>
+          {loading ? (
+            <Skeleton count={4} />
+          ) : hasError ? (
+            <p className="muted">Не удалось получить последние интервью.</p>
+          ) : recentItems.length === 0 ? (
+            <EmptyState
+              icon="🚀"
+              title="У вас ещё нет интервью"
+              hint="Пройдите первое — мини-карточки прогресса появятся прямо здесь."
+              action={
+                <GlassButton onClick={() => navigate("/interview")} type="button" variant="primary">
+                  Начать интервью
+                </GlassButton>
+              }
+            />
+          ) : (
+            <ul className="simple-list">
+              {recentItems.map((item) => (
+                <li key={item.session_id}>
+                  <strong>{item.role}</strong>{" "}
+                  <span className="muted">
+                    {item.vacancy_title ? `· ${item.vacancy_title} ` : ""}· {item.interview_mode}
+                  </span>
+                  {typeof item.overall_score === "number" ? (
+                    <>
+                      {" "}— <strong>{Math.round(item.overall_score)}</strong>
+                    </>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          )}
         </GlassCard>
 
         <GlassCard>
           <h3>{t.recommendations}</h3>
-          <p className="muted">
-            {t.focusOnTradeoff}
-          </p>
+          {loading ? (
+            <Skeleton count={3} />
+          ) : !hasAnyInterviews ? (
+            <p className="muted">{t.focusOnTradeoff}</p>
+          ) : topRecommendations.length === 0 ? (
+            <p className="muted">Метрики выглядят ровно — продолжайте поддерживать темп.</p>
+          ) : (
+            <ul className="simple-list">
+              {topRecommendations.map((line, idx) => (
+                <li key={`${line}-${idx}`}>{line}</li>
+              ))}
+            </ul>
+          )}
         </GlassCard>
       </div>
 
@@ -53,7 +138,8 @@ export default function DashboardPage() {
           </GlassButton>
           <GlassButton
             onClick={() => {
-              pushToast("Экспорт отчета поставлен в очередь в демо-режиме");
+              navigate("/reports");
+              pushToast("Открываем страницу отчётов");
               setIsModalOpen(false);
             }}
             type="button"

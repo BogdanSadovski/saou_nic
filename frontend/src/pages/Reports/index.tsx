@@ -3,7 +3,8 @@ import { useNavigate } from "react-router-dom";
 
 import { reportsApi } from "@/shared/api";
 import type { UserInterviewAnalyticsReport, UserInterviewEntry } from "@/shared/api/reports";
-import { FloatingInput, GlassButton, GlassCard } from "@/shared/ui";
+import { EmptyState, FloatingInput, GlassButton, GlassCard, Skeleton } from "@/shared/ui";
+import { ReportsCharts } from "./charts";
 
 export default function ReportsPage() {
   const navigate = useNavigate();
@@ -225,9 +226,23 @@ export default function ReportsPage() {
 
   if (loading) {
     return (
-      <section className="page">
+      <section className="page" aria-busy="true">
+        <div className="section-header">
+          <Skeleton width={260} height={28} />
+          <Skeleton width={180} height={36} />
+        </div>
         <GlassCard>
-          <h3>Загрузка отчета...</h3>
+          <div className="report-metrics-grid">
+            <Skeleton variant="card" />
+            <Skeleton variant="card" />
+            <Skeleton variant="card" />
+          </div>
+        </GlassCard>
+        <GlassCard>
+          <Skeleton count={4} />
+        </GlassCard>
+        <GlassCard>
+          <Skeleton variant="card" height={140} />
         </GlassCard>
       </section>
     );
@@ -236,20 +251,23 @@ export default function ReportsPage() {
   if (error) {
     return (
       <section className="page">
-        <GlassCard>
-          <h3>Ошибка загрузки отчета</h3>
-          <p className="muted">{error}</p>
-          <div className="report-actions">
+        <EmptyState
+          icon="⚠️"
+          title="Не удалось загрузить отчёт"
+          hint={error}
+          action={
             <GlassButton onClick={() => void loadReport()} type="button" variant="primary">
-              Повторить загрузку
+              Повторить
             </GlassButton>
-            {authIssue ? (
+          }
+          secondaryAction={
+            authIssue ? (
               <GlassButton onClick={() => navigate("/auth")} type="button" variant="ghost">
                 Войти заново
               </GlassButton>
-            ) : null}
-          </div>
-        </GlassCard>
+            ) : null
+          }
+        />
       </section>
     );
   }
@@ -257,13 +275,21 @@ export default function ReportsPage() {
   if (!report) {
     return (
       <section className="page">
-        <GlassCard>
-          <h3>Отчет пока пуст</h3>
-          <p className="muted">После прохождения интервью здесь появится аналитика.</p>
-        </GlassCard>
+        <EmptyState
+          icon="📊"
+          title="Отчёт пока пуст"
+          hint="После первого пройденного интервью здесь появится подробная аналитика, графики прогресса и персональные рекомендации."
+          action={
+            <GlassButton onClick={() => navigate("/interview")} type="button" variant="primary">
+              Начать интервью
+            </GlassButton>
+          }
+        />
       </section>
     );
   }
+
+  const hasInterviews = report.totals.total_interviews > 0;
 
   return (
     <section className="page">
@@ -324,6 +350,13 @@ export default function ReportsPage() {
             <p className="muted">Consistency: {innovationInsights.consistency}%</p>
           </GlassCard>
         </div>
+      ) : null}
+
+      {hasInterviews ? (
+        <GlassCard>
+          <h3>Графики прогресса</h3>
+          <ReportsCharts report={report} />
+        </GlassCard>
       ) : null}
 
       <div className="filters two-col">
@@ -419,11 +452,36 @@ export default function ReportsPage() {
       <GlassCard>
         <h3>Последние интервью (фильтруемые)</h3>
         {filtered.map(interviewRow)}
-        {filtered.length === 0 ? (
-          <GlassCard>
-            <h3>Ничего не найдено</h3>
-            <p className="muted">Попробуйте сбросить фильтры.</p>
-          </GlassCard>
+        {filtered.length === 0 && hasInterviews ? (
+          <EmptyState
+            icon="🔍"
+            title="Ничего не найдено"
+            hint="По текущим фильтрам ни одно интервью не подошло. Попробуйте сбросить поиск или статус."
+            action={
+              <GlassButton
+                onClick={() => {
+                  setSearch("");
+                  setStatusFilter("all");
+                }}
+                type="button"
+                variant="ghost"
+              >
+                Сбросить фильтры
+              </GlassButton>
+            }
+          />
+        ) : null}
+        {!hasInterviews ? (
+          <EmptyState
+            icon="🚀"
+            title="У вас ещё нет интервью"
+            hint="Пройдите первое практическое или теоретическое интервью — и сюда подтянутся метрики, тренд оценок и рекомендации."
+            action={
+              <GlassButton onClick={() => navigate("/interview")} type="button" variant="primary">
+                Начать первое интервью
+              </GlassButton>
+            }
+          />
         ) : null}
       </GlassCard>
     </section>

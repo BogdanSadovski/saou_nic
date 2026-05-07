@@ -145,6 +145,54 @@
 }
 
 /* ------------------------------------------------------------------ */
+/* Reports charts                                                      */
+/* ------------------------------------------------------------------ */
+
+.reports-charts {
+  display: grid;
+  gap: var(--sp-4);
+  margin-top: var(--sp-3);
+}
+
+.reports-chart-card {
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  padding: var(--sp-4);
+  background: var(--glass-bg);
+  backdrop-filter: blur(12px);
+}
+
+.reports-chart-card h4 {
+  margin: 0 0 var(--sp-3);
+  font-size: var(--fz-md);
+  color: var(--text-muted);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.reports-chart-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--sp-4);
+}
+
+@media (max-width: 900px) {
+  .reports-chart-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Recharts overrides — match the rest of the app's surface theme. */
+.reports-chart-card .recharts-cartesian-axis-tick text {
+  fill: var(--text-muted);
+}
+
+.reports-chart-card .recharts-default-legend {
+  margin-top: var(--sp-2) !important;
+}
+
+/* ------------------------------------------------------------------ */
 /* Fade-in helpers                                                     */
 /* ------------------------------------------------------------------ */
 
