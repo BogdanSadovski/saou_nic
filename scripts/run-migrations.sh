@@ -12,7 +12,16 @@ set -u
 
 CONTAINER="${POSTGRES_CONTAINER:-platform-postgres-1}"
 PG_USER="${POSTGRES_USER:-postgres}"
-SERVICES=(user-service interview-service scoring-service resume-service)
+SERVICES=(
+  user-service
+  interview-service
+  scoring-service
+  resume-service
+  admin-service
+  analytics-service
+  notification-service
+  report-service
+)
 
 # --- helpers ---------------------------------------------------------------
 

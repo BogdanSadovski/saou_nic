@@ -227,8 +227,9 @@ export default function AdminPage() {
         </GlassButton>
       </div>
 
-      {/* KPI strip */}
-      <div className="dashboard-grid report-metrics-grid">
+      {/* KPI strip — five tiles, responsive auto-fit so the panel
+          gracefully drops to 3→2→1 columns as the viewport shrinks. */}
+      <div className="admin-kpi-grid">
         <GlassCard className="stat-card">
           <p className="muted">Всего пользователей</p>
           {statsLoading ? <Skeleton width={80} height={32} /> : <h2>{stats?.total_users ?? "—"}</h2>}
@@ -277,30 +278,59 @@ export default function AdminPage() {
         </GlassCard>
       )}
 
-      {/* Tabs */}
-      <div className="auth-mode-switch admin-tabs">
+      {/* Section nav: clickable cards with icon, label, count, hint.
+          Replaces the flat segmented control so the user sees what each
+          tab contains at a glance and the layout collapses naturally to
+          a stack on mobile. */}
+      <nav className="admin-nav" role="tablist" aria-label="Разделы админки">
         <button
-          type="button"
-          className={tab === "users" ? "mode-active" : ""}
+          aria-selected={tab === "users"}
+          className={`admin-nav-card${tab === "users" ? " is-active" : ""}`}
           onClick={() => setTab("users")}
-        >
-          Пользователи
-        </button>
-        <button
+          role="tab"
           type="button"
-          className={tab === "subscriptions" ? "mode-active" : ""}
+        >
+          <span className="admin-nav-icon" aria-hidden="true">👤</span>
+          <span className="admin-nav-body">
+            <span className="admin-nav-label">Пользователи</span>
+            <span className="admin-nav-meta">
+              {stats ? `${stats.total_users} всего · ${stats.active_users} активных` : "—"}
+            </span>
+          </span>
+        </button>
+
+        <button
+          aria-selected={tab === "subscriptions"}
+          className={`admin-nav-card${tab === "subscriptions" ? " is-active" : ""}`}
           onClick={() => setTab("subscriptions")}
-        >
-          Подписки
-        </button>
-        <button
+          role="tab"
           type="button"
-          className={tab === "audit" ? "mode-active" : ""}
-          onClick={() => setTab("audit")}
         >
-          Журнал действий
+          <span className="admin-nav-icon" aria-hidden="true">💳</span>
+          <span className="admin-nav-body">
+            <span className="admin-nav-label">Подписки</span>
+            <span className="admin-nav-meta">
+              {stats
+                ? `${stats.active_subscriptions} активных · ${formatCurrency(stats.revenue_this_month)}`
+                : "—"}
+            </span>
+          </span>
         </button>
-      </div>
+
+        <button
+          aria-selected={tab === "audit"}
+          className={`admin-nav-card${tab === "audit" ? " is-active" : ""}`}
+          onClick={() => setTab("audit")}
+          role="tab"
+          type="button"
+        >
+          <span className="admin-nav-icon" aria-hidden="true">📜</span>
+          <span className="admin-nav-body">
+            <span className="admin-nav-label">Журнал</span>
+            <span className="admin-nav-meta">События и аудит-лог</span>
+          </span>
+        </button>
+      </nav>
 
       {tab === "users" && (
         <GlassCard>
@@ -349,79 +379,66 @@ export default function AdminPage() {
               }
             />
           ) : (
-            <div className="admin-table-wrap">
-              <table className="admin-table">
-                <thead>
-                  <tr>
-                    <th>Пользователь</th>
-                    <th>Email</th>
-                    <th>Роль</th>
-                    <th>Статус</th>
-                    <th>Создан</th>
-                    <th>Действия</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredUsers.map((u) => (
-                    <tr key={u.id}>
-                      <td>
-                        <strong>{userDisplayName(u)}</strong>
-                      </td>
-                      <td className="muted">{u.email ?? "—"}</td>
-                      <td>
-                        <select
-                          disabled={pendingId === u.id}
-                          onChange={(e) => void handleRoleChange(u, e.target.value)}
-                          value={u.role ?? "user"}
-                        >
-                          {ROLE_OPTIONS.map((r) => (
-                            <option key={r} value={r}>
-                              {r}
-                            </option>
-                          ))}
-                        </select>
-                      </td>
-                      <td>
-                        <span className={`report-status report-status-${u.status ?? "active"}`}>
-                          {u.status ?? "active"}
-                        </span>
-                      </td>
-                      <td className="muted">{formatDate(u.created_at)}</td>
-                      <td>
-                        <div className="admin-actions">
-                          {u.status === "suspended" || u.status === "banned" ? (
-                            <button
-                              className="practice-secondary-btn"
-                              disabled={pendingId === u.id}
-                              onClick={() => void performAction(u, "activate")}
-                              type="button"
-                            >
-                              Активировать
-                            </button>
-                          ) : (
-                            <button
-                              className="practice-secondary-btn"
-                              disabled={pendingId === u.id}
-                              onClick={() => void performAction(u, "suspend")}
-                              type="button"
-                            >
-                              Приостановить
-                            </button>
-                          )}
-                          <button
-                            className="practice-secondary-btn admin-action-danger"
-                            disabled={pendingId === u.id}
-                            onClick={() => void performAction(u, "ban")}
-                            type="button"
-                          >
-                            Забанить
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="admin-cards-list">
+              {filteredUsers.map((u) => (
+                <div className="admin-row-card" key={u.id}>
+                  <div className="admin-row-main">
+                    <strong className="admin-row-title">{userDisplayName(u)}</strong>
+                    <span className="muted admin-row-sub">{u.email ?? "—"}</span>
+                  </div>
+                  <div className="admin-row-meta">
+                    <span className={`report-status report-status-${u.status ?? "active"}`}>
+                      {u.status ?? "active"}
+                    </span>
+                    <span className="muted">создан {formatDate(u.created_at)}</span>
+                  </div>
+                  <div className="admin-row-controls">
+                    <label className="admin-inline-field">
+                      <span className="muted">Роль</span>
+                      <select
+                        disabled={pendingId === u.id}
+                        onChange={(e) => void handleRoleChange(u, e.target.value)}
+                        value={u.role ?? "user"}
+                      >
+                        {ROLE_OPTIONS.map((r) => (
+                          <option key={r} value={r}>
+                            {r}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+                  <div className="admin-row-actions">
+                    {u.status === "suspended" || u.status === "banned" ? (
+                      <button
+                        className="practice-secondary-btn"
+                        disabled={pendingId === u.id}
+                        onClick={() => void performAction(u, "activate")}
+                        type="button"
+                      >
+                        Активировать
+                      </button>
+                    ) : (
+                      <button
+                        className="practice-secondary-btn"
+                        disabled={pendingId === u.id}
+                        onClick={() => void performAction(u, "suspend")}
+                        type="button"
+                      >
+                        Приостановить
+                      </button>
+                    )}
+                    <button
+                      className="practice-secondary-btn admin-action-danger"
+                      disabled={pendingId === u.id}
+                      onClick={() => void performAction(u, "ban")}
+                      type="button"
+                    >
+                      Забанить
+                    </button>
+                  </div>
+                </div>
+              ))}
             </div>
           )}
         </GlassCard>
@@ -439,39 +456,27 @@ export default function AdminPage() {
               hint="Все активные тарифы пользователей появятся здесь."
             />
           ) : (
-            <div className="admin-table-wrap">
-              <table className="admin-table">
-                <thead>
-                  <tr>
-                    <th>Пользователь</th>
-                    <th>Тариф</th>
-                    <th>Статус</th>
-                    <th>Сумма</th>
-                    <th>Старт</th>
-                    <th>Истекает</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {subscriptions.map((s) => (
-                    <tr key={s.id}>
-                      <td className="muted">{s.user_id}</td>
-                      <td>
-                        <strong>{s.tier}</strong>
-                      </td>
-                      <td>
-                        <span className={`report-status report-status-${s.status}`}>{s.status}</span>
-                      </td>
-                      <td>
-                        {s.amount && s.amount > 0
-                          ? `${s.amount.toLocaleString("ru-RU")} ${s.currency ?? ""}`
-                          : "—"}
-                      </td>
-                      <td className="muted">{formatDate(s.started_at)}</td>
-                      <td className="muted">{formatDate(s.expires_at)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="admin-cards-list">
+              {subscriptions.map((s) => (
+                <div className="admin-row-card" key={s.id}>
+                  <div className="admin-row-main">
+                    <strong className="admin-row-title">{s.tier}</strong>
+                    <span className="muted admin-row-sub">user: {s.user_id}</span>
+                  </div>
+                  <div className="admin-row-meta">
+                    <span className={`report-status report-status-${s.status}`}>{s.status}</span>
+                    <span className="muted">
+                      {s.amount && s.amount > 0
+                        ? `${s.amount.toLocaleString("ru-RU")} ${s.currency ?? ""}`
+                        : "без суммы"}
+                    </span>
+                  </div>
+                  <div className="admin-row-meta">
+                    <span className="muted">старт: {formatDate(s.started_at)}</span>
+                    <span className="muted">до: {formatDate(s.expires_at)}</span>
+                  </div>
+                </div>
+              ))}
             </div>
           )}
         </GlassCard>
@@ -489,40 +494,28 @@ export default function AdminPage() {
               hint="Любые админ-действия будут логироваться здесь автоматически."
             />
           ) : (
-            <div className="admin-table-wrap">
-              <table className="admin-table">
-                <thead>
-                  <tr>
-                    <th>Когда</th>
-                    <th>Админ</th>
-                    <th>Действие</th>
-                    <th>Объект</th>
-                    <th>Статус</th>
-                    <th>IP</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {auditLogs.map((log) => (
-                    <tr key={log.id}>
-                      <td className="muted">{formatDate(log.created_at)}</td>
-                      <td className="muted">{log.admin_id ?? "—"}</td>
-                      <td>
-                        <strong>{log.action ?? "—"}</strong>
-                      </td>
-                      <td className="muted">
-                        {log.resource ?? "—"}
-                        {log.resource_id ? ` · ${log.resource_id}` : ""}
-                      </td>
-                      <td>
-                        <span className={`report-status report-status-${log.status ?? "active"}`}>
-                          {log.status ?? "—"}
-                        </span>
-                      </td>
-                      <td className="muted">{log.ip_address ?? "—"}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="admin-cards-list">
+              {auditLogs.map((log) => (
+                <div className="admin-row-card" key={log.id}>
+                  <div className="admin-row-main">
+                    <strong className="admin-row-title">{log.action ?? "—"}</strong>
+                    <span className="muted admin-row-sub">
+                      {log.resource ?? "—"}
+                      {log.resource_id ? ` · ${log.resource_id}` : ""}
+                    </span>
+                  </div>
+                  <div className="admin-row-meta">
+                    <span className={`report-status report-status-${log.status ?? "active"}`}>
+                      {log.status ?? "—"}
+                    </span>
+                    <span className="muted">{formatDate(log.created_at)}</span>
+                  </div>
+                  <div className="admin-row-meta">
+                    <span className="muted">админ: {log.admin_id ?? "—"}</span>
+                    <span className="muted">IP: {log.ip_address ?? "—"}</span>
+                  </div>
+                </div>
+              ))}
             </div>
           )}
         </GlassCard>

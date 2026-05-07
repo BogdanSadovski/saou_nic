@@ -1,6 +1,7 @@
 package api
 
 import (
+	"log"
 	"net/http"
 	"strconv"
 
@@ -39,6 +40,9 @@ func NewHandler(
 func (h *Handler) GetDashboardStats(c *gin.Context) {
 	stats, err := h.adminService.GetDashboardStats(c.Request.Context())
 	if err != nil {
+		// Log the underlying error so the operator can see what failed
+		// (gin's stdlib output strips err details otherwise).
+		log.Printf("admin: GetDashboardStats failed: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get dashboard stats"})
 		return
 	}
@@ -165,6 +169,7 @@ func (h *Handler) ListUsers(c *gin.Context) {
 
 	users, total, err := h.userService.ListUsers(c.Request.Context(), query)
 	if err != nil {
+		log.Printf("admin: ListUsers failed (page=%d size=%d): %v", query.Page, query.PageSize, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list users"})
 		return
 	}

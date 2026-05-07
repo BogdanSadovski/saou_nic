@@ -10,7 +10,7 @@ database:
   port: 5432
   user: postgres
   password: postgres_secret
-  dbname: platform_db
+  dbname: admin_service
   ssl_mode: disable
   max_conns: 10
   min_conns: 2
