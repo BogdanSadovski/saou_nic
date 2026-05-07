@@ -1,67 +1,69 @@
 /**
- * Redesign layer — modern visual polish on top of the existing
- * design tokens and components. Loaded last so it can override the
- * older flat-glass treatment without rewriting every file.
+ * Liquid Glass — Apple-inspired surface system.
  *
- * Goals:
- *   1. Premium glass surfaces (multi-layer blur + subtle inner border).
- *   2. Vivid but disciplined gradient brand (no rainbow).
- *   3. Coherent hover/focus reactions across cards and buttons.
- *   4. Stronger typography hierarchy (display + tracking).
- *   5. Cinematic ambient backdrop (animated radial gradients).
+ * Layered approach to glass:
+ *   1. base translucent fill from the violet brand
+ *   2. backdrop blur + saturation to refract content behind
+ *   3. specular highlight via top-edge gradient
+ *   4. inner border drawn with mask trick so the radius stays crisp
+ *   5. ambient violet glow follows hover/active states
  *
- * All values pull from --tokens; nothing is hard-coded so dark/light
- * themes stay parity.
+ * Loaded last so it overrides any older flat-glass treatments without
+ * touching the original component CSS.
  */
 
 /* ------------------------------------------------------------------ */
-/* Page backdrop                                                        */
+/* Animated ambient backdrop                                           */
 /* ------------------------------------------------------------------ */
 
 body {
   background:
-    radial-gradient(ellipse 80% 60% at 12% 0%, color-mix(in srgb, var(--accent) 18%, transparent), transparent 60%),
-    radial-gradient(ellipse 70% 60% at 100% 100%, color-mix(in srgb, var(--success) 14%, transparent), transparent 55%),
+    radial-gradient(ellipse 70% 50% at 15% -10%, color-mix(in srgb, var(--accent) 24%, transparent), transparent 60%),
+    radial-gradient(ellipse 60% 50% at 85% 110%, color-mix(in srgb, var(--accent-2) 20%, transparent), transparent 60%),
+    radial-gradient(ellipse 50% 40% at 50% 50%, color-mix(in srgb, var(--accent-3) 14%, transparent), transparent 70%),
     linear-gradient(160deg, var(--bg-0), var(--bg-1));
   background-attachment: fixed;
+  color: var(--text-0);
 }
 
 .ambient {
-  filter: blur(90px);
-  opacity: 0.32;
-  animation: ambient-drift 18s ease-in-out infinite alternate;
+  filter: blur(120px);
+  opacity: 0.45;
+  animation: ambient-orbit 22s ease-in-out infinite alternate;
 }
 
 .ambient-a {
-  background: radial-gradient(circle, color-mix(in srgb, var(--accent) 60%, transparent), transparent 70%);
+  background: radial-gradient(circle, var(--accent), transparent 70%);
 }
 
 .ambient-b {
-  background: radial-gradient(circle, color-mix(in srgb, var(--success) 55%, transparent), transparent 70%);
-  animation-delay: -9s;
+  background: radial-gradient(circle, var(--accent-2), transparent 70%);
+  animation-delay: -11s;
 }
 
-@keyframes ambient-drift {
+@keyframes ambient-orbit {
   0% {
     transform: translate3d(0, 0, 0) scale(1);
   }
   100% {
-    transform: translate3d(40px, -30px, 0) scale(1.07);
+    transform: translate3d(60px, -40px, 0) scale(1.1);
   }
 }
 
 /* ------------------------------------------------------------------ */
-/* Typography hierarchy                                                 */
+/* Display typography                                                  */
 /* ------------------------------------------------------------------ */
 
 h1,
 .page > h1 {
   font-weight: 700;
   letter-spacing: -0.02em;
+  line-height: var(--lh-tight);
   background: linear-gradient(
-    120deg,
+    135deg,
     var(--text-0) 0%,
-    color-mix(in srgb, var(--accent) 70%, var(--text-0)) 100%
+    var(--accent) 60%,
+    var(--accent-2) 100%
   );
   -webkit-background-clip: text;
   background-clip: text;
@@ -72,57 +74,106 @@ h1,
 .eyebrow {
   font-size: var(--fz-xs);
   font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  background: linear-gradient(120deg, var(--accent), var(--accent-2));
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
 }
 
 /* ------------------------------------------------------------------ */
-/* Glass card v2                                                        */
+/* Liquid Glass primitive                                              */
 /* ------------------------------------------------------------------ */
 
-.glass-card {
+.glass-card,
+.empty-state,
+.reports-chart-card,
+.settings-row,
+.profile-stat,
+.tier-card,
+.admin-row-card,
+.admin-nav-card,
+.interview-topbar,
+.message-composer,
+.chat-window,
+.interview-setup-card,
+.practice-task-card,
+.practice-editor-card,
+.practice-feedback-card,
+.score-card,
+.result-panel {
   position: relative;
+  border-radius: var(--r-xl);
+  border: 1px solid var(--glass-border);
   background:
     linear-gradient(
       135deg,
-      color-mix(in srgb, var(--glass-bg) 100%, transparent) 0%,
-      color-mix(in srgb, var(--glass-bg) 60%, transparent) 100%
+      color-mix(in srgb, var(--glass-bg) 110%, transparent) 0%,
+      color-mix(in srgb, var(--glass-bg) 70%, transparent) 100%
     );
-  border: 1px solid var(--glass-border);
-  border-radius: var(--r-2xl);
-  padding: var(--sp-5);
-  box-shadow: var(--shadow-md), inset 0 1px 0 0 color-mix(in srgb, white 8%, transparent);
+  backdrop-filter: blur(var(--blur-md)) saturate(var(--saturate));
+  -webkit-backdrop-filter: blur(var(--blur-md)) saturate(var(--saturate));
+  box-shadow:
+    0 1px 0 0 var(--glass-highlight) inset,
+    0 -1px 0 0 var(--glass-shade) inset,
+    var(--shadow-soft);
   transition: transform var(--t-base) var(--ease-out),
-    box-shadow var(--t-base) var(--ease-out),
-    border-color var(--t-base) var(--ease-out);
-  overflow: hidden;
+    border-color var(--t-base) var(--ease-out),
+    box-shadow var(--t-base) var(--ease-out);
 }
 
-.glass-card::before {
+/* Specular highlight — the "wet" reflection across the top edge.
+   Implemented as a pseudo-element so it composes with backdrop blur. */
+.glass-card::before,
+.empty-state::before,
+.tier-card::before,
+.admin-nav-card::before,
+.profile-stat::before,
+.score-card::before,
+.result-panel::before,
+.interview-setup-card::before {
   content: "";
   position: absolute;
-  inset: -1px;
+  inset: 0;
   border-radius: inherit;
-  padding: 1px;
-  background: linear-gradient(
-    135deg,
-    color-mix(in srgb, var(--accent) 28%, transparent),
-    transparent 60%
-  );
-  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor;
-  mask-composite: exclude;
   pointer-events: none;
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--glass-highlight) 100%, transparent) 0%,
+      transparent 35%
+    );
+  mix-blend-mode: screen;
   opacity: 0.6;
 }
 
-.glass-card:hover {
-  transform: translateY(-3px);
-  border-color: color-mix(in srgb, var(--accent) 36%, var(--glass-border));
-  box-shadow: var(--shadow-lg), inset 0 1px 0 0 color-mix(in srgb, white 10%, transparent);
+/* Ambient violet bleed on hover */
+.glass-card:hover,
+.tier-card:hover,
+.admin-nav-card:hover,
+.reports-chart-card:hover,
+.settings-row:hover,
+.profile-stat:hover {
+  border-color: color-mix(in srgb, var(--accent) 50%, var(--glass-border));
+  box-shadow:
+    0 1px 0 0 var(--glass-highlight) inset,
+    0 -1px 0 0 var(--glass-shade) inset,
+    var(--shadow-md),
+    0 0 40px color-mix(in srgb, var(--accent) 25%, transparent);
 }
 
+.glass-card,
+.tier-card,
+.empty-state,
+.reports-chart-card {
+  padding: var(--sp-5);
+}
+
+/* Stat-card depth: gradient halo behind the number */
 .stat-card {
-  position: relative;
   isolation: isolate;
+  overflow: hidden;
 }
 
 .stat-card h2,
@@ -131,7 +182,7 @@ h1,
   margin: 0;
   font-weight: 700;
   letter-spacing: -0.02em;
-  background: linear-gradient(120deg, var(--text-0), color-mix(in srgb, var(--accent) 65%, var(--text-0)));
+  background: linear-gradient(135deg, var(--text-0), var(--accent));
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
@@ -141,36 +192,38 @@ h1,
 .stat-card::after {
   content: "";
   position: absolute;
-  inset: auto -25% -40% auto;
-  width: 60%;
-  height: 60%;
-  background: radial-gradient(closest-side, color-mix(in srgb, var(--accent) 22%, transparent), transparent);
+  inset: auto -30% -50% auto;
+  width: 70%;
+  height: 70%;
+  background: radial-gradient(closest-side, color-mix(in srgb, var(--accent) 40%, transparent), transparent);
   z-index: -1;
   pointer-events: none;
+  filter: blur(20px);
 }
 
 /* ------------------------------------------------------------------ */
-/* Hero section                                                         */
+/* Hero                                                                */
 /* ------------------------------------------------------------------ */
 
 .home-page .hero {
-  padding: clamp(2rem, 6vw, 3.5rem);
+  padding: clamp(2rem, 6vw, 4rem);
   background:
-    radial-gradient(ellipse 80% 100% at 0% 0%, color-mix(in srgb, var(--accent) 22%, transparent), transparent 60%),
-    radial-gradient(ellipse 70% 80% at 100% 100%, color-mix(in srgb, var(--success) 20%, transparent), transparent 60%),
-    linear-gradient(135deg, var(--glass-bg), color-mix(in srgb, var(--glass-bg) 50%, transparent));
+    radial-gradient(ellipse 80% 100% at 0% 0%, color-mix(in srgb, var(--accent) 30%, transparent), transparent 60%),
+    radial-gradient(ellipse 70% 80% at 100% 100%, color-mix(in srgb, var(--accent-2) 26%, transparent), transparent 60%),
+    linear-gradient(135deg, var(--glass-bg-strong), var(--glass-bg));
   border: 1px solid var(--glass-border);
 }
 
 .home-page .hero h1 {
-  font-size: clamp(2.4rem, 5.5vw, 4rem);
-  line-height: 1.05;
+  font-size: clamp(2.6rem, 6vw, var(--fz-display));
   margin: var(--sp-3) 0 var(--sp-4);
+  line-height: 1.05;
   background: linear-gradient(
     120deg,
     var(--text-0) 0%,
-    var(--accent) 50%,
-    color-mix(in srgb, var(--success) 80%, var(--text-0)) 100%
+    var(--accent) 45%,
+    var(--accent-2) 75%,
+    var(--accent-3) 100%
   );
   -webkit-background-clip: text;
   background-clip: text;
@@ -180,28 +233,19 @@ h1,
 .home-page .hero p.muted {
   font-size: var(--fz-lg);
   line-height: var(--lh-normal);
-  max-width: 560px;
-}
-
-.home-grid > .glass-card {
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-2);
-}
-
-.home-grid > .glass-card h3 {
-  font-size: var(--fz-xl);
-  font-weight: 600;
-  margin: 0;
+  max-width: 580px;
 }
 
 /* ------------------------------------------------------------------ */
-/* Buttons                                                              */
+/* Buttons                                                             */
 /* ------------------------------------------------------------------ */
 
 .glass-button {
+  border-radius: var(--r-pill);
   font-weight: 600;
   letter-spacing: 0.01em;
+  padding: 10px 20px;
+  border: 1px solid transparent;
   transition: transform var(--t-fast) var(--ease-out),
     box-shadow var(--t-fast) var(--ease-out),
     background var(--t-fast) var(--ease-out);
@@ -216,85 +260,118 @@ h1,
 }
 
 .glass-button-primary {
-  background: linear-gradient(
-    120deg,
-    var(--accent) 0%,
-    color-mix(in srgb, var(--success) 60%, var(--accent)) 100%
-  );
-  box-shadow: 0 8px 24px color-mix(in srgb, var(--accent) 35%, transparent);
+  background: linear-gradient(120deg, var(--accent) 0%, var(--accent-2) 100%);
+  color: white;
+  border-color: color-mix(in srgb, white 18%, transparent);
+  box-shadow:
+    inset 0 1px 0 0 color-mix(in srgb, white 32%, transparent),
+    0 8px 24px var(--accent-glow);
 }
 
 .glass-button-primary:hover {
-  box-shadow: 0 12px 32px color-mix(in srgb, var(--accent) 45%, transparent);
+  box-shadow:
+    inset 0 1px 0 0 color-mix(in srgb, white 38%, transparent),
+    0 14px 36px var(--accent-glow);
+}
+
+.glass-button-ghost {
+  background: var(--glass-bg);
+  border-color: var(--glass-border);
+  color: var(--text-0);
+  backdrop-filter: blur(var(--blur-sm)) saturate(var(--saturate));
+  -webkit-backdrop-filter: blur(var(--blur-sm)) saturate(var(--saturate));
+}
+
+.glass-button-ghost:hover {
+  border-color: color-mix(in srgb, var(--accent) 50%, var(--glass-border));
+  background: color-mix(in srgb, var(--bg-elev) 100%, var(--accent-fade));
 }
 
 /* ------------------------------------------------------------------ */
-/* Top nav                                                              */
+/* Top nav (pill)                                                      */
 /* ------------------------------------------------------------------ */
 
 .top-nav {
-  background: color-mix(in srgb, var(--glass-bg) 80%, transparent);
+  background: var(--bg-elev);
   border: 1px solid var(--glass-border);
   border-radius: var(--r-pill);
   padding: var(--sp-2) var(--sp-3);
-  backdrop-filter: blur(20px) saturate(140%);
-  -webkit-backdrop-filter: blur(20px) saturate(140%);
-  box-shadow: var(--shadow-md);
+  backdrop-filter: blur(var(--blur-md)) saturate(var(--saturate));
+  -webkit-backdrop-filter: blur(var(--blur-md)) saturate(var(--saturate));
+  box-shadow:
+    0 1px 0 0 var(--glass-highlight) inset,
+    var(--shadow-md);
 }
 
 .brand-dot {
-  width: 12px;
-  height: 12px;
-  background: linear-gradient(135deg, var(--accent), var(--success));
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 18%, transparent);
+  width: 14px;
+  height: 14px;
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 25%, transparent),
+    0 0 16px var(--accent-glow);
 }
 
 .nav-link {
+  border-radius: var(--r-pill);
   font-weight: 500;
-  transition: background var(--t-fast) var(--ease-out), color var(--t-fast) var(--ease-out);
+  padding: 8px 14px;
+  transition: background var(--t-fast) var(--ease-out),
+    color var(--t-fast) var(--ease-out);
 }
 
-.nav-link-active {
+.nav-link-active,
+.nav-link:hover {
   background: linear-gradient(
     120deg,
-    color-mix(in srgb, var(--accent) 22%, transparent),
-    color-mix(in srgb, var(--success) 18%, transparent)
+    color-mix(in srgb, var(--accent) 30%, transparent),
+    color-mix(in srgb, var(--accent-2) 22%, transparent)
   );
   color: var(--text-0);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 40%, transparent);
 }
 
 /* ------------------------------------------------------------------ */
-/* Sidebar                                                              */
+/* Sidebar                                                             */
 /* ------------------------------------------------------------------ */
 
 .side-panel {
   padding: var(--sp-3);
+  border-radius: var(--r-xl);
+  border: 1px solid var(--glass-border);
+  background: var(--bg-elev);
+  backdrop-filter: blur(var(--blur-md)) saturate(var(--saturate));
+  -webkit-backdrop-filter: blur(var(--blur-md)) saturate(var(--saturate));
+  box-shadow:
+    0 1px 0 0 var(--glass-highlight) inset,
+    var(--shadow-soft);
 }
 
 .side-link {
-  font-weight: 500;
   border-radius: var(--r-md);
-  transition: background var(--t-fast) var(--ease-out), color var(--t-fast) var(--ease-out),
+  padding: 10px 12px;
+  font-weight: 500;
+  transition: background var(--t-fast) var(--ease-out),
+    color var(--t-fast) var(--ease-out),
     transform var(--t-fast) var(--ease-out);
 }
 
 .side-link:hover {
   transform: translateX(2px);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
 }
 
 .side-link-active {
   background: linear-gradient(
     120deg,
-    color-mix(in srgb, var(--accent) 22%, transparent),
-    color-mix(in srgb, var(--success) 14%, transparent)
+    color-mix(in srgb, var(--accent) 28%, transparent),
+    color-mix(in srgb, var(--accent-2) 18%, transparent)
   );
   color: var(--text-0);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 28%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 40%, transparent);
 }
 
 /* ------------------------------------------------------------------ */
-/* Forms                                                                */
+/* Forms                                                               */
 /* ------------------------------------------------------------------ */
 
 .floating-input input,
@@ -302,11 +379,18 @@ h1,
 .message-composer textarea,
 .interview-field select,
 .vacancy-search-input,
-.status-filter select {
-  border-radius: var(--r-lg);
+.status-filter select,
+.interview-field input {
+  border-radius: var(--r-md);
   border: 1px solid var(--line-strong);
-  background: color-mix(in srgb, var(--bg-2) 70%, transparent);
-  transition: border-color var(--t-fast) var(--ease-out), box-shadow var(--t-fast) var(--ease-out);
+  background: var(--bg-elev);
+  color: var(--text-0);
+  padding: 14px 16px 12px;
+  backdrop-filter: blur(var(--blur-sm)) saturate(var(--saturate));
+  -webkit-backdrop-filter: blur(var(--blur-sm)) saturate(var(--saturate));
+  transition: border-color var(--t-fast) var(--ease-out),
+    box-shadow var(--t-fast) var(--ease-out),
+    background var(--t-fast) var(--ease-out);
 }
 
 .floating-input input:focus,
@@ -314,64 +398,240 @@ h1,
 .message-composer textarea:focus,
 .interview-field select:focus,
 .vacancy-search-input:focus,
-.status-filter select:focus {
+.status-filter select:focus,
+.interview-field input:focus {
   outline: none;
   border-color: var(--accent);
-  box-shadow: var(--shadow-focus);
+  background: var(--bg-elev);
+  box-shadow:
+    0 0 0 3px var(--accent-fade),
+    0 0 24px color-mix(in srgb, var(--accent) 22%, transparent);
 }
 
 /* ------------------------------------------------------------------ */
-/* Reports / Admin chart cards                                         */
+/* Auth mode switch (and admin tabs leftover)                          */
 /* ------------------------------------------------------------------ */
 
-.reports-chart-card {
+.auth-mode-switch {
+  background: var(--bg-elev);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--r-pill);
+  padding: 4px;
+  backdrop-filter: blur(var(--blur-sm)) saturate(var(--saturate));
+}
+
+.auth-mode-switch button {
+  border-radius: var(--r-pill);
+  padding: 8px 18px;
+  font-weight: 600;
+  color: var(--text-muted);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  transition: background var(--t-fast) var(--ease-out),
+    color var(--t-fast) var(--ease-out);
+}
+
+.auth-mode-switch button.mode-active {
+  background: linear-gradient(120deg, var(--accent), var(--accent-2));
+  color: white;
+  box-shadow: 0 6px 16px var(--accent-glow);
+}
+
+/* ------------------------------------------------------------------ */
+/* Admin nav cards: kick up the depth                                  */
+/* ------------------------------------------------------------------ */
+
+.admin-nav-card {
+  padding: var(--sp-4) var(--sp-5);
+  background:
+    linear-gradient(135deg, var(--bg-elev), var(--bg-elev-soft));
+  border: 1px solid var(--glass-border);
+}
+
+.admin-nav-card.is-active {
   background: linear-gradient(
     135deg,
-    color-mix(in srgb, var(--bg-2) 70%, transparent),
-    color-mix(in srgb, var(--bg-1) 80%, transparent)
+    color-mix(in srgb, var(--accent) 26%, transparent),
+    color-mix(in srgb, var(--accent-2) 18%, transparent)
   );
-  border: 1px solid var(--line);
-  transition: border-color var(--t-base) var(--ease-out), transform var(--t-base) var(--ease-out);
+  border-color: var(--accent);
+  box-shadow:
+    0 0 0 1px var(--accent),
+    0 12px 36px var(--accent-glow),
+    0 1px 0 0 var(--glass-highlight) inset;
 }
 
-.reports-chart-card:hover {
-  border-color: color-mix(in srgb, var(--accent) 28%, var(--line));
-  transform: translateY(-2px);
+.admin-nav-icon {
+  background: linear-gradient(135deg, var(--accent-fade), color-mix(in srgb, var(--accent-2) 18%, transparent));
+  border: 1px solid var(--glass-border);
+  box-shadow: 0 1px 0 0 var(--glass-highlight) inset;
+}
+
+.admin-nav-card.is-active .admin-nav-icon {
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  box-shadow: 0 0 24px var(--accent-glow);
 }
 
 /* ------------------------------------------------------------------ */
-/* Tables (admin / reports)                                            */
+/* Admin row cards & tables                                            */
 /* ------------------------------------------------------------------ */
 
-.admin-table {
-  border-radius: var(--r-lg);
-  overflow: hidden;
+.admin-row-card {
+  background: var(--bg-elev);
+  border: 1px solid var(--glass-border);
+  backdrop-filter: blur(var(--blur-sm)) saturate(var(--saturate));
+}
+
+.admin-row-card:hover {
+  border-color: color-mix(in srgb, var(--accent) 38%, var(--glass-border));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 25%, transparent);
 }
 
 .admin-table thead {
-  background: color-mix(in srgb, var(--bg-2) 50%, transparent);
-}
-
-.admin-table tbody tr {
-  transition: background var(--t-fast) var(--ease-out);
+  background: var(--accent-fade);
 }
 
 .admin-table tr:hover td {
   background: color-mix(in srgb, var(--accent) 10%, transparent);
 }
 
+.admin-inline-field select,
+.admin-table select {
+  background: var(--bg-elev);
+  border: 1px solid var(--line-strong);
+  color: var(--text-0);
+}
+
 /* ------------------------------------------------------------------ */
-/* Chat / interview                                                     */
+/* Tier cards                                                          */
+/* ------------------------------------------------------------------ */
+
+.tier-card.is-highlight {
+  border-color: var(--accent);
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--accent) 28%, transparent),
+    color-mix(in srgb, var(--accent-2) 20%, transparent)
+  );
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--accent) 60%, transparent),
+    0 16px 48px var(--accent-glow);
+}
+
+.tier-card.is-current {
+  border-color: var(--success);
+  box-shadow:
+    0 0 0 1px var(--success),
+    0 12px 32px color-mix(in srgb, var(--success) 32%, transparent);
+}
+
+.tier-name {
+  font-size: var(--fz-xl);
+  font-weight: 700;
+}
+
+.tier-price strong {
+  font-size: var(--fz-3xl);
+  background: linear-gradient(135deg, var(--text-0), var(--accent));
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.tier-cta.is-primary {
+  background: linear-gradient(120deg, var(--accent), var(--accent-2));
+  border: 1px solid color-mix(in srgb, white 20%, transparent);
+  box-shadow:
+    inset 0 1px 0 0 color-mix(in srgb, white 32%, transparent),
+    0 8px 24px var(--accent-glow);
+}
+
+/* ------------------------------------------------------------------ */
+/* Profile stats                                                       */
+/* ------------------------------------------------------------------ */
+
+.profile-stat {
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--accent) 18%, transparent),
+    color-mix(in srgb, var(--accent-2) 10%, transparent)
+  );
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--glass-border));
+}
+
+.profile-stat strong {
+  font-size: var(--fz-2xl);
+  background: linear-gradient(135deg, var(--text-0), var(--accent));
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* ------------------------------------------------------------------ */
+/* Settings rows                                                       */
+/* ------------------------------------------------------------------ */
+
+.settings-row {
+  background: var(--bg-elev-soft);
+  border: 1px solid var(--glass-border);
+  backdrop-filter: blur(var(--blur-sm)) saturate(var(--saturate));
+}
+
+.settings-segmented {
+  border: 1px solid var(--glass-border);
+  background: var(--bg-elev);
+  backdrop-filter: blur(var(--blur-sm)) saturate(var(--saturate));
+}
+
+.settings-segmented button.is-active {
+  background: linear-gradient(120deg, var(--accent), var(--accent-2));
+  box-shadow: 0 6px 16px var(--accent-glow);
+}
+
+.pref-toggle {
+  background: var(--line-strong);
+}
+
+.pref-toggle.is-on {
+  background: linear-gradient(120deg, var(--accent), var(--accent-2));
+  box-shadow: 0 0 16px var(--accent-glow);
+}
+
+/* ------------------------------------------------------------------ */
+/* Empty state                                                         */
+/* ------------------------------------------------------------------ */
+
+.empty-state {
+  background: linear-gradient(
+    135deg,
+    var(--bg-elev),
+    color-mix(in srgb, var(--accent) 8%, transparent)
+  );
+  border: 1px dashed color-mix(in srgb, var(--accent) 35%, var(--line-strong));
+}
+
+.empty-state__icon {
+  font-size: 56px;
+  filter: drop-shadow(0 8px 24px var(--accent-glow));
+}
+
+.empty-state__title {
+  background: linear-gradient(120deg, var(--text-0), var(--accent));
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* ------------------------------------------------------------------ */
+/* Chat / AI                                                           */
 /* ------------------------------------------------------------------ */
 
 .msg {
   border-radius: var(--r-lg);
-  box-shadow: var(--shadow-md);
-  transition: transform var(--t-fast) var(--ease-out);
-}
-
-.msg:hover {
-  transform: translateY(-1px);
+  border: 1px solid var(--glass-border);
+  backdrop-filter: blur(var(--blur-sm)) saturate(var(--saturate));
+  box-shadow: var(--shadow-soft), 0 1px 0 0 var(--glass-highlight) inset;
 }
 
 .msg-ai {
@@ -385,78 +645,230 @@ h1,
 .msg-user {
   background: linear-gradient(
     135deg,
-    color-mix(in srgb, var(--success) 28%, transparent),
-    color-mix(in srgb, var(--success) 12%, transparent)
+    color-mix(in srgb, var(--accent-3) 22%, transparent),
+    color-mix(in srgb, var(--success) 16%, transparent)
   );
+}
+
+.msg-streaming {
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--accent) 26%, transparent),
+    color-mix(in srgb, var(--accent-2) 12%, transparent)
+  );
+  box-shadow: 0 0 32px var(--accent-glow);
+}
+
+.msg-caret {
+  background: var(--accent);
 }
 
 /* ------------------------------------------------------------------ */
-/* Settings page polish                                                 */
+/* Chart card polish                                                   */
 /* ------------------------------------------------------------------ */
 
-.settings-row {
-  background: linear-gradient(
-    135deg,
-    color-mix(in srgb, var(--bg-2) 60%, transparent),
-    color-mix(in srgb, var(--bg-1) 70%, transparent)
-  );
-  border: 1px solid var(--line);
-  transition: border-color var(--t-fast) var(--ease-out), transform var(--t-fast) var(--ease-out);
+.reports-chart-card {
+  background:
+    linear-gradient(
+      135deg,
+      var(--bg-elev),
+      color-mix(in srgb, var(--bg-elev-soft) 100%, var(--accent) 6%)
+    );
+  border: 1px solid var(--glass-border);
 }
 
-.settings-row:hover {
-  border-color: color-mix(in srgb, var(--accent) 22%, var(--line));
-}
-
-.profile-stat {
-  background: linear-gradient(
-    135deg,
-    color-mix(in srgb, var(--accent) 16%, transparent),
-    color-mix(in srgb, var(--accent) 4%, transparent)
-  );
-  border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--line));
-  transition: transform var(--t-base) var(--ease-out);
-}
-
-.profile-stat:hover {
+.reports-chart-card:hover {
+  border-color: color-mix(in srgb, var(--accent) 36%, var(--glass-border));
   transform: translateY(-2px);
 }
 
-.profile-stat strong {
-  background: linear-gradient(120deg, var(--text-0), color-mix(in srgb, var(--accent) 70%, var(--text-0)));
+.reports-chart-card h4 {
+  background: linear-gradient(120deg, var(--text-muted), var(--accent));
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
 }
 
 /* ------------------------------------------------------------------ */
-/* Empty states                                                         */
+/* Skeleton                                                            */
 /* ------------------------------------------------------------------ */
 
-.empty-state {
+.skeleton {
   background: linear-gradient(
-    135deg,
-    color-mix(in srgb, var(--bg-2) 70%, transparent),
-    color-mix(in srgb, var(--accent) 6%, transparent)
+    90deg,
+    var(--line) 0%,
+    color-mix(in srgb, var(--accent) 18%, var(--line)) 50%,
+    var(--line) 100%
   );
-  border: 1px dashed color-mix(in srgb, var(--accent) 30%, var(--line-strong));
-}
-
-.empty-state__icon {
-  font-size: 48px;
-  filter: drop-shadow(0 6px 16px color-mix(in srgb, var(--accent) 32%, transparent));
+  background-size: 200% 100%;
+  border-radius: var(--r-md);
+  animation: skeleton-shimmer 1.6s linear infinite;
 }
 
 /* ------------------------------------------------------------------ */
-/* Banner                                                               */
+/* Scrollbar (dark theme only)                                         */
 /* ------------------------------------------------------------------ */
 
-.glass-button:focus-visible {
-  outline: none;
-  box-shadow: var(--shadow-focus);
+:root[data-theme="dark"] ::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
 }
 
-/* Reduced-motion fallbacks */
+:root[data-theme="dark"] ::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+:root[data-theme="dark"] ::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--accent) 28%, transparent);
+  border-radius: var(--r-pill);
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+:root[data-theme="dark"] ::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--accent) 50%, transparent);
+  background-clip: content-box;
+}
+
+/* ------------------------------------------------------------------ */
+/* Selection                                                           */
+/* ------------------------------------------------------------------ */
+
+::selection {
+  background: color-mix(in srgb, var(--accent) 50%, transparent);
+  color: white;
+}
+
+/* ------------------------------------------------------------------ */
+/* Banner & status                                                     */
+/* ------------------------------------------------------------------ */
+
+.report-status {
+  border: 1px solid var(--glass-border);
+  background: var(--bg-elev);
+  backdrop-filter: blur(var(--blur-sm)) saturate(var(--saturate));
+}
+
+.report-status-active,
+.report-status-finished {
+  background: var(--success-fade);
+  border-color: color-mix(in srgb, var(--success) 35%, var(--line-strong));
+  color: var(--success);
+}
+
+.report-status-suspended,
+.report-status-expired {
+  background: var(--warning-fade);
+  border-color: color-mix(in srgb, var(--warning) 35%, var(--line-strong));
+  color: var(--warning);
+}
+
+.report-status-banned {
+  background: var(--danger-fade);
+  border-color: color-mix(in srgb, var(--danger) 45%, var(--line-strong));
+  color: var(--danger);
+}
+
+.report-status-pro,
+.report-status-team,
+.report-status-starter,
+.report-status-pending {
+  background: var(--accent-fade);
+  border-color: color-mix(in srgb, var(--accent) 38%, var(--line-strong));
+  color: var(--accent);
+}
+
+/* ------------------------------------------------------------------ */
+/* Override legacy blue/green gradients with violet brand              */
+/* ------------------------------------------------------------------ */
+
+.interview-start-btn,
+.retry-btn,
+.message-composer button,
+.practice-submit-btn {
+  background: linear-gradient(120deg, var(--accent), var(--accent-2));
+  border: 1px solid color-mix(in srgb, white 18%, transparent);
+  box-shadow:
+    inset 0 1px 0 0 color-mix(in srgb, white 32%, transparent),
+    0 8px 24px var(--accent-glow);
+}
+
+.interview-start-btn:hover,
+.retry-btn:hover,
+.practice-submit-btn:hover {
+  filter: brightness(1.06);
+  box-shadow:
+    inset 0 1px 0 0 color-mix(in srgb, white 38%, transparent),
+    0 14px 36px var(--accent-glow);
+}
+
+.connection-status.connected {
+  color: var(--success);
+}
+
+.connection-status.disconnected {
+  color: var(--warning);
+}
+
+.interview-error,
+.form-error,
+.github-import-error,
+.checkout-error {
+  color: var(--danger);
+}
+
+.practice-feedback-error {
+  border-color: color-mix(in srgb, var(--danger) 48%, var(--glass-border));
+  background: color-mix(in srgb, var(--danger) 10%, var(--glass-bg));
+}
+
+.career-fit-fill,
+.github-fit-fill,
+.resume-upload-progress-fill {
+  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+}
+
+.contribution-graph__day--low {
+  background: color-mix(in srgb, var(--accent) 25%, transparent);
+}
+
+.contribution-graph__day--medium {
+  background: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+.contribution-graph__day--high {
+  background: color-mix(in srgb, var(--accent) 65%, transparent);
+}
+
+.contribution-graph__day--very-high {
+  background: color-mix(in srgb, var(--accent) 85%, transparent);
+}
+
+.github-monthly-bar {
+  background: linear-gradient(180deg, var(--accent-2), var(--accent));
+}
+
+.practice-code-editor {
+  background: color-mix(in srgb, #07051a 90%, var(--accent) 10%);
+  color: #e9e0ff;
+  border-color: color-mix(in srgb, var(--accent) 22%, var(--line-strong));
+  border-radius: var(--r-md);
+}
+
+/* ------------------------------------------------------------------ */
+/* Backend-status banner                                                */
+/* ------------------------------------------------------------------ */
+
+[role="status"][aria-live="polite"] {
+  /* targets the BackendStatusBanner inline-styled element */
+  backdrop-filter: blur(var(--blur-md)) saturate(var(--saturate));
+  -webkit-backdrop-filter: blur(var(--blur-md)) saturate(var(--saturate));
+}
+
+/* ------------------------------------------------------------------ */
+/* Reduced motion                                                       */
+/* ------------------------------------------------------------------ */
+
 @media (prefers-reduced-motion: reduce) {
   .ambient {
     animation: none;
