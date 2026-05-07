@@ -193,6 +193,245 @@
 }
 
 /* ------------------------------------------------------------------ */
+/* Admin panel                                                          */
+/* ------------------------------------------------------------------ */
+
+.admin-page {
+  gap: var(--sp-4);
+}
+
+.admin-tabs {
+  margin-top: var(--sp-2);
+  flex-wrap: wrap;
+}
+
+.admin-table-wrap {
+  overflow-x: auto;
+  margin-top: var(--sp-2);
+}
+
+.admin-table th {
+  font-size: var(--fz-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  font-weight: 600;
+  padding: var(--sp-3) var(--sp-2);
+}
+
+.admin-table td {
+  vertical-align: middle;
+  padding: var(--sp-3) var(--sp-2);
+  font-size: var(--fz-md);
+}
+
+.admin-table tr:hover td {
+  background: var(--accent-fade);
+}
+
+.admin-table select {
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  background: transparent;
+  color: var(--text-0);
+  padding: 4px 8px;
+  font-size: var(--fz-sm);
+}
+
+.admin-actions {
+  display: inline-flex;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+}
+
+.admin-action-danger {
+  border-color: color-mix(in srgb, var(--danger) 50%, var(--line-strong)) !important;
+  color: var(--danger) !important;
+}
+
+.admin-action-danger:hover {
+  background: var(--danger-fade) !important;
+}
+
+.report-status-active,
+.report-status-suspended,
+.report-status-banned,
+.report-status-pending {
+  text-transform: capitalize;
+}
+
+.report-status-suspended {
+  background: var(--warning-fade);
+  border-color: color-mix(in srgb, var(--warning) 35%, var(--line-strong));
+}
+
+.report-status-banned {
+  background: var(--danger-fade);
+  border-color: color-mix(in srgb, var(--danger) 45%, var(--line-strong));
+  color: var(--danger);
+}
+
+.report-status-pending {
+  background: var(--accent-fade);
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--line-strong));
+}
+
+/* ------------------------------------------------------------------ */
+/* Profile page                                                        */
+/* ------------------------------------------------------------------ */
+
+.profile-page {
+  gap: var(--sp-4);
+}
+
+.profile-grid {
+  display: grid;
+  gap: var(--sp-4);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+@media (max-width: 900px) {
+  .profile-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.profile-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--sp-3);
+  margin-top: var(--sp-3);
+}
+
+@media (max-width: 700px) {
+  .profile-stats-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.profile-stat {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  padding: var(--sp-3);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--accent-fade);
+}
+
+.profile-stat strong {
+  font-size: var(--fz-2xl);
+  color: var(--text-0);
+}
+
+.settings-grid {
+  display: grid;
+  gap: var(--sp-3);
+  margin-top: var(--sp-3);
+}
+
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  padding: var(--sp-3);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--bg-2);
+}
+
+.settings-row > div:first-child {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.settings-row strong {
+  display: block;
+  color: var(--text-0);
+  margin-bottom: 2px;
+}
+
+.settings-row p.muted {
+  margin: 0;
+  font-size: var(--fz-sm);
+}
+
+@media (max-width: 700px) {
+  .settings-row {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
+
+.settings-segmented {
+  display: inline-flex;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-pill);
+  background: var(--bg-1);
+  padding: 2px;
+}
+
+.settings-segmented button {
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  padding: 6px 14px;
+  font-size: var(--fz-sm);
+  border-radius: var(--r-pill);
+  cursor: pointer;
+  transition: background var(--t-fast) var(--ease-out), color var(--t-fast) var(--ease-out);
+}
+
+.settings-segmented button.is-active {
+  background: var(--accent);
+  color: white;
+}
+
+/* ------------------------------------------------------------------ */
+/* Toggle switch                                                       */
+/* ------------------------------------------------------------------ */
+
+.pref-toggle {
+  --toggle-w: 44px;
+  --toggle-h: 24px;
+  position: relative;
+  width: var(--toggle-w);
+  height: var(--toggle-h);
+  border-radius: var(--r-pill);
+  border: 0;
+  cursor: pointer;
+  background: var(--line-strong);
+  transition: background var(--t-base) var(--ease-out);
+  flex-shrink: 0;
+}
+
+.pref-toggle.is-on {
+  background: var(--accent);
+}
+
+.pref-toggle__knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: calc(var(--toggle-h) - 4px);
+  height: calc(var(--toggle-h) - 4px);
+  border-radius: 50%;
+  background: white;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  transition: transform var(--t-base) var(--ease-spring);
+}
+
+.pref-toggle.is-on .pref-toggle__knob {
+  transform: translateX(calc(var(--toggle-w) - var(--toggle-h)));
+}
+
+.pref-toggle:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+
+/* ------------------------------------------------------------------ */
 /* Fade-in helpers                                                     */
 /* ------------------------------------------------------------------ */
 
