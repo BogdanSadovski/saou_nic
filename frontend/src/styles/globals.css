@@ -1227,26 +1227,7 @@ input {
   min-width: 220px;
 }
 
-.bottom-nav {
-  position: fixed;
-  left: 50%;
-  transform: translateX(-50%);
-  bottom: 0.8rem;
-  display: none;
-  gap: 0.5rem;
-  z-index: 30;
-}
-
-.bottom-link {
-  padding: 0.4rem 0.8rem;
-  border-radius: 999px;
-  color: var(--text-muted);
-}
-
-.bottom-link-active {
-  color: var(--text-0);
-  background: color-mix(in srgb, var(--accent) 18%, transparent);
-}
+/* BottomNav removed: top nav handles every viewport now. */
 
 .section-header {
   display: flex;
@@ -1948,16 +1929,24 @@ input {
     grid-template-columns: 1fr;
   }
 
+  /* Top nav becomes the only nav on mobile — let it wrap and let the
+     link list horizontally scroll if it overflows. Avoids hiding it
+     and leaving the user without navigation now that BottomNav is
+     gone. */
+  .top-nav {
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
   .top-nav nav {
+    width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+
+  .top-nav nav::-webkit-scrollbar {
     display: none;
-  }
-
-  .bottom-nav {
-    display: flex;
-  }
-
-  .app-root {
-    padding-bottom: 5rem;
   }
 
   .with-header-offset {

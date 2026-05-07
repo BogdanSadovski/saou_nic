@@ -796,38 +796,8 @@ h1,
 /* Performance + BottomNav fix                                         */
 /* ------------------------------------------------------------------ */
 
-/* The BottomNav inherits .glass-card. The generic .glass-card:hover
-   adds translateY(-3px) + border-color shift — fine for cards, but on
-   a fixed bottom bar it produces an unwanted "the bar jumps when I
-   hover its icons" effect and triggers a paint of the entire row.
-   Pin it down explicitly. */
-.bottom-nav.glass-card {
-  transform: none !important;
-  transition: none;
-  /* The bar is small and over-the-content; a single light specular
-     gradient is enough — avoid stacking another backdrop-filter on top
-     of the cards already blurred behind it. */
-  backdrop-filter: blur(var(--blur-sm)) saturate(140%);
-  -webkit-backdrop-filter: blur(var(--blur-sm)) saturate(140%);
-  box-shadow: var(--shadow-md);
-  /* Drop the inset highlight pseudo to keep paint cheap. */
-}
-
-.bottom-nav.glass-card::before {
-  display: none;
-}
-
-.bottom-nav.glass-card:hover {
-  transform: none !important;
-  border-color: var(--glass-border);
-  box-shadow: var(--shadow-md);
-}
-
-.bottom-link {
-  /* Smaller, snappier hover — no layout shifts, no blur changes. */
-  transition: color var(--t-fast) var(--ease-out),
-    background var(--t-fast) var(--ease-out);
-}
+/* BottomNav has been removed entirely — top-nav handles every
+   viewport now (it wraps + horizontally scrolls below 760px). */
 
 /* Cap rendering work on busy pages. content-visibility: auto skips
    layout/paint of off-screen cards entirely. We can't apply globally
@@ -1149,45 +1119,6 @@ h1,
 .side-link-active .side-link-arrow {
   opacity: 1;
   transform: translateX(2px);
-}
-
-/* ------------------------------------------------------------------ */
-/* Bottom nav — icon + label, equal flex                               */
-/* ------------------------------------------------------------------ */
-
-.bottom-nav {
-  padding: 6px 8px;
-  border-radius: var(--r-pill);
-  display: inline-flex;
-  gap: 4px;
-}
-
-.bottom-link {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 2px;
-  padding: 6px 12px;
-  font-size: 11px;
-  font-weight: 500;
-  border-radius: var(--r-pill);
-  color: var(--text-muted);
-  transition: color var(--t-fast) var(--ease-out),
-    background var(--t-fast) var(--ease-out);
-}
-
-.bottom-link svg {
-  opacity: 0.85;
-}
-
-.bottom-link-active {
-  color: var(--text-0);
-  background: linear-gradient(120deg, var(--accent-fade), color-mix(in srgb, var(--accent-2) 20%, transparent));
-}
-
-.bottom-link-active svg {
-  color: var(--accent);
-  opacity: 1;
 }
 
 /* ------------------------------------------------------------------ */
