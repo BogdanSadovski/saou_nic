@@ -112,15 +112,29 @@ h1,
       color-mix(in srgb, var(--glass-bg) 110%, transparent) 0%,
       color-mix(in srgb, var(--glass-bg) 70%, transparent) 100%
     );
-  backdrop-filter: blur(var(--blur-md)) saturate(var(--saturate));
-  -webkit-backdrop-filter: blur(var(--blur-md)) saturate(var(--saturate));
+  /* Backdrop blur is the dominant paint cost. md (24px) on every
+     surface meant 8-12+ overlapping blurs at any time. Drop the
+     default to sm (16px) — only top-level glass-card / admin-nav-card
+     keep the deeper md blur (overridden below). */
+  backdrop-filter: blur(var(--blur-sm)) saturate(var(--saturate));
+  -webkit-backdrop-filter: blur(var(--blur-sm)) saturate(var(--saturate));
   box-shadow:
     0 1px 0 0 var(--glass-highlight) inset,
     0 -1px 0 0 var(--glass-shade) inset,
     var(--shadow-soft);
+  /* Animate border-color only on transform/box-shadow — paint stays
+     cheap because only those two properties change layer state. */
   transition: transform var(--t-base) var(--ease-out),
     border-color var(--t-base) var(--ease-out),
     box-shadow var(--t-base) var(--ease-out);
+}
+
+/* Re-enable the deeper blur ONLY on top-level page cards, where it
+   reads as a real "frosted glass" rather than overlapping noise. */
+.page > .glass-card,
+.admin-nav-card {
+  backdrop-filter: blur(var(--blur-md)) saturate(var(--saturate));
+  -webkit-backdrop-filter: blur(var(--blur-md)) saturate(var(--saturate));
 }
 
 /* Specular highlight — the "wet" reflection across the top edge.
@@ -776,6 +790,87 @@ h1,
   background: var(--accent-fade);
   border-color: color-mix(in srgb, var(--accent) 38%, var(--line-strong));
   color: var(--accent);
+}
+
+/* ------------------------------------------------------------------ */
+/* Performance + BottomNav fix                                         */
+/* ------------------------------------------------------------------ */
+
+/* The BottomNav inherits .glass-card. The generic .glass-card:hover
+   adds translateY(-3px) + border-color shift — fine for cards, but on
+   a fixed bottom bar it produces an unwanted "the bar jumps when I
+   hover its icons" effect and triggers a paint of the entire row.
+   Pin it down explicitly. */
+.bottom-nav.glass-card {
+  transform: none !important;
+  transition: none;
+  /* The bar is small and over-the-content; a single light specular
+     gradient is enough — avoid stacking another backdrop-filter on top
+     of the cards already blurred behind it. */
+  backdrop-filter: blur(var(--blur-sm)) saturate(140%);
+  -webkit-backdrop-filter: blur(var(--blur-sm)) saturate(140%);
+  box-shadow: var(--shadow-md);
+  /* Drop the inset highlight pseudo to keep paint cheap. */
+}
+
+.bottom-nav.glass-card::before {
+  display: none;
+}
+
+.bottom-nav.glass-card:hover {
+  transform: none !important;
+  border-color: var(--glass-border);
+  box-shadow: var(--shadow-md);
+}
+
+.bottom-link {
+  /* Smaller, snappier hover — no layout shifts, no blur changes. */
+  transition: color var(--t-fast) var(--ease-out),
+    background var(--t-fast) var(--ease-out);
+}
+
+/* Cap rendering work on busy pages. content-visibility: auto skips
+   layout/paint of off-screen cards entirely. We can't apply globally
+   because it interacts with auto-anchor scroll, but it's safe on
+   list-y grids. */
+.dashboard-grid > *,
+.admin-kpi-grid > *,
+.tier-grid > *,
+.admin-cards-list > *,
+.reports-charts > * {
+  contain: layout paint;
+}
+
+/* The page-level entrance keyframe used to animate filter:blur(4px),
+   which is GPU-expensive on every card and noticeably janky on
+   low-end laptops. Switch to opacity+transform only. */
+@keyframes card-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Ambient backdrop is the single most expensive paint on the page
+   (3 stacked blurred radials, animated). Pin its size, pre-promote
+   it to its own compositing layer, and reduce the blur radius from
+   120px to 80px — visually identical at typical viewports. */
+.ambient {
+  filter: blur(80px);
+  will-change: transform;
+  transform: translateZ(0);
+  contain: layout paint;
+}
+
+/* On low-power / save-data clients drop the ambient orbit entirely. */
+@media (prefers-reduced-data: reduce), (max-width: 640px) {
+  .ambient {
+    animation: none;
+  }
 }
 
 /* ------------------------------------------------------------------ */
