@@ -5,4 +5,6 @@ export { interviewApi } from "./interview";
 export { resumeApi } from "./resume";
 export { reportsApi } from "./reports";
 export { adminApi } from "./admin";
+export { billingApi } from "./billing";
+export type { BackendSubscription } from "./billing";
 export { githubApi } from "./github";

@@ -215,6 +215,15 @@ func main() {
 		return singleJoiningSlash("/api/v1", stripPrefix("/api/admin")(path))
 	}))
 
+	// Billing routes also live on admin-service (subscription tables
+	// + audit logs) but are user-facing — keep the path under /billing
+	// so callers don't think they need admin role. Strip the leading
+	// /api so the rewrite produces /api/v1/billing/... rather than
+	// /api/v1/api/billing/...
+	mux.Handle("/api/billing/", rewriteAndProxy(adminProxy, func(path string) string {
+		return singleJoiningSlash("/api/v1", stripPrefix("/api")(path))
+	}))
+
 	// GitHub profile import is implemented in interview-service.
 	mux.Handle("/api/github/import", rewriteAndProxy(interviewProxy, func(string) string {
 		return "/api/v1/github/import"

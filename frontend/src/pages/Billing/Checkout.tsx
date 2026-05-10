@@ -100,7 +100,7 @@ export default function CheckoutPage() {
     const now = new Date();
     const expires = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
 
-    applyPayment({
+    await applyPayment({
       tier,
       amount,
       currency: "RUB",

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	jwtv5 "github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/real-ass/admin-service/internal/domain"
 	"github.com/real-ass/admin-service/pkg/rbac"
@@ -72,20 +73,48 @@ type TokenClaims struct {
 	Role   domain.UserRole
 }
 
-// validateToken validates and parses the JWT token.
+// validateToken parses and validates a HS256-signed JWT issued by
+// user-service. Extracts user_id / email / role into TokenClaims so
+// downstream handlers can attribute actions to the real user.
+//
+// Was previously a stub that returned a random UUID, breaking every
+// /billing and /admin/users-by-id endpoint with "user not found".
 func (m *AuthMiddleware) validateToken(tokenString string) (*TokenClaims, error) {
-	// In production, use jwt.Parse with proper validation
-	// This is a simplified stub
-	if len(tokenString) < 10 {
-		return nil, fmt.Errorf("invalid token")
+	if strings.TrimSpace(tokenString) == "" {
+		return nil, fmt.Errorf("empty token")
 	}
 
-	// Stub: In production, parse JWT and verify signature
-	// For now, return a mock claim
+	parsed, err := jwtv5.Parse(tokenString, func(t *jwtv5.Token) (interface{}, error) {
+		if _, ok := t.Method.(*jwtv5.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
+		}
+		return []byte(m.jwtSecret), nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("parse token: %w", err)
+	}
+
+	mc, ok := parsed.Claims.(jwtv5.MapClaims)
+	if !ok || !parsed.Valid {
+		return nil, fmt.Errorf("invalid token claims")
+	}
+
+	rawUserID, _ := mc["user_id"].(string)
+	if rawUserID == "" {
+		return nil, fmt.Errorf("token missing user_id")
+	}
+	userID, err := uuid.Parse(rawUserID)
+	if err != nil {
+		return nil, fmt.Errorf("user_id not a uuid: %w", err)
+	}
+
+	email, _ := mc["email"].(string)
+	roleStr, _ := mc["role"].(string)
+
 	return &TokenClaims{
-		UserID: uuid.New(),
-		Email:  "admin@example.com",
-		Role:   domain.RoleSuperAdmin,
+		UserID: userID,
+		Email:  email,
+		Role:   domain.UserRole(roleStr),
 	}, nil
 }
 

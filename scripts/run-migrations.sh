@@ -92,9 +92,21 @@ fi
 
 wait_for_postgres 180 || exit 1
 
+# Map a service to the database it should migrate into. By default
+# we follow the "${svc//-/_}" convention (admin-service → admin_service).
+# Override here for services that share a db with another service.
+db_for_service() {
+  case "$1" in
+    # admin-service is consolidated into user_service so /admin/*
+    # endpoints see the real users that register through user-service.
+    admin-service) printf 'user_service' ;;
+    *)             printf '%s' "${1//-/_}" ;;
+  esac
+}
+
 failed=0
 for svc in "${SERVICES[@]}"; do
-  db="${svc//-/_}"
+  db="$(db_for_service "$svc")"
   shopt -s nullglob
   migrations=("./services/$svc/migrations/"*.up.sql)
   shopt -u nullglob

@@ -80,13 +80,14 @@ export default function ProfilePage() {
   const subscription = useSubscriptionStore();
   const cancelSubscription = useSubscriptionStore((s) => s.cancel);
   const refreshSubscription = useSubscriptionStore((s) => s.refresh);
+  const hydrateSubscription = useSubscriptionStore((s) => s.hydrate);
   const [searchParams, setSearchParams] = useSearchParams();
 
   useEffect(() => {
-    // Pull fresh state from localStorage in case the user came back
-    // from /billing/checkout — the store may already be primed but a
-    // full reload during checkout would have wiped in-memory state.
+    // Pull fresh state from localStorage and from the backend so the
+    // UI shows the truth — admin counts and Profile tier always match.
     refreshSubscription();
+    void hydrateSubscription();
     const paid = searchParams.get("paid");
     if (paid === "cancelled") {
       pushToast("Платёж отменён");
@@ -447,7 +448,7 @@ export default function ProfilePage() {
               </GlassButton>
               <GlassButton
                 onClick={() => {
-                  cancelSubscription();
+                  void cancelSubscription();
                   pushToast("Подписка отменена");
                 }}
                 type="button"

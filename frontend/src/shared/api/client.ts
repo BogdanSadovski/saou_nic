@@ -158,9 +158,15 @@ apiClient.interceptors.response.use(
       method === "post" &&
       (requestUrl.includes("/auth/login") || requestUrl.includes("/auth/register"));
     const retryableOnStatus = status !== undefined && RETRIABLE_STATUSES.has(status);
+    // Auth flows additionally retry 500 — user-service's
+    // `Failed to initialize database` window after a postgres rolling
+    // restart surfaces as a generic 500 from the gateway, but it heals
+    // within a few seconds. Idempotent for register (unique email
+    // constraint) and login (read-only).
+    const isAuthRetryable500 = isAuthRetryable && status === 500;
     const retriable =
       (isSafeMethod && (isNetworkError || retryableOnStatus)) ||
-      (isAuthRetryable && (isNetworkError || retryableOnStatus));
+      (isAuthRetryable && (isNetworkError || retryableOnStatus || isAuthRetryable500));
 
     const retries = (config as { __retryCount?: number }).__retryCount ?? 0;
     if (!retriable || retries >= MAX_RETRIES) {

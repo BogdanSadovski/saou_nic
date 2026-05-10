@@ -419,6 +419,79 @@ func (h *Handler) UpdateSubscription(c *gin.Context) {
 	c.JSON(http.StatusOK, sub)
 }
 
+// ----------------------------------------------------------------
+// User-facing billing endpoints (no admin role required)
+// ----------------------------------------------------------------
+
+// GetMySubscription returns the current user's active subscription
+// (or 404 if they're on the free plan / never subscribed).
+func (h *Handler) GetMySubscription(c *gin.Context) {
+	userID, err := GetUserIDFromContext(c)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+
+	sub, err := h.subService.GetSubscriptionByUserID(c.Request.Context(), userID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "no subscription"})
+		return
+	}
+	c.JSON(http.StatusOK, sub)
+}
+
+// CreateMySubscription is the "checkout-success" hook — the fake
+// payment gateway POSTs here once the user enters their card details
+// to record their tier. Body: { tier, card_last4 }.
+func (h *Handler) CreateMySubscription(c *gin.Context) {
+	userID, err := GetUserIDFromContext(c)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+
+	var req struct {
+		Tier      domain.SubscriptionTier `json:"tier" binding:"required,oneof=free basic pro enterprise starter team"`
+		CardLast4 string                  `json:"card_last4"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body", "details": err.Error()})
+		return
+	}
+
+	// Self-service: the actor (adminID) is the user themselves —
+	// every subscription transition is attributable in audit logs.
+	sub, err := h.subService.CreateSubscription(c.Request.Context(), userID, req.Tier, userID)
+	if err != nil {
+		log.Printf("billing: CreateMySubscription user=%s tier=%s failed: %v", userID, req.Tier, err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusCreated, sub)
+}
+
+// CancelMySubscription downgrades the current user back to free.
+func (h *Handler) CancelMySubscription(c *gin.Context) {
+	userID, err := GetUserIDFromContext(c)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+
+	sub, err := h.subService.GetSubscriptionByUserID(c.Request.Context(), userID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "no subscription"})
+		return
+	}
+
+	if err := h.subService.CancelSubscription(c.Request.Context(), sub.ID, userID); err != nil {
+		log.Printf("billing: CancelMySubscription user=%s failed: %v", userID, err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.Status(http.StatusNoContent)
+}
+
 // CancelSubscription cancels a subscription.
 func (h *Handler) CancelSubscription(c *gin.Context) {
 	id, err := uuid.Parse(c.Param("id"))

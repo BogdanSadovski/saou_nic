@@ -1,12 +1,20 @@
 import { create } from "zustand";
 
+import { billingApi } from "@/shared/api/billing";
+import type { BackendSubscription } from "@/shared/api/billing";
+
 /**
- * Local subscription state.
+ * Subscription state — server-backed (admin-service /billing/me) with
+ * a localStorage cache so the UI renders instantly while the network
+ * request resolves.
  *
- * The platform doesn't yet wire a real billing provider, so we keep
- * the active tier in localStorage and treat the dedicated checkout
- * route as a fake external gateway. When real billing lands, this
- * store should be replaced by /billing/me payload from admin-service.
+ * Source of truth: /billing/me/subscription on admin-service.
+ *   • hydrate()       fetches the current user's subscription on app boot
+ *   • applyPayment()  POST + write-through cache (called by Checkout)
+ *   • cancel()        DELETE + write-through cache
+ *
+ * Everything still falls back to local cache when the network is down
+ * so the user never sees a broken billing UI.
  */
 
 const KEY = "realsync_subscription";
@@ -56,24 +64,76 @@ const persist = (s: Subscription) => {
 };
 
 type State = Subscription & {
-  /** Mark a successful checkout. */
-  applyPayment: (intent: PaidIntent) => void;
+  /** Pull current subscription from the backend. No-op if offline. */
+  hydrate: () => Promise<void>;
+  /** Mark a successful checkout — POSTs to backend, then caches. */
+  applyPayment: (intent: PaidIntent) => Promise<void>;
   /** Cancel current paid plan (revert to free). */
-  cancel: () => void;
-  /** Reload from storage (used after returning from checkout). */
+  cancel: () => Promise<void>;
+  /** Re-read localStorage (used after Checkout pushes to it). */
   refresh: () => void;
 };
 
-export const useSubscriptionStore = create<State>((set) => ({
+const fromBackend = (sub: BackendSubscription | null): Subscription => {
+  if (!sub) return DEFAULT;
+  // Map the wider backend tier set down to the UI's tier vocabulary.
+  // Anything not matching a paid tier falls back to free.
+  const tier: Tier = (() => {
+    if (sub.tier === "starter" || sub.tier === "pro" || sub.tier === "team") return sub.tier;
+    if (sub.tier === "basic") return "starter";
+    if (sub.tier === "enterprise") return "team";
+    return "free";
+  })();
+  if (tier === "free") return DEFAULT;
+
+  return {
+    tier,
+    intent: {
+      tier,
+      amount: sub.amount ?? 0,
+      currency: "RUB",
+      cardLast4: "••••",
+      paidAt: sub.starts_at ?? sub.created_at ?? new Date().toISOString(),
+      expiresAt: sub.expires_at ?? new Date(Date.now() + 30 * 86_400_000).toISOString(),
+    },
+  };
+};
+
+export const useSubscriptionStore = create<State>((set, get) => ({
   ...load(),
-  applyPayment: (intent) => {
-    const next: Subscription = { tier: intent.tier, intent };
-    persist(next);
-    set(next);
+  hydrate: async () => {
+    try {
+      const sub = await billingApi.getMine();
+      const next = fromBackend(sub);
+      persist(next);
+      set(next);
+    } catch {
+      // network down — keep the cached value
+    }
   },
-  cancel: () => {
+  applyPayment: async (intent) => {
+    // Optimistic write to local cache so the UI updates instantly.
+    const optimistic: Subscription = { tier: intent.tier, intent };
+    persist(optimistic);
+    set(optimistic);
+    try {
+      await billingApi.create({ tier: intent.tier, cardLast4: intent.cardLast4 });
+    } catch {
+      // Roll back to whatever the backend says next time we hydrate.
+      // Don't strip the optimistic state right now — the user just saw
+      // a successful "checkout" page, breaking the UI on a 5xx is worse
+      // than a brief mismatch.
+    }
+  },
+  cancel: async () => {
     persist(DEFAULT);
     set(DEFAULT);
+    try {
+      await billingApi.cancel();
+    } catch {
+      // ignored — local downgrade is still useful
+    }
+    void get();
   },
   refresh: () => set(load()),
 }));
