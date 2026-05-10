@@ -151,6 +151,21 @@ func (r *postgresRepository) Update(ctx context.Context, user *domain.User) erro
 	return nil
 }
 
+// UpdatePassword rotates only password_hash without touching the
+// rest of the row. The general Update() above intentionally does not
+// include password_hash to avoid overwriting it with an empty string
+// during a profile-name update.
+func (r *postgresRepository) UpdatePassword(ctx context.Context, id uuid.UUID, passwordHash string) error {
+	_, err := r.pool.Exec(ctx,
+		`UPDATE users SET password_hash = $1, updated_at = $2 WHERE id = $3`,
+		passwordHash, time.Now(), id,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to update password: %w", err)
+	}
+	return nil
+}
+
 func (r *postgresRepository) UpdateLastLogin(ctx context.Context, id uuid.UUID) error {
 	now := time.Now()
 	_, err := r.pool.Exec(ctx, queryUpdateLastLogin, now, id)

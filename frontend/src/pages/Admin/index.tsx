@@ -472,8 +472,8 @@ export default function AdminPage() {
                     </span>
                   </div>
                   <div className="admin-row-meta">
-                    <span className="muted">старт: {formatDate(s.started_at)}</span>
-                    <span className="muted">до: {formatDate(s.expires_at)}</span>
+                    <span className="muted">старт: {formatDate(s.start_date)}</span>
+                    <span className="muted">до: {formatDate(s.end_date)}</span>
                   </div>
                 </div>
               ))}

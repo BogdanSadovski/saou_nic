@@ -2,9 +2,11 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/google/uuid"
+	"golang.org/x/crypto/bcrypt"
 
 	"github.com/real-ass/user-service/internal/domain"
 )
@@ -67,6 +69,30 @@ func (s *UserService) UpdateUser(ctx context.Context, id uuid.UUID, req domain.U
 	}
 
 	return user, nil
+}
+
+// ChangePassword verifies the current password and rotates the hash
+// to a new one. Returns "invalid current password" on bcrypt mismatch
+// so the API layer can map it to a 401 without leaking enumeration.
+func (s *UserService) ChangePassword(ctx context.Context, id uuid.UUID, currentPassword, newPassword string) error {
+	user, err := s.userRepo.GetByID(ctx, id)
+	if err != nil {
+		return fmt.Errorf("user not found")
+	}
+	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(currentPassword)); err != nil {
+		if errors.Is(err, bcrypt.ErrMismatchedHashAndPassword) {
+			return fmt.Errorf("invalid current password")
+		}
+		return fmt.Errorf("failed to verify password: %w", err)
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return fmt.Errorf("failed to hash password: %w", err)
+	}
+	if err := s.userRepo.UpdatePassword(ctx, user.ID, string(hash)); err != nil {
+		return fmt.Errorf("failed to persist new password: %w", err)
+	}
+	return nil
 }
 
 func (s *UserService) DeleteUser(ctx context.Context, id uuid.UUID) error {

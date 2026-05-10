@@ -15,8 +15,9 @@ export type BackendSubscription = {
   user_id: string;
   tier: "free" | "basic" | "starter" | "pro" | "team" | "enterprise";
   status: string; // "active" | "cancelled" | "expired" ...
-  starts_at?: string;
-  expires_at?: string;
+  /** Field names match admin-service domain.Subscription. */
+  start_date?: string;
+  end_date?: string;
   auto_renew?: boolean;
   amount?: number;
   currency?: string;

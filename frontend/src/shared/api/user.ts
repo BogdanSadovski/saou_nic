@@ -40,4 +40,16 @@ export const userApi = {
 
     return toFrontendUser(data);
   },
+
+  /**
+   * Rotate the password. 401 surfaces as a thrown error with status —
+   * AuthForm-style consumers can match on response.status to render
+   * 'invalid current password' inline.
+   */
+  async changePassword(currentPassword: string, newPassword: string): Promise<void> {
+    await apiClient.put("/users/me/password", {
+      current_password: currentPassword,
+      new_password: newPassword,
+    });
+  },
 };

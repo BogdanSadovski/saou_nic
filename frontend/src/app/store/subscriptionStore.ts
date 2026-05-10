@@ -93,8 +93,8 @@ const fromBackend = (sub: BackendSubscription | null): Subscription => {
       amount: sub.amount ?? 0,
       currency: "RUB",
       cardLast4: "••••",
-      paidAt: sub.starts_at ?? sub.created_at ?? new Date().toISOString(),
-      expiresAt: sub.expires_at ?? new Date(Date.now() + 30 * 86_400_000).toISOString(),
+      paidAt: sub.start_date ?? sub.created_at ?? new Date().toISOString(),
+      expiresAt: sub.end_date ?? new Date(Date.now() + 30 * 86_400_000).toISOString(),
     },
   };
 };

@@ -43,7 +43,9 @@ export function DashboardCards() {
 
   const totalInterviews = report?.totals.total_interviews ?? 0;
   const avgScore = report?.performance.average_score ?? 0;
-  const completionRate = Math.round((report?.totals.completion_rate ?? 0) * 100);
+  // Backend already returns completion_rate as 0..100 (math.Round of
+  // completed/total*100 in interview-service), no extra multiply.
+  const completionRate = Math.round(report?.totals.completion_rate ?? 0);
 
   const fmt = (value: number, suffix = "") =>
     value > 0 ? `${Math.round(value)}${suffix}` : "—";

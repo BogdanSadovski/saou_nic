@@ -11,7 +11,7 @@ import {
   useUserStore,
 } from "@/app/store";
 import { GithubConnectCard } from "@/features/github-connect/GithubConnectCard";
-import { reportsApi } from "@/shared/api";
+import { reportsApi, userApi } from "@/shared/api";
 import type { UserInterviewAnalyticsReport } from "@/shared/api/reports";
 import { useTranslation } from "@/shared/i18n";
 import {
@@ -305,7 +305,7 @@ export default function ProfilePage() {
               </div>
               <div className="profile-stat">
                 <span className="muted">Завершаемость</span>
-                <strong>{Math.round(report.totals.completion_rate * 100)}%</strong>
+                <strong>{Math.round(report.totals.completion_rate)}%</strong>
               </div>
               <div className="profile-stat">
                 <span className="muted">Отчёты</span>
@@ -408,6 +408,9 @@ export default function ProfilePage() {
           ))}
         </div>
       </GlassCard>
+
+      {/* Security: password change */}
+      <SecuritySection />
 
       {/* Subscription / billing */}
       <GlassCard>
@@ -571,5 +574,95 @@ function Toggle({ checked, onChange, ariaLabel }: ToggleProps) {
     >
       <span className="pref-toggle__knob" />
     </button>
+  );
+}
+
+/**
+ * Password-change form. Calls PUT /users/me/password and surfaces
+ * the validation reason inline ("invalid current password" / new
+ * password too short, etc.) so the user can fix it without guessing.
+ *
+ * Self-contained component so the main ProfilePage state surface
+ * stays focused on identity and billing.
+ */
+function SecuritySection() {
+  const { pushToast } = useToast();
+  const [current, setCurrent] = useState("");
+  const [next, setNext] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    if (next.length < 8) {
+      setError("Новый пароль должен быть не короче 8 символов");
+      return;
+    }
+    if (next !== confirm) {
+      setError("Пароли не совпадают");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await userApi.changePassword(current, next);
+      setCurrent("");
+      setNext("");
+      setConfirm("");
+      pushToast("Пароль обновлён");
+    } catch (err) {
+      const status = (err as { response?: { status?: number; data?: { error?: string } } })
+        ?.response?.status;
+      const message =
+        (err as { response?: { data?: { error?: string } } })?.response?.data?.error ||
+        (err as Error).message;
+      if (status === 401) {
+        setError(message || "Неверный текущий пароль");
+      } else {
+        setError(message || "Не удалось сменить пароль");
+      }
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <GlassCard>
+      <h3 className="card-title-with-icon">
+        <Icon name="shield" size={18} /> Безопасность
+      </h3>
+      <p className="muted">
+        Сменить пароль. Минимальная длина — 8 символов. После смены остальные сессии
+        останутся активны до истечения их refresh-токена.
+      </p>
+      <form onSubmit={handleSubmit} className="security-form">
+        <FloatingInput
+          autoComplete="current-password"
+          label="Текущий пароль"
+          onChange={(e) => setCurrent(e.target.value)}
+          type="password"
+          value={current}
+        />
+        <FloatingInput
+          autoComplete="new-password"
+          label="Новый пароль"
+          onChange={(e) => setNext(e.target.value)}
+          type="password"
+          value={next}
+        />
+        <FloatingInput
+          autoComplete="new-password"
+          label="Повторите новый пароль"
+          onChange={(e) => setConfirm(e.target.value)}
+          type="password"
+          value={confirm}
+        />
+        {error ? <p className="form-error">{error}</p> : null}
+        <GlassButton disabled={submitting || !current || !next} type="submit">
+          {submitting ? "Сохраняем..." : "Сменить пароль"}
+        </GlassButton>
+      </form>
+    </GlassCard>
   );
 }

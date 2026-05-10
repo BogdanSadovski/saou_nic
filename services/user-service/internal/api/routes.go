@@ -32,6 +32,7 @@ func (h *Handler) RegisterRoutes() *mux.Router {
 
 	protected.HandleFunc("/users/me", h.GetProfile).Methods(http.MethodGet)
 	protected.HandleFunc("/users/me", h.UpdateProfile).Methods(http.MethodPut)
+	protected.HandleFunc("/users/me/password", h.ChangePassword).Methods(http.MethodPut)
 
 	// Admin routes
 	admin := api.PathPrefix("/admin").Subrouter()

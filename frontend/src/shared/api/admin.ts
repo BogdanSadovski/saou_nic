@@ -48,8 +48,9 @@ export type AdminSubscription = {
   user_id: string;
   tier: string;
   status: string;
-  started_at?: string;
-  expires_at?: string;
+  /** Match admin-service domain.Subscription field names. */
+  start_date?: string;
+  end_date?: string;
   amount?: number;
   currency?: string;
 };
