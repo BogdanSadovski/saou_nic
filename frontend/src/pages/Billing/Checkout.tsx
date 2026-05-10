@@ -103,7 +103,7 @@ export default function CheckoutPage() {
     await applyPayment({
       tier,
       amount,
-      currency: "RUB",
+      currency: "USD",
       cardLast4: last4,
       paidAt: now.toISOString(),
       expiresAt: expires.toISOString(),
@@ -139,7 +139,7 @@ export default function CheckoutPage() {
 
         <div className="checkout-amount-row">
           <span className="muted">К оплате</span>
-          <strong className="checkout-amount">{amount.toLocaleString("ru-RU")} ₽</strong>
+          <strong className="checkout-amount">${amount}/mo</strong>
         </div>
 
         <form className="checkout-form" onSubmit={handleSubmit} noValidate>
@@ -218,9 +218,7 @@ export default function CheckoutPage() {
               disabled={submitting}
               type="submit"
             >
-              {submitting
-                ? "Обрабатываем платёж..."
-                : `Оплатить ${amount.toLocaleString("ru-RU")} ₽`}
+              {submitting ? "Обрабатываем платёж..." : `Оплатить $${amount}`}
             </button>
           </div>
 

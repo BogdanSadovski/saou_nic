@@ -443,6 +443,11 @@ func (h *Handler) GetMySubscription(c *gin.Context) {
 // CreateMySubscription is the "checkout-success" hook — the fake
 // payment gateway POSTs here once the user enters their card details
 // to record their tier. Body: { tier, card_last4 }.
+//
+// Behaves as upsert: if the user already has an active subscription
+// it is updated to the new tier (upgrade/downgrade), otherwise a new
+// row is created. Without this an upgrade flow surfaces as
+// "user already has an active subscription".
 func (h *Handler) CreateMySubscription(c *gin.Context) {
 	userID, err := GetUserIDFromContext(c)
 	if err != nil {
@@ -459,9 +464,25 @@ func (h *Handler) CreateMySubscription(c *gin.Context) {
 		return
 	}
 
-	// Self-service: the actor (adminID) is the user themselves —
-	// every subscription transition is attributable in audit logs.
-	sub, err := h.subService.CreateSubscription(c.Request.Context(), userID, req.Tier, userID)
+	ctx := c.Request.Context()
+
+	// Upsert: if the user already has an active subscription, update
+	// it in place rather than 400ing — the front-end checkout flow
+	// covers both first-purchase and tier-change.
+	if existing, getErr := h.subService.GetSubscriptionByUserID(ctx, userID); getErr == nil && existing != nil {
+		updated, updErr := h.subService.UpdateSubscription(ctx, existing.ID, req.Tier, true, userID)
+		if updErr != nil {
+			log.Printf("billing: UpdateMySubscription user=%s tier=%s failed: %v", userID, req.Tier, updErr)
+			c.JSON(http.StatusBadRequest, gin.H{"error": updErr.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, updated)
+		return
+	}
+
+	// First-time purchase path. Self-service: the actor (adminID) is
+	// the user themselves so audit logs attribute correctly.
+	sub, err := h.subService.CreateSubscription(ctx, userID, req.Tier, userID)
 	if err != nil {
 		log.Printf("billing: CreateMySubscription user=%s tier=%s failed: %v", userID, req.Tier, err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})

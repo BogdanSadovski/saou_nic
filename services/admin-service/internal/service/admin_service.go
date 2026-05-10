@@ -83,9 +83,12 @@ func (s *AdminService) GetDashboardStats(ctx context.Context) (*DashboardStats, 
 	}
 	stats.ActiveSubscriptions = int64(len(activeSubs))
 
-	// Count subscription tiers
+	// Count subscription tiers AND aggregate monthly revenue.
+	// Pricing is hard-coded by tier here (USD/month) — adjust the
+	// table when tiers change. Free contributes 0.
 	for _, sub := range activeSubs {
 		stats.SubscriptionTiers[sub.Tier]++
+		stats.RevenueThisMonth += tierMonthlyPriceUSD(sub.Tier)
 	}
 
 	// Recent audit logs

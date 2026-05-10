@@ -435,7 +435,7 @@ export default function ProfilePage() {
             </div>
             <div className="muted">
               Карта •••• {subscription.intent.cardLast4} ·{" "}
-              {subscription.intent.amount.toLocaleString("ru-RU")} ₽
+              {subscription.intent.amount.toLocaleString("en-US", { style: "currency", currency: "USD" })}
             </div>
             <div className="modal-actions">
               <GlassButton
@@ -476,7 +476,7 @@ export default function ProfilePage() {
                   {tier.highlight ? <span className="tier-badge">Популярный</span> : null}
                 </div>
                 <div className="tier-price">
-                  <strong>{tier.price.toLocaleString("ru-RU")} ₽</strong>
+                  <strong>${tier.price}/mo</strong>
                   <span className="muted">/мес</span>
                 </div>
                 <ul className="tier-perks">

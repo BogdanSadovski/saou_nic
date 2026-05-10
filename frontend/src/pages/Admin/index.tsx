@@ -38,7 +38,27 @@ const formatDate = (raw?: string) => {
 };
 
 const formatCurrency = (value: number) =>
-  value > 0 ? `${value.toLocaleString("ru-RU", { maximumFractionDigits: 0 })} ₽` : "—";
+  value > 0
+    ? value.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 })
+    : "—";
+
+// Mirror of admin-service tierMonthlyPriceUSD — used to label
+// subscription amounts on the admin tab when the backend doesn't
+// echo back an explicit Amount field.
+const tierMonthlyPriceUSD = (tier: string): number => {
+  switch (tier) {
+    case "starter":
+    case "basic":
+      return 9;
+    case "pro":
+      return 19;
+    case "team":
+    case "enterprise":
+      return 49;
+    default:
+      return 0;
+  }
+};
 
 const userDisplayName = (u: AdminUser) => {
   const fn = `${u.first_name ?? ""} ${u.last_name ?? ""}`.trim();
@@ -467,8 +487,8 @@ export default function AdminPage() {
                     <span className={`report-status report-status-${s.status}`}>{s.status}</span>
                     <span className="muted">
                       {s.amount && s.amount > 0
-                        ? `${s.amount.toLocaleString("ru-RU")} ${s.currency ?? ""}`
-                        : "без суммы"}
+                        ? formatCurrency(s.amount)
+                        : formatCurrency(tierMonthlyPriceUSD(s.tier))}
                     </span>
                   </div>
                   <div className="admin-row-meta">

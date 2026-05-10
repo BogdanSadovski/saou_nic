@@ -23,8 +23,10 @@ export type Tier = "free" | "starter" | "pro" | "team";
 
 export type PaidIntent = {
   tier: Exclude<Tier, "free">;
-  amount: number; // in RUB
-  currency: "RUB";
+  /** Amount in USD whole units. Backend stats price subscriptions in
+   *  USD too — see admin-service tierMonthlyPriceUSD. */
+  amount: number;
+  currency: "USD";
   cardLast4: string;
   paidAt: string;
   expiresAt: string;
@@ -86,12 +88,16 @@ const fromBackend = (sub: BackendSubscription | null): Subscription => {
   })();
   if (tier === "free") return DEFAULT;
 
+  // Pricing isn't stored on the backend Subscription record yet — derive
+  // it from the catalog so the Profile renders matching numbers.
+  const knownPrice = TIER_CATALOG.find((t) => t.tier === tier)?.price ?? 0;
+
   return {
     tier,
     intent: {
       tier,
-      amount: sub.amount ?? 0,
-      currency: "RUB",
+      amount: sub.amount ?? knownPrice,
+      currency: "USD",
       cardLast4: "••••",
       paidAt: sub.start_date ?? sub.created_at ?? new Date().toISOString(),
       expiresAt: sub.end_date ?? new Date(Date.now() + 30 * 86_400_000).toISOString(),
@@ -148,7 +154,7 @@ export const TIER_CATALOG: Array<{
   {
     tier: "starter",
     title: "Starter",
-    price: 490,
+    price: 9, // USD/mo — keep in sync with admin-service tierMonthlyPriceUSD
     perks: [
       "До 5 интервью в месяц",
       "Базовые AI-вопросы",
@@ -158,7 +164,7 @@ export const TIER_CATALOG: Array<{
   {
     tier: "pro",
     title: "Pro",
-    price: 1490,
+    price: 19,
     highlight: true,
     perks: [
       "До 30 интервью в месяц",
@@ -170,7 +176,7 @@ export const TIER_CATALOG: Array<{
   {
     tier: "team",
     title: "Team",
-    price: 3990,
+    price: 49,
     perks: [
       "Без лимита интервью",
       "Все режимы (theory + practice)",
