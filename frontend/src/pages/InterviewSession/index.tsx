@@ -72,6 +72,7 @@ export default function InterviewSessionPage() {
   const setAiTyping = useChatStore((state) => state.setAiTyping);
   const pushStreamChunk = useChatStore((state) => state.pushStreamChunk);
   const clearStreamBuffer = useChatStore((state) => state.clearStreamBuffer);
+  const applyVerdict = useChatStore((state) => state.applyVerdict);
 
   const countdownSec = useTimerStore((state) => state.countdownSec);
   const autoFinishTriggered = useTimerStore((state) => state.autoFinishTriggered);
@@ -298,6 +299,32 @@ export default function InterviewSessionPage() {
             const chunk = (payload.payload as { chunk?: string }).chunk || "";
             if (chunk) {
               pushStreamChunk(chunk);
+            }
+            return;
+          }
+
+          // Per-turn correctness mark on the candidate's previous answer.
+          // Backend emits this right after the AI returns its next-question
+          // payload with last_answer_verdict. We flip the existing user
+          // bubble to show the ✅/⚠️/❌ badge in place.
+          if (payload.type === "message.user.evaluated") {
+            const evalPayload = payload.payload as {
+              message_id?: string;
+              verdict?: string;
+              verdict_reason?: string;
+            };
+            const allowed = ["correct", "partial", "wrong", "skipped", "off_topic"] as const;
+            type Verdict = (typeof allowed)[number];
+            if (
+              evalPayload.message_id &&
+              evalPayload.verdict &&
+              (allowed as readonly string[]).includes(evalPayload.verdict)
+            ) {
+              applyVerdict(
+                evalPayload.message_id,
+                evalPayload.verdict as Verdict,
+                evalPayload.verdict_reason,
+              );
             }
             return;
           }

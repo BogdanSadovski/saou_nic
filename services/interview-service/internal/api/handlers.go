@@ -193,6 +193,11 @@ type InterviewChatMessage struct {
 	Topic      string    `json:"topic,omitempty"`
 	Difficulty int       `json:"difficulty,omitempty"`
 	CreatedAt  time.Time `json:"created_at"`
+	// AI verdict attached after the next-question AI call evaluates
+	// THIS message. Only set on Sender=="user". UI renders ✅/⚠️/❌
+	// badge based on Verdict, with VerdictReason as tooltip.
+	Verdict       string `json:"verdict,omitempty"`
+	VerdictReason string `json:"verdict_reason,omitempty"`
 }
 
 type InterviewModuleReport struct {
@@ -298,6 +303,12 @@ type nextQuestionResponse struct {
 	PressureLevel   int             `json:"pressure_level"`
 	ShouldEnd       bool            `json:"should_end"`
 	Flags           map[string]bool `json:"flags,omitempty"`
+	// AI verdict on the candidate's previous answer:
+	// correct / partial / wrong / skipped / off_topic / none.
+	// Surfaced to the chat UI as a per-message badge so the
+	// candidate immediately sees if the answer landed.
+	LastAnswerVerdict string `json:"last_answer_verdict,omitempty"`
+	LastAnswerReason  string `json:"last_answer_reason,omitempty"`
 }
 
 type createInterviewModuleSessionRequest struct {
@@ -2849,6 +2860,29 @@ func (h *Handler) AddInterviewModuleMessage(w http.ResponseWriter, r *http.Reque
 		h.logger.WithError(err).Warn("failed to generate follow-up question, using fallback")
 		next = h.buildTechnicalFallbackQuestion(session, cleanContent)
 		h.fallbackRate.Add(1)
+	}
+
+	// Attach AI verdict to the user message we just received, then
+	// broadcast a dedicated message.user.evaluated event so the
+	// chat UI can flip the bubble from "pending" to the verdict
+	// badge. Anything not in the verdict allowlist is dropped.
+	if verdict := normaliseVerdict(next.LastAnswerVerdict); verdict != "" {
+		h.moduleMu.Lock()
+		for i := len(session.Messages) - 1; i >= 0; i-- {
+			if session.Messages[i].MessageID == msg.MessageID {
+				session.Messages[i].Verdict = verdict
+				session.Messages[i].VerdictReason = next.LastAnswerReason
+				msg.Verdict = verdict
+				msg.VerdictReason = next.LastAnswerReason
+				break
+			}
+		}
+		h.moduleMu.Unlock()
+		h.broadcastSessionEvent(session.SessionID, "message.user.evaluated", map[string]interface{}{
+			"message_id":     msg.MessageID,
+			"verdict":        verdict,
+			"verdict_reason": next.LastAnswerReason,
+		})
 	}
 
 	if remainingQuestions <= 1 || next.ShouldEnd {

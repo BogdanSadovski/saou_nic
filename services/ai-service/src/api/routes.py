@@ -192,6 +192,8 @@ _INTERVIEW_OUTPUT_SCHEMA = {
             "difficulty_delta",
             "pressure_level",
             "flags",
+            "last_answer_verdict",
+            "last_answer_reason",
         ],
         "properties": {
             "question": {"type": "string", "minLength": 8, "maxLength": 700},
@@ -212,6 +214,13 @@ _INTERVIEW_OUTPUT_SCHEMA = {
                     "policy_violation": {"type": "boolean"},
                 },
             },
+            # Verdict on the candidate's LAST answer (or "none" for the
+            # opening turn). Drives ✅/⚠️/❌ badges and the final report.
+            "last_answer_verdict": {
+                "type": "string",
+                "enum": ["correct", "partial", "wrong", "skipped", "off_topic", "none"],
+            },
+            "last_answer_reason": {"type": "string", "maxLength": 240},
         },
     },
 }
@@ -1476,6 +1485,10 @@ async def interviewer_next_question(
         "contains_solution": False,
         "policy_violation": False,
     }
+    # Verdict on the candidate's last answer — defaults to "none" when
+    # this is the opening turn or the LLM doesn't return anything.
+    accepted_verdict = "none" if not last_answer.strip() else "partial"
+    accepted_verdict_reason = ""
     answer_profile = _inspect_last_answer(last_answer, request.current_topic or request.role)
 
     regen_reason = ""
@@ -1519,6 +1532,23 @@ async def interviewer_next_question(
                 accepted_flags = merged_flags
                 accepted_flags["answer_was_weak"] = bool(answer_profile["is_weak"])
                 accepted_flags["answer_was_partial"] = bool(answer_profile["is_partial"])
+
+                # Parse verdict on previous answer. The LLM may omit
+                # the field on first turn — coerce to "none".
+                verdict_raw = str(raw.get("last_answer_verdict", "")).strip().lower()
+                if verdict_raw in {"correct", "partial", "wrong", "skipped", "off_topic", "none"}:
+                    accepted_verdict = verdict_raw
+                elif not last_answer.strip():
+                    accepted_verdict = "none"
+                else:
+                    # Fallback: derive verdict from heuristic answer profile.
+                    if answer_profile.get("is_weak"):
+                        accepted_verdict = "wrong" if answer_profile.get("looks_offtopic") else "skipped"
+                    elif answer_profile.get("is_partial"):
+                        accepted_verdict = "partial"
+                    else:
+                        accepted_verdict = "correct"
+                accepted_verdict_reason = str(raw.get("last_answer_reason", "")).strip()[:240]
                 break
 
             regen_reason = ",".join(violations) if violations else "invalid_format"
@@ -1560,6 +1590,8 @@ async def interviewer_next_question(
         pressure_level=pressure,
         should_end=should_end,
         flags=accepted_flags,
+        last_answer_verdict=accepted_verdict,
+        last_answer_reason=accepted_verdict_reason or None,
     )
 
 

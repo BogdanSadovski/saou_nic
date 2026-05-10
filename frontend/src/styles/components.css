@@ -7,6 +7,83 @@
  */
 
 /* ------------------------------------------------------------------ */
+/* Per-answer verdict badge                                            */
+/* ------------------------------------------------------------------ */
+
+.msg-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  margin-top: var(--sp-2);
+  font-size: var(--fz-xs);
+}
+
+.msg-foot small {
+  color: var(--text-muted);
+}
+
+.verdict-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 9px;
+  border-radius: var(--r-pill);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  border: 1px solid transparent;
+  animation: verdict-pop var(--t-base) var(--ease-spring);
+}
+
+.verdict-glyph {
+  font-weight: 800;
+  font-size: 12px;
+  line-height: 1;
+}
+
+.verdict-correct {
+  background: var(--success-fade);
+  color: var(--success);
+  border-color: color-mix(in srgb, var(--success) 45%, transparent);
+}
+
+.verdict-partial {
+  background: var(--warning-fade);
+  color: var(--warning);
+  border-color: color-mix(in srgb, var(--warning) 45%, transparent);
+}
+
+.verdict-wrong {
+  background: var(--danger-fade);
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 50%, transparent);
+}
+
+.verdict-skipped {
+  background: var(--accent-fade);
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+.verdict-offtopic {
+  background: var(--warning-fade);
+  color: var(--warning);
+  border-color: color-mix(in srgb, var(--warning) 35%, transparent);
+}
+
+@keyframes verdict-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.7);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* ------------------------------------------------------------------ */
 /* Streaming AI chat bubble                                            */
 /* ------------------------------------------------------------------ */
 

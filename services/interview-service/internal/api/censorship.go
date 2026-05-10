@@ -66,3 +66,17 @@ func isAbusive(text string) bool {
 	}
 	return abuseStemRe.MatchString(normaliseLetters(text))
 }
+
+// normaliseVerdict coerces the AI-returned verdict into the strict
+// allowlist used by the UI. Anything unknown returns "" so callers
+// can skip broadcasting a bogus badge.
+func normaliseVerdict(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "correct", "partial", "wrong", "skipped", "off_topic":
+		return strings.ToLower(strings.TrimSpace(raw))
+	case "none", "":
+		return ""
+	default:
+		return ""
+	}
+}
