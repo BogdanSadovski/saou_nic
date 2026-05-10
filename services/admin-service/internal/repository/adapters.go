@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/real-ass/admin-service/internal/domain"
@@ -45,6 +46,10 @@ func (a *UserRepositoryAdapter) List(ctx context.Context, query domain.ListUsers
 
 func (a *UserRepositoryAdapter) Count(ctx context.Context) (int64, error) {
 	return a.repo.Count(ctx)
+}
+
+func (a *UserRepositoryAdapter) CountCreatedSince(ctx context.Context, since time.Time) (int64, error) {
+	return a.repo.CountCreatedSince(ctx, since)
 }
 
 func (a *UserRepositoryAdapter) UpdateStatus(ctx context.Context, id uuid.UUID, status domain.UserStatus) error {

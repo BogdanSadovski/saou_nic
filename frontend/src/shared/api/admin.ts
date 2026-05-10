@@ -130,12 +130,19 @@ export const adminApi = {
   },
 
   async listSubscriptions(params: ListParams = {}): Promise<AdminSubscriptionListResponse> {
-    const { data } = await apiClient.get<Partial<AdminSubscriptionListResponse>>(
-      `/admin/subscriptions${buildQuery(params)}`,
-    );
+    // The admin-service serialises this list as { count, subscriptions:[] }
+    // (legacy from before the unified pagination wrapper landed).
+    // Accept both shapes so we don't break when the backend is updated.
+    const { data } = await apiClient.get<
+      Partial<AdminSubscriptionListResponse> & {
+        count?: number;
+        subscriptions?: AdminSubscription[];
+      }
+    >(`/admin/subscriptions${buildQuery(params)}`);
+
     return {
-      items: data.items ?? [],
-      total: data.total ?? 0,
+      items: data.items ?? data.subscriptions ?? [],
+      total: data.total ?? data.count ?? 0,
     };
   },
 

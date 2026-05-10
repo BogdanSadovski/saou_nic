@@ -312,6 +312,21 @@ func (r *PostgresRepository) Count(ctx context.Context) (int64, error) {
 	return count, err
 }
 
+// CountCreatedSince returns the number of (non-deleted) users whose
+// `created_at` is at or after the supplied timestamp. Used by the
+// dashboard's "new today" metric — the AdminService passes
+// truncate-to-midnight in the server's timezone so the count resets
+// at the start of each calendar day.
+func (r *PostgresRepository) CountCreatedSince(ctx context.Context, since time.Time) (int64, error) {
+	var count int64
+	err := r.pool.QueryRow(
+		ctx,
+		"SELECT COUNT(*) FROM users WHERE deleted_at IS NULL AND created_at >= $1",
+		since,
+	).Scan(&count)
+	return count, err
+}
+
 func (r *PostgresRepository) UpdateStatus(ctx context.Context, id uuid.UUID, status domain.UserStatus) error {
 	query := `UPDATE users SET status = $1, updated_at = $2 WHERE id = $3 AND deleted_at IS NULL`
 	_, err := r.pool.Exec(ctx, query, status, time.Now(), id)

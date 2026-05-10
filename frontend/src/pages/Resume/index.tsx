@@ -195,11 +195,13 @@ export default function ResumePage() {
     return {
       overallReadiness,
       level,
+      // Round each metric so the UI never renders raw floats like
+      // 37.77142857142857 — looks like a debug print to the user.
       scoreBreakdown: [
-        { label: "Структура резюме", value: structureScore },
-        { label: "Сила impact-формулировок", value: impactScore },
-        { label: "Техническая глубина", value: technicalDepthScore },
-        { label: "Фокус на интервью", value: focusScore },
+        { label: "Структура резюме", value: Math.round(structureScore) },
+        { label: "Сила impact-формулировок", value: Math.round(impactScore) },
+        { label: "Техническая глубина", value: Math.round(technicalDepthScore) },
+        { label: "Фокус на интервью", value: Math.round(focusScore) },
       ],
       marketPotential,
     };

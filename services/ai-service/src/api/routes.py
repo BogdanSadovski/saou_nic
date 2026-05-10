@@ -1066,16 +1066,31 @@ async def resume_insights(
             interview_tracks=interview_tracks[:4],
             recommended_positions=positions[:5],
         )
-    except Exception:
+    except Exception as exc:
         logger.exception("resume insights generation failed, fallback will be used")
         positions = _fallback_resume_positions(request)
         top_role = positions[0].role if positions else "Software Engineer"
         seed_language = (request.languages[0] if request.languages else "General").strip() or "General"
+        # Distinguish "LLM not configured" from a transient failure so
+        # the user knows whether to retry or ask the administrator to
+        # set LLM_API_KEY / LLM_BASE_URL.
+        settings = get_settings()
+        is_llm_unconfigured = (
+            not (settings.llm_api_key or "").strip()
+            or "Connection error" in str(exc)
+            or "401" in str(exc)
+            or "Incorrect API key" in str(exc)
+        )
+        summary_msg = (
+            "AI-анализ временно недоступен: внешний LLM-провайдер не отвечает или "
+            "не настроен ключ доступа (LLM_API_KEY). Сервис вернул базовые "
+            "рекомендации, чтобы вы могли начать подготовку прямо сейчас."
+            if is_llm_unconfigured
+            else "Не удалось получить полный AI-анализ резюме, поэтому возвращен надежный fallback-отчет "
+            "с базовыми рекомендациями для подготовки к интервью."
+        )
         return ResumeInsightsResponse(
-            summary=(
-                "Не удалось получить полный AI-анализ резюме, поэтому возвращен надежный fallback-отчет "
-                "с базовыми рекомендациями для подготовки к интервью."
-            ),
+            summary=summary_msg,
             strong_points=[
                 "Резюме успешно обработано и может быть использовано для интервью-профилирования.",
                 "Есть базовые сигналы по стеку и направлениям для старта подготовки.",
@@ -1360,13 +1375,24 @@ async def developer_insights(
             interview_tracks=interview_tracks[:4],
             recommended_positions=positions[:5],
         )
-    except Exception:
+    except Exception as exc:
         logger.exception("developer insights generation failed, fallback will be used")
+        settings = get_settings()
+        is_llm_unconfigured = (
+            not (settings.llm_api_key or "").strip()
+            or "Connection error" in str(exc)
+            or "401" in str(exc)
+            or "Incorrect API key" in str(exc)
+        )
+        summary_msg = (
+            "AI-анализ профиля временно недоступен: LLM-провайдер не отвечает или "
+            "не настроен LLM_API_KEY. Ниже — базовая оценка по публичным метрикам."
+            if is_llm_unconfigured
+            else "Не удалось получить полный AI-анализ, но базовая оценка показывает "
+            "потенциал для собеседований по инженерным ролям."
+        )
         return DeveloperInsightsResponse(
-            summary=(
-                "Не удалось получить полный AI-анализ, но базовая оценка показывает "
-                "потенциал для собеседований по инженерным ролям."
-            ),
+            summary=summary_msg,
             strengths=[
                 "Есть данные о репозиториях и активности для предварительного профилирования.",
                 "Публичный профиль позволяет сформировать стартовый список интервью-ролей.",
