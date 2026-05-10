@@ -22,6 +22,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 
 	"github.com/interview-platform/interview-service/internal/domain"
 	"github.com/interview-platform/interview-service/internal/repository"
@@ -2801,6 +2802,26 @@ func (h *Handler) AddInterviewModuleMessage(w http.ResponseWriter, r *http.Reque
 
 	cleanContent := h.sanitizeCandidateText(req.Content)
 
+	// Censorship: reject abusive language with a friendly 400 so the
+	// chat doesn't ship vulgarities into the AI prompt. We also drop
+	// outright off-topic ("solve me a math problem", "tell me a joke")
+	// requests so the AI stays interview-focused.
+	if isAbusive(cleanContent) {
+		writeError(w, http.StatusBadRequest, "сообщение содержит недопустимые выражения. пожалуйста, перефразируйте.")
+		return
+	}
+
+	// Short-answer guard. Anything under ~12 characters is either a
+	// stray keystroke or "не знаю" — both should NOT count as a
+	// graded turn. Surface a polite re-prompt instead of feeding it
+	// to the LLM and inflating the final average.
+	letters := utf8.RuneCountInString(strings.TrimSpace(cleanContent))
+	if letters < 12 {
+		writeError(w, http.StatusBadRequest,
+			"пожалуйста, дайте развёрнутый ответ (хотя бы 1–2 предложения) или нажмите «следующий вопрос», чтобы пропустить.")
+		return
+	}
+
 	msg := InterviewChatMessage{
 		MessageID: uuid.New(),
 		Sender:    "user",
@@ -3733,31 +3754,135 @@ func (h *Handler) requestScoringReport(ctx context.Context, session *InterviewMo
 	return &parsed
 }
 
+// localFallbackReport is used when the scoring-service can't be
+// reached. It MUST NOT invent scores — previously it returned
+// 40+ baseline marks even for sessions with zero candidate answers,
+// which is what the user saw as "средние баллы за пустое интервью".
+//
+// New behaviour:
+//   - Count substantive answers (anything that passed the
+//     length-guard, i.e. >=12 chars after trim). Anything shorter
+//     was rejected at handler level, but defensively re-check here.
+//   - If there are no substantive answers, return all zeros and an
+//     honest "не было засчитанных ответов" weakness — the candidate
+//     should not be rewarded for silence.
+//   - Otherwise grade conservatively from length + technical-marker
+//     density per answer, capped at 70. The real AI/LLM scoring
+//     remains the source of truth; this fallback only fires when
+//     scoring-service is offline.
 func (h *Handler) localFallbackReport(session *InterviewModuleSession) *InterviewModuleReport {
 	h.fallbackRate.Add(1)
 	h.logger.WithFields(logrus.Fields{"metric": "fallback_rate", "value": h.fallbackRate.Load()}).Warn("fallback report used")
 
-	answerCount := 0
+	type answerSample struct {
+		length     int
+		signalHits int
+		uncertain  bool
+	}
+	var samples []answerSample
+	techMarkers := []string{
+		"trade-off", "tradeoff", "компромисс", "latency", "p95", "p99",
+		"throughput", "qps", "метрик", "consistency", "идемпотент",
+		"timeout", "retry", "cache", "кэш", "shard", "partition",
+		"репликац", "deadlock", "race condition",
+	}
+
 	for _, msg := range session.Messages {
-		if msg.Sender == "user" {
-			answerCount++
+		if msg.Sender != "user" {
+			continue
+		}
+		trimmed := strings.TrimSpace(msg.Content)
+		runes := utf8.RuneCountInString(trimmed)
+		if runes < 12 {
+			continue // not a real answer
+		}
+		lower := strings.ToLower(trimmed)
+		hits := 0
+		for _, marker := range techMarkers {
+			if strings.Contains(lower, marker) {
+				hits++
+			}
+		}
+		samples = append(samples, answerSample{
+			length:     runes,
+			signalHits: hits,
+			uncertain:  h.isUncertainAnswer(trimmed),
+		})
+	}
+
+	if len(samples) == 0 {
+		return &InterviewModuleReport{
+			SessionID:    session.SessionID,
+			Correctness:  0,
+			Clarity:      0,
+			Completeness: 0,
+			Relevance:    0,
+			OverallScore: 0,
+			Strengths:    []string{},
+			Weaknesses: []string{
+				"Кандидат не дал ни одного развёрнутого ответа — оценить нечего.",
+			},
+			Recommendations: []string{
+				"Попробуйте пройти интервью снова, отвечая на каждый вопрос хотя бы 1–2 предложениями.",
+			},
+			GeneratedAt: time.Now(),
 		}
 	}
-	base := 40.0 + float64(answerCount)*4.5
-	if base > 92 {
-		base = 92
+
+	// Per-sample score: length contributes up to 35, tech markers up
+	// to 25 (capped at 5 hits), uncertainty subtracts 25. Average
+	// across samples gives a conservative correctness estimate.
+	totalCorrectness := 0.0
+	totalClarity := 0.0
+	totalCompleteness := 0.0
+	for _, s := range samples {
+		base := 20.0 + math.Min(35.0, float64(s.length)/8.0) + math.Min(25.0, float64(s.signalHits)*5.0)
+		if s.uncertain {
+			base -= 25.0
+		}
+		if base < 0 {
+			base = 0
+		}
+		if base > 70 {
+			base = 70 // never claim mastery from a heuristic fallback
+		}
+		totalCorrectness += base
+		totalClarity += math.Max(0, base-3)
+		totalCompleteness += math.Max(0, base-2)
+	}
+	n := float64(len(samples))
+	correctness := math.Round(totalCorrectness / n)
+	clarity := math.Round(totalClarity / n)
+	completeness := math.Round(totalCompleteness / n)
+	relevance := math.Round((correctness + completeness) / 2)
+	overall := math.Round((correctness + clarity + completeness + relevance) / 4)
+
+	weaknesses := []string{}
+	recs := []string{}
+	if correctness < 40 {
+		weaknesses = append(weaknesses, "Ответы поверхностные — недостаточно конкретики и обоснований.")
+		recs = append(recs, "Тренируйте структуру ответа: тезис → аргументы → пример → trade-offs.")
+	} else if correctness < 60 {
+		weaknesses = append(weaknesses, "Есть пробелы в trade-offs и edge-cases.")
+		recs = append(recs, "Добавляйте в ответы метрики (latency/p95/throughput) и обоснование выбора.")
+	}
+	if len(weaknesses) == 0 {
+		weaknesses = append(weaknesses, "Не все ответы подкреплены конкретными метриками результата.")
+	}
+	if len(recs) == 0 {
+		recs = append(recs, "Продолжайте практику на интервью более высокого уровня.")
 	}
 
 	return &InterviewModuleReport{
 		SessionID:       session.SessionID,
-		Correctness:     base,
-		Clarity:         base - 2,
-		Completeness:    base - 1,
-		Relevance:       base + 1,
-		OverallScore:    base,
-		Strengths:       []string{"Структурированные ответы", "Уверенное владение базовыми концепциями"},
-		Weaknesses:      []string{"Не везде раскрыты trade-offs", "Требуется больше глубины в edge-cases"},
-		Recommendations: []string{"Тренировать системные объяснения", "Добавлять метрики и обоснование решений"},
+		Correctness:     correctness,
+		Clarity:         clarity,
+		Completeness:    completeness,
+		Relevance:       relevance,
+		OverallScore:    overall,
+		Strengths:       []string{},
+		Weaknesses:      weaknesses,
+		Recommendations: recs,
 		GeneratedAt:     time.Now(),
 	}
 }
@@ -4847,6 +4972,19 @@ func (h *Handler) buildIntroQuestion(session *InterviewModuleSession) *nextQuest
 	}
 }
 
+// buildTechnicalFallbackQuestion is invoked when the primary AI call
+// in requestNextQuestion fails. Previously it returned a hardcoded
+// "теперь перейдем к технической части..." line which violated the
+// "all questions must come from AI" requirement.
+//
+// Behaviour now:
+//   - Try the secondary AI endpoint one more time (different topic /
+//     mode hint) — this still produces a real LLM-generated question.
+//   - If that also fails, surface a transparent AI-unavailable
+//     message into the chat. The candidate sees "AI временно
+//     недоступен, нажмите 'следующий вопрос' через 5–10 сек" rather
+//     than a generic canned interview question that distorts the
+//     conversation.
 func (h *Handler) buildTechnicalFallbackQuestion(session *InterviewModuleSession, lastAnswer string) *nextQuestionResponse {
 	topic := strings.TrimSpace(session.CurrentTopic)
 	if topic == "" || strings.EqualFold(topic, "skills_overview") {
@@ -4855,52 +4993,37 @@ func (h *Handler) buildTechnicalFallbackQuestion(session *InterviewModuleSession
 	}
 
 	mode := strings.ToLower(strings.TrimSpace(session.InterviewMode))
-	if mode != "theory" {
-		if out, err := h.requestInterviewQuestionFromAI(session, topic, lastAnswer, "practice"); err == nil && out != nil && strings.TrimSpace(out.Question) != "" {
-			out.Topic = "live_coding"
-			out.DifficultyDelta = 0
-			out.PressureLevel = maxInt(1, out.PressureLevel)
-			return out
-		}
-		return &nextQuestionResponse{
-			Question:        h.buildPracticeTaskQuestion(session, topic),
-			Topic:           "live_coding",
-			DifficultyDelta: 0,
-			PressureLevel:   maxInt(1, session.PressureLevel),
-			ShouldEnd:       false,
-		}
+	if mode == "" {
+		mode = "practice"
 	}
 
-	if out, err := h.requestInterviewQuestionFromAI(session, topic, lastAnswer, "theory"); err == nil && out != nil && strings.TrimSpace(out.Question) != "" {
-		out.Topic = topic
+	if out, err := h.requestInterviewQuestionFromAI(session, topic, lastAnswer, mode); err == nil && out != nil && strings.TrimSpace(out.Question) != "" {
+		if mode != "theory" {
+			out.Topic = "live_coding"
+		} else {
+			out.Topic = topic
+		}
 		out.DifficultyDelta = 0
 		out.PressureLevel = maxInt(1, out.PressureLevel)
 		return out
 	}
 
-	question := "Теперь перейдем к технической части: разберите реальный кейс, варианты решения, trade-offs и метрики качества."
-
-	if strings.TrimSpace(lastAnswer) == "" {
-		question = h.buildIntroQuestion(session).Question
-	}
-
-	delta := 0
-	if h.isUncertainAnswer(lastAnswer) {
-		topic = h.nextTopic(session.Role, session.TopicCursor)
-		session.TopicCursor++
-		delta = -1
-		question = h.uncertaintyFallbackQuestion(session, topic)
-	}
-
+	// No more fallbacks. Send a system message so the candidate
+	// knows the AI is offline and can retry — better than fabricating
+	// an interview question from a hardcoded list.
 	return &nextQuestionResponse{
-		Question:        question,
+		Question:        "🤖 AI-интервьюер сейчас недоступен. Подождите 5–10 секунд и нажмите «следующий вопрос», чтобы продолжить — ваши ответы сохранены.",
 		Topic:           topic,
-		DifficultyDelta: delta,
+		DifficultyDelta: 0,
 		PressureLevel:   maxInt(1, session.PressureLevel),
 		ShouldEnd:       false,
 	}
 }
 
+// buildPracticeTaskQuestion ALWAYS asks the AI for the task. If the
+// AI is unavailable we surface a transparent message rather than
+// returning a deterministic hard-coded coding problem — see
+// buildTechnicalFallbackQuestion for the same policy.
 func (h *Handler) buildPracticeTaskQuestion(session *InterviewModuleSession, topic string) string {
 	mode := strings.ToLower(strings.TrimSpace(session.InterviewMode))
 	if mode == "" {
@@ -4913,12 +5036,7 @@ func (h *Handler) buildPracticeTaskQuestion(session *InterviewModuleSession, top
 			return candidate
 		}
 	}
-
-	fallbackTopic := strings.TrimSpace(topic)
-	if fallbackTopic == "" {
-		fallbackTopic = "live_coding"
-	}
-	return h.sanitizeModelText(h.buildDeterministicPracticeTask(session, fallbackTopic))
+	return "🤖 AI-сервис временно не отвечает. Через 5–10 секунд нажмите «следующая задача» — задание сгенерируется заново."
 }
 
 func (h *Handler) isWeakPracticeTask(question string) bool {
