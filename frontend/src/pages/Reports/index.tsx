@@ -5,6 +5,7 @@ import { reportsApi } from "@/shared/api";
 import type { UserInterviewAnalyticsReport, UserInterviewEntry } from "@/shared/api/reports";
 import { EmptyState, FloatingInput, GlassButton, GlassCard, Skeleton } from "@/shared/ui";
 import { ReportsCharts } from "./charts";
+import { renderAndPrintReport } from "./pdfExport";
 
 export default function ReportsPage() {
   const navigate = useNavigate();
@@ -128,77 +129,7 @@ export default function ReportsPage() {
     if (!report) {
       return;
     }
-
-    const html = `
-      <html>
-        <head>
-          <title>User Interview Report</title>
-          <style>
-            body { font-family: 'Segoe UI', Arial, sans-serif; margin: 24px; color: #0d1b2a; }
-            h1 { margin: 0 0 6px; }
-            .meta { color: #42566b; margin-bottom: 16px; }
-            .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 14px 0 22px; }
-            .card { border: 1px solid #d5deea; border-radius: 12px; padding: 10px 12px; }
-            .k { font-size: 12px; color: #5a6d83; }
-            .v { font-size: 22px; font-weight: 700; }
-            h2 { margin: 20px 0 8px; }
-            ul { margin: 8px 0 0 18px; }
-            table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-            th, td { border: 1px solid #d5deea; padding: 8px; text-align: left; font-size: 12px; }
-            th { background: #eef4fb; }
-          </style>
-        </head>
-        <body>
-          <h1>Пользовательский отчет по интервью</h1>
-          <div class="meta">Пользователь: ${report.user_id} | Сформирован: ${new Date(report.generated_at).toLocaleString()}</div>
-
-          <div class="grid">
-            <div class="card"><div class="k">Всего интервью</div><div class="v">${report.totals.total_interviews}</div></div>
-            <div class="card"><div class="k">Завершено</div><div class="v">${report.totals.completed_interviews}</div></div>
-            <div class="card"><div class="k">Не завершено</div><div class="v">${report.totals.in_progress_interviews + report.totals.expired_interviews}</div></div>
-            <div class="card"><div class="k">Completion Rate</div><div class="v">${report.totals.completion_rate}%</div></div>
-            <div class="card"><div class="k">Средний балл</div><div class="v">${report.performance.average_score}</div></div>
-            <div class="card"><div class="k">Лучший балл</div><div class="v">${report.performance.best_score}</div></div>
-          </div>
-
-          <h2>Сильные стороны</h2>
-          <ul>${report.top_strengths.map((x) => `<li>${x}</li>`).join("") || "<li>Нет данных</li>"}</ul>
-
-          <h2>Слабые стороны</h2>
-          <ul>${report.top_weaknesses.map((x) => `<li>${x}</li>`).join("") || "<li>Нет данных</li>"}</ul>
-
-          <h2>Рекомендации</h2>
-          <ul>${report.top_recommendations.map((x) => `<li>${x}</li>`).join("") || "<li>Нет данных</li>"}</ul>
-
-          <h2>Последние интервью</h2>
-          <table>
-            <thead>
-              <tr>
-                <th>ID</th><th>Роль</th><th>Режим</th><th>Статус</th><th>Оценка</th><th>Сообщения</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${report.recent_interviews
-                .map(
-                  (item) =>
-                    `<tr><td>${item.session_id}</td><td>${item.role}</td><td>${item.interview_mode}</td><td>${item.status}</td><td>${item.overall_score ?? "-"}</td><td>${item.messages_total}</td></tr>`,
-                )
-                .join("")}
-            </tbody>
-          </table>
-        </body>
-      </html>
-    `;
-
-    const popup = window.open("", "_blank", "noopener,noreferrer,width=980,height=720");
-    if (!popup) {
-      return;
-    }
-    popup.document.open();
-    popup.document.write(html);
-    popup.document.close();
-    popup.focus();
-    popup.print();
+    void renderAndPrintReport(report);
   };
 
   const interviewRow = (item: UserInterviewEntry) => {
