@@ -674,7 +674,12 @@ func (h *Handler) requestInterviewQuestionFromAI(session *InterviewModuleSession
 		normalizedMode = "practice"
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	// Match the requestNextQuestion budget. Free LLMs typically
+	// answer in 10–15s for our strict JSON schema; an early 10s cap
+	// truncated the call and forced the practice-task fallback even
+	// when ai-service was healthy and authenticated. 35s leaves
+	// headroom for one retry inside callAIWithFailover.
+	ctx, cancel := context.WithTimeout(context.Background(), 35*time.Second)
 	defer cancel()
 
 	timeLeft := time.Until(session.ExpiresAt)
@@ -3522,7 +3527,12 @@ func (h *Handler) requestNextQuestion(ctx context.Context, session *InterviewMod
 	}
 
 	asked := h.countAIMessages(session.Messages)
-	requestCtx, cancel := context.WithTimeout(ctx, 12*time.Second)
+	// Free-tier OpenRouter (gpt-oss-120b, llama-3.3-70b etc.) routinely
+	// answers in 10–15 sec for the strict JSON schema we ask for. The
+	// previous 12-sec budget cut the call short and forced the
+	// fallback path even on healthy AI. Bumped to 35s — still leaves
+	// headroom for the http.Client per-call deadline (45s) below.
+	requestCtx, cancel := context.WithTimeout(ctx, 35*time.Second)
 	defer cancel()
 
 	backoff := []time.Duration{250 * time.Millisecond, 650 * time.Millisecond}
@@ -3642,7 +3652,11 @@ func (h *Handler) callAIWithFailover(ctx context.Context, session *InterviewModu
 		urls = append(urls, h.aiServiceURL)
 	}
 
-	client := &http.Client{Timeout: 8 * time.Second}
+	// Per-call HTTP deadline for ai-service. Must be longer than the
+	// outer requestCtx (35s) so deadline propagation fires there
+	// instead of an early socket-level timeout. Free LLM responses
+	// can drag to 20+ sec on first cold start.
+	client := &http.Client{Timeout: 45 * time.Second}
 	var lastErr error
 
 	for _, baseURL := range urls {
@@ -5117,6 +5131,22 @@ func (h *Handler) buildPracticeTaskQuestion(session *InterviewModuleSession, top
 		"и выполните `make set-llm-key KEY=sk-or-v1-...`. Затем нажмите «следующая задача» — задание сгенерируется AI."
 }
 
+// isWeakPracticeTask rejects only OBVIOUSLY bad practice prompts —
+// the ones that look like the prompt-template leaked through, not
+// every natural-language coding task.
+//
+// Previously this required strict "вход + выход + пример + 140
+// chars" structure, which over-rejected genuine LLM-generated tasks
+// like "Реализуйте debounce(fn, delay) на JavaScript…" because they
+// don't follow the rigid school-textbook format. Result: every
+// practice session ended up showing the AI-offline fallback even
+// though the LLM was responding correctly.
+//
+// Now we only reject:
+//   - empty strings
+//   - prompt-template leakage markers ("по теме", "live_coding",
+//     "укажи сложность", "реализуй решение")
+//   - tasks shorter than 40 chars (genuinely useless)
 func (h *Handler) isWeakPracticeTask(question string) bool {
 	v := strings.ToLower(strings.TrimSpace(question))
 	if v == "" {
@@ -5136,11 +5166,8 @@ func (h *Handler) isWeakPracticeTask(question string) bool {
 		}
 	}
 
-	hasStructure := strings.Contains(v, "вход") || strings.Contains(v, "input")
-	hasStructure = hasStructure && (strings.Contains(v, "выход") || strings.Contains(v, "output"))
-	hasStructure = hasStructure && strings.Contains(v, "пример")
-
-	return !hasStructure || len(v) < 140
+	// Below 40 chars even a real LLM is just stubbing a placeholder.
+	return utf8.RuneCountInString(v) < 40
 }
 
 func (h *Handler) buildDeterministicPracticeTask(session *InterviewModuleSession, topic string) string {
