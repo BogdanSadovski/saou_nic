@@ -720,9 +720,24 @@ func (h *Handler) requestInterviewQuestionFromAI(session *InterviewModuleSession
 		return nil, err
 	}
 
-	out, err := h.callAIWithFailover(ctx, session, payload)
-	if err != nil {
-		return nil, err
+	// Retry once on transient errors (503 from rate limit, brief
+	// network blips). Free-tier OpenRouter throws 503 every ~20
+	// requests/minute and a 2-second sleep is enough to get past it.
+	var (
+		out     *nextQuestionResponse
+		callErr error
+	)
+	for attempt := 0; attempt < 2; attempt++ {
+		out, callErr = h.callAIWithFailover(ctx, session, payload)
+		if callErr == nil && out != nil && strings.TrimSpace(out.Question) != "" {
+			break
+		}
+		if attempt == 0 {
+			time.Sleep(2 * time.Second)
+		}
+	}
+	if callErr != nil {
+		return nil, callErr
 	}
 	if out == nil {
 		return nil, fmt.Errorf("empty ai response")
@@ -5066,19 +5081,25 @@ func (h *Handler) buildIntroQuestion(session *InterviewModuleSession) *nextQuest
 		return out
 	}
 
-	question := fmt.Sprintf("Коротко опишите ваш опыт по роли %s (%s): ключевые навыки, инструменты, один сильный проект и ваш личный вклад.", role, level)
-	if strings.TrimSpace(session.VacancyTitle) != "" {
-		if strings.Contains(strings.ToLower(question), "опишите") || strings.Contains(strings.ToLower(question), "расскажите") {
-			question = strings.TrimSuffix(question, "?") + fmt.Sprintf(" для вакансии %s?", session.VacancyTitle)
-		}
+	// AI failed to produce an opening question. Surface the same
+	// transparent system message as the rest of the fallback paths
+	// instead of returning a hardcoded 'Коротко опишите ваш опыт…'
+	// template that the user could not distinguish from a real LLM
+	// reply. Use distinct prefix so the frontend isLive heuristic
+	// catches it.
+	_, _ = role, level // kept for context; intentionally unused now
+	if err != nil {
+		h.logger.WithError(err).Warn("buildIntroQuestion: AI call failed, surfacing offline notice")
 	}
-
 	return &nextQuestionResponse{
-		Question:        question,
-		Topic:           "skills_overview",
-		DifficultyDelta: 0,
-		PressureLevel:   maxInt(1, session.PressureLevel),
-		ShouldEnd:       false,
+		Question: "🤖 AI-интервьюер ещё не подключён. Получите бесплатный ключ на openrouter.ai/keys " +
+			"(вход через Google/GitHub, карта не нужна) и выполните: " +
+			"`make set-llm-key KEY=sk-or-v1-...`. После этого перезапустите интервью.",
+		Topic:             "skills_overview",
+		DifficultyDelta:   0,
+		PressureLevel:     maxInt(1, session.PressureLevel),
+		ShouldEnd:         false,
+		LastAnswerVerdict: "skipped",
 	}
 }
 
