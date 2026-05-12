@@ -285,12 +285,11 @@ export default function InterviewSessionPage() {
             const topic = (msgPayload as { topic?: string }).topic;
             const difficulty = (msgPayload as { difficulty?: number }).difficulty;
 
-            // Console marker for the user — confirms the message came
-            // from the real LLM-driven backend, not a hardcoded fallback.
-            // Heuristic: the interview-service AI-down message always
-            // starts with the robot emoji + "AI-интервьюер ещё не
-            // подключён". Anything else came through the LLM path.
-            const isLive = !content.startsWith("🤖 AI-интервьюер");
+            // Console marker — confirms the message came from the
+            // real LLM, not a hardcoded fallback in interview-service.
+            // Both code paths (theory + practice) prefix their AI-down
+            // notice with "🤖 AI-", so a single check covers both.
+            const isLive = !content.startsWith("🤖 AI-");
             // eslint-disable-next-line no-console
             console.log(
               `%c[AI ${isLive ? "✓ live LLM" : "✗ offline fallback"}]`,

@@ -1508,9 +1508,27 @@ async def interviewer_next_question(
 
             question = str(raw.get("question", "")).strip()
             topic = str(raw.get("topic", accepted_topic)).strip() or accepted_topic
-            difficulty_delta = int(raw.get("difficulty_delta", 0))
-            pressure_level = int(raw.get("pressure_level", request.pressure_level))
-            llm_flags = raw.get("flags", {})
+            try:
+                difficulty_delta = int(raw.get("difficulty_delta", 0))
+            except (TypeError, ValueError):
+                difficulty_delta = 0
+            try:
+                pressure_level = int(raw.get("pressure_level", request.pressure_level))
+            except (TypeError, ValueError):
+                pressure_level = request.pressure_level
+            # Some free LLMs (notably gpt-oss-120b in practice mode)
+            # ignore the schema and return `flags` as a list instead
+            # of an object. Coerce defensively so a bad shape doesn't
+            # 503 the whole turn.
+            raw_flags = raw.get("flags")
+            if isinstance(raw_flags, dict):
+                llm_flags = raw_flags
+            elif isinstance(raw_flags, list):
+                # Try {"contains_explanation": true} when the list
+                # contains the literal flag names.
+                llm_flags = {str(item): True for item in raw_flags if isinstance(item, str)}
+            else:
+                llm_flags = {}
 
             is_valid, violations, sanitized = _sanitize_interviewer_question(question)
             derived_flags = _policy_flags_from_text(question)
