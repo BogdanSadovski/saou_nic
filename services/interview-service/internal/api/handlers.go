@@ -2879,11 +2879,32 @@ func (h *Handler) AddInterviewModuleMessage(w http.ResponseWriter, r *http.Reque
 	h.broadcastSessionEvent(session.SessionID, "ai.typing.started", map[string]bool{"typing": true})
 
 	remainingQuestions := session.QuestionLimit - questionsAsked
+
+	// Measure how long the AI takes so we can credit the session
+	// timer for it. A 60-second cold-start LLM call should not eat
+	// 60 seconds of the candidate's 5-minute interview window.
+	aiCallStart := time.Now()
 	next, err := h.requestNextQuestion(r.Context(), session, cleanContent)
 	if err != nil {
 		h.logger.WithError(err).Warn("failed to generate follow-up question, using fallback")
 		next = h.buildTechnicalFallbackQuestion(session, cleanContent)
 		h.fallbackRate.Add(1)
+	}
+	aiCallDuration := time.Since(aiCallStart)
+	// Push ExpiresAt forward by exactly the AI-think time. This
+	// mirrors the client-side timer pause while aiTyping is true —
+	// without it the server would still cut the session at the
+	// original wall-clock deadline even though the candidate didn't
+	// burn that time.
+	if aiCallDuration > 0 {
+		h.moduleMu.Lock()
+		session.ExpiresAt = session.ExpiresAt.Add(aiCallDuration)
+		h.moduleMu.Unlock()
+		h.broadcastSessionEvent(session.SessionID, "session.timer.adjusted", map[string]interface{}{
+			"added_seconds":    int(aiCallDuration.Seconds()),
+			"new_expires_at":   session.ExpiresAt.UTC().Format(time.RFC3339),
+			"reason":           "ai_thinking",
+		})
 	}
 
 	// Attach AI verdict to the user message we just received, then

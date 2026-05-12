@@ -203,9 +203,24 @@ export default function InterviewSessionPage() {
       return;
     }
 
+    // Freeze the countdown while the AI is "thinking". A free-tier
+    // cold-start LLM call can take 30–60 seconds; without this the
+    // candidate watches their 5-minute interview vanish on infra
+    // latency, not on their own thinking time.
+    //
+    // Detection covers two signals so neither WS race wins:
+    //   1. aiTyping — flipped by ai.typing.started / .stopped events
+    //   2. last message was from the candidate — covers the gap
+    //      between POST /messages and the typing.started broadcast.
+    const lastMsg = messages[messages.length - 1];
+    const awaitingAI = aiTyping || (lastMsg !== undefined && lastMsg.sender === "user");
+    if (awaitingAI) {
+      return;
+    }
+
     const timer = window.setInterval(() => tick(), 1000);
     return () => window.clearInterval(timer);
-  }, [tick, timerReady, bootLoading]);
+  }, [tick, timerReady, bootLoading, aiTyping, messages]);
 
   useEffect(() => {
     if (bootLoading || !timerReady || !autoFinishTriggered || !sessionId) {
@@ -309,6 +324,26 @@ export default function InterviewSessionPage() {
             };
             clearStreamBuffer();
             addMessage(mapped);
+            return;
+          }
+
+          // Backend credits the session timer for AI-think time so a
+          // cold-start LLM call doesn't eat the candidate's window.
+          // We bump countdownSec by the same amount; elapsedSec stays
+          // unchanged so the candidate's "real" interview time is
+          // honest.
+          if (payload.type === "session.timer.adjusted") {
+            const adj = payload.payload as { added_seconds?: number };
+            const added = Math.max(0, Math.round(adj.added_seconds ?? 0));
+            if (added > 0) {
+              useTimerStore.setState((s) => ({ countdownSec: s.countdownSec + added }));
+              // eslint-disable-next-line no-console
+              console.log(
+                "%c[timer ⏸ +%ds for AI thinking]",
+                "color:#a892ff;font-weight:600",
+                added,
+              );
+            }
             return;
           }
 
