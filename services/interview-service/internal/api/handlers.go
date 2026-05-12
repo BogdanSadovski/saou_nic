@@ -3547,7 +3547,7 @@ func (h *Handler) requestNextQuestion(ctx context.Context, session *InterviewMod
 	// previous 12-sec budget cut the call short and forced the
 	// fallback path even on healthy AI. Bumped to 35s — still leaves
 	// headroom for the http.Client per-call deadline (45s) below.
-	requestCtx, cancel := context.WithTimeout(ctx, 35*time.Second)
+	requestCtx, cancel := context.WithTimeout(ctx, 75*time.Second)
 	defer cancel()
 
 	backoff := []time.Duration{250 * time.Millisecond, 650 * time.Millisecond}
@@ -3671,7 +3671,7 @@ func (h *Handler) callAIWithFailover(ctx context.Context, session *InterviewModu
 	// outer requestCtx (35s) so deadline propagation fires there
 	// instead of an early socket-level timeout. Free LLM responses
 	// can drag to 20+ sec on first cold start.
-	client := &http.Client{Timeout: 45 * time.Second}
+	client := &http.Client{Timeout: 90 * time.Second}
 	var lastErr error
 
 	for _, baseURL := range urls {
