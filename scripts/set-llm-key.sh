@@ -29,7 +29,7 @@ USAGE
 fi
 
 KEY="$1"
-MODEL="${2:-meta-llama/llama-3.3-70b-instruct:free}"
+MODEL="${2:-openai/gpt-oss-120b:free}"
 
 if [ ! -f "$ENV_FILE" ]; then
   echo "Creating $ENV_FILE from .env.example" >&2

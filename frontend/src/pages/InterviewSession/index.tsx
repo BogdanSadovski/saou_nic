@@ -281,12 +281,30 @@ export default function InterviewSessionPage() {
 
           if (payload.type === "message.ai") {
             const msgPayload = payload.payload;
+            const content = (msgPayload as { content?: string }).content || "";
+            const topic = (msgPayload as { topic?: string }).topic;
+            const difficulty = (msgPayload as { difficulty?: number }).difficulty;
+
+            // Console marker for the user — confirms the message came
+            // from the real LLM-driven backend, not a hardcoded fallback.
+            // Heuristic: the interview-service AI-down message always
+            // starts with the robot emoji + "AI-интервьюер ещё не
+            // подключён". Anything else came through the LLM path.
+            const isLive = !content.startsWith("🤖 AI-интервьюер");
+            // eslint-disable-next-line no-console
+            console.log(
+              `%c[AI ${isLive ? "✓ live LLM" : "✗ offline fallback"}]`,
+              isLive ? "color:#34c77a;font-weight:600" : "color:#e0a800;font-weight:600",
+              { topic, difficulty, length: content.length },
+              content.slice(0, 200) + (content.length > 200 ? "…" : ""),
+            );
+
             const mapped: InterviewMessage = {
               messageId: (msgPayload as { message_id?: string }).message_id || crypto.randomUUID(),
               sender: (msgPayload as { sender?: "ai" | "user" }).sender || "ai",
-              content: (msgPayload as { content?: string }).content || "",
-              topic: (msgPayload as { topic?: string }).topic,
-              difficulty: (msgPayload as { difficulty?: number }).difficulty,
+              content,
+              topic,
+              difficulty,
               createdAt:
                 (msgPayload as { created_at?: string }).created_at || new Date().toISOString(),
             };
@@ -320,6 +338,12 @@ export default function InterviewSessionPage() {
               evalPayload.verdict &&
               (allowed as readonly string[]).includes(evalPayload.verdict)
             ) {
+              // eslint-disable-next-line no-console
+              console.log(
+                `%c[AI verdict ▶ ${evalPayload.verdict}]`,
+                "color:#a892ff;font-weight:600",
+                evalPayload.verdict_reason || "(no reason given)",
+              );
               applyVerdict(
                 evalPayload.message_id,
                 evalPayload.verdict as Verdict,
