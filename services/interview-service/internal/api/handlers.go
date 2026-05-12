@@ -5024,8 +5024,10 @@ func (h *Handler) buildTechnicalFallbackQuestion(session *InterviewModuleSession
 		session.TopicCursor++
 	}
 	return &nextQuestionResponse{
-		Question: "🤖 AI-интервьюер сейчас недоступен. Скорее всего, в окружении не настроен LLM_API_KEY. " +
-			"Подождите 10–15 секунд и нажмите «следующий вопрос», чтобы повторить — все ваши ответы сохранены.",
+		Question: "🤖 AI-интервьюер ещё не подключён. Получите бесплатный ключ на openrouter.ai/keys " +
+			"(вход через Google/GitHub, карта не нужна) и выполните: " +
+			"`make set-llm-key KEY=sk-or-v1-...`. После этого нажмите «следующий вопрос» — " +
+			"ответы сохранены, интервью продолжится с реальным AI.",
 		Topic:             topic,
 		DifficultyDelta:   0,
 		PressureLevel:     maxInt(1, session.PressureLevel),
@@ -5049,7 +5051,8 @@ func (h *Handler) buildPracticeTaskQuestion(session *InterviewModuleSession, top
 			return candidate
 		}
 	}
-	return "🤖 AI-сервис временно не отвечает (проверьте LLM_API_KEY). Через 10–15 секунд нажмите «следующая задача» — задание сгенерируется заново."
+	return "🤖 AI-сервис ещё не подключён. Получите бесплатный ключ на openrouter.ai/keys " +
+		"и выполните `make set-llm-key KEY=sk-or-v1-...`. Затем нажмите «следующая задача» — задание сгенерируется AI."
 }
 
 func (h *Handler) isWeakPracticeTask(question string) bool {

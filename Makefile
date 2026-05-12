@@ -66,6 +66,12 @@ grant-admin:
 	@if [ -z "$(EMAIL)" ]; then echo "Usage: make grant-admin EMAIL=user@example.com" >&2; exit 1; fi
 	@./scripts/grant-admin.sh "$(EMAIL)"
 
+# Wire an OpenRouter (or OpenAI-compatible) LLM key.
+# Usage: make set-llm-key KEY=sk-or-v1-... [MODEL='meta-llama/llama-3.3-70b-instruct:free']
+set-llm-key:
+	@if [ -z "$(KEY)" ]; then echo "Usage: make set-llm-key KEY=sk-or-v1-... [MODEL=slug]" >&2; exit 1; fi
+	@./scripts/set-llm-key.sh "$(KEY)" $(if $(MODEL),"$(MODEL)",)
+
 # Build all services
 build-all: user-service resume-service github-service interview-service scoring-service report-service notification-service analytics-service admin-service api-gateway ai-service frontend
 
