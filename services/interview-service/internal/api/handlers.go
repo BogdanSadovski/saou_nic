@@ -5006,58 +5006,37 @@ func (h *Handler) buildIntroQuestion(session *InterviewModuleSession) *nextQuest
 	}
 }
 
-// buildTechnicalFallbackQuestion is invoked when the primary AI call
-// in requestNextQuestion fails. Previously it returned a hardcoded
-// "теперь перейдем к технической части..." line which violated the
-// "all questions must come from AI" requirement.
+// buildTechnicalFallbackQuestion is invoked when requestNextQuestion
+// fails. AI is the sole source of interview questions — if it can't
+// answer, the candidate must see a single honest system message,
+// NOT another retry that will produce the same templated text.
 //
-// Behaviour now:
-//   - Try the secondary AI endpoint one more time (different topic /
-//     mode hint) — this still produces a real LLM-generated question.
-//   - If that also fails, surface a transparent AI-unavailable
-//     message into the chat. The candidate sees "AI временно
-//     недоступен, нажмите 'следующий вопрос' через 5–10 сек" rather
-//     than a generic canned interview question that distorts the
-//     conversation.
+// Anti-loop note: previously we tried requestInterviewQuestionFromAI
+// here as a "secondary" attempt. That helper hits the same ai-service
+// endpoint that just failed, so it just produced the same fallback
+// over and over and the chat got spammed with identical text. Now
+// we go straight to the transparent system message.
 func (h *Handler) buildTechnicalFallbackQuestion(session *InterviewModuleSession, lastAnswer string) *nextQuestionResponse {
+	_ = lastAnswer
 	topic := strings.TrimSpace(session.CurrentTopic)
 	if topic == "" || strings.EqualFold(topic, "skills_overview") {
 		topic = h.nextTopic(session.Role, session.TopicCursor)
 		session.TopicCursor++
 	}
-
-	mode := strings.ToLower(strings.TrimSpace(session.InterviewMode))
-	if mode == "" {
-		mode = "practice"
-	}
-
-	if out, err := h.requestInterviewQuestionFromAI(session, topic, lastAnswer, mode); err == nil && out != nil && strings.TrimSpace(out.Question) != "" {
-		if mode != "theory" {
-			out.Topic = "live_coding"
-		} else {
-			out.Topic = topic
-		}
-		out.DifficultyDelta = 0
-		out.PressureLevel = maxInt(1, out.PressureLevel)
-		return out
-	}
-
-	// No more fallbacks. Send a system message so the candidate
-	// knows the AI is offline and can retry — better than fabricating
-	// an interview question from a hardcoded list.
 	return &nextQuestionResponse{
-		Question:        "🤖 AI-интервьюер сейчас недоступен. Подождите 5–10 секунд и нажмите «следующий вопрос», чтобы продолжить — ваши ответы сохранены.",
-		Topic:           topic,
-		DifficultyDelta: 0,
-		PressureLevel:   maxInt(1, session.PressureLevel),
-		ShouldEnd:       false,
+		Question: "🤖 AI-интервьюер сейчас недоступен. Скорее всего, в окружении не настроен LLM_API_KEY. " +
+			"Подождите 10–15 секунд и нажмите «следующий вопрос», чтобы повторить — все ваши ответы сохранены.",
+		Topic:             topic,
+		DifficultyDelta:   0,
+		PressureLevel:     maxInt(1, session.PressureLevel),
+		ShouldEnd:         false,
+		LastAnswerVerdict: "skipped", // do not grade this turn
 	}
 }
 
 // buildPracticeTaskQuestion ALWAYS asks the AI for the task. If the
 // AI is unavailable we surface a transparent message rather than
-// returning a deterministic hard-coded coding problem — see
-// buildTechnicalFallbackQuestion for the same policy.
+// returning a deterministic hard-coded coding problem.
 func (h *Handler) buildPracticeTaskQuestion(session *InterviewModuleSession, topic string) string {
 	mode := strings.ToLower(strings.TrimSpace(session.InterviewMode))
 	if mode == "" {
@@ -5070,7 +5049,7 @@ func (h *Handler) buildPracticeTaskQuestion(session *InterviewModuleSession, top
 			return candidate
 		}
 	}
-	return "🤖 AI-сервис временно не отвечает. Через 5–10 секунд нажмите «следующая задача» — задание сгенерируется заново."
+	return "🤖 AI-сервис временно не отвечает (проверьте LLM_API_KEY). Через 10–15 секунд нажмите «следующая задача» — задание сгенерируется заново."
 }
 
 func (h *Handler) isWeakPracticeTask(question string) bool {

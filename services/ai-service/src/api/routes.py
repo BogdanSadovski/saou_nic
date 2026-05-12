@@ -1559,20 +1559,21 @@ async def interviewer_next_question(
                 regen_reason,
             )
     except Exception:
-        logger.exception("interviewer generation failed, fallback will be used")
+        logger.exception("interviewer generation failed; surfacing 503 to caller")
 
     if not accepted_question:
-        accepted_question = _fallback_question(request, answer_profile)
-        accepted_topic = request.current_topic or "core"
-        accepted_delta = _blend_difficulty_delta(0, answer_profile)
-        accepted_pressure = _blend_pressure_level(request.pressure_level, request.pressure_level, answer_profile)
-        accepted_flags = {
-            "contains_explanation": False,
-            "contains_solution": False,
-            "policy_violation": False,
-            "answer_was_weak": bool(answer_profile["is_weak"]),
-            "answer_was_partial": bool(answer_profile["is_partial"]),
-        }
+        # Do NOT return a templated 'Ответ пока слабый…' string here.
+        # In production this masqueraded as a real LLM-generated
+        # question and got repeated turn after turn, so the candidate
+        # saw the same fallback line indefinitely.
+        #
+        # Instead surface 503 — interview-service treats this as
+        # 'AI unavailable' and shows ONE transparent system message
+        # in the chat ('🤖 AI-интервьюер сейчас недоступен …').
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="LLM unavailable: configure LLM_API_KEY or retry shortly",
+        )
 
     if request.difficulty >= 7:
         follow_up = _hard_mode_follow_up(request.role, accepted_topic, accepted_question)
