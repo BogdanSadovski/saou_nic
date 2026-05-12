@@ -2826,8 +2826,12 @@ func (h *Handler) AddInterviewModuleMessage(w http.ResponseWriter, r *http.Reque
 	// stray keystroke or "не знаю" — both should NOT count as a
 	// graded turn. Surface a polite re-prompt instead of feeding it
 	// to the LLM and inflating the final average.
+	//
+	// Exception: the "__skip__" sentinel (sent by the Skip button in
+	// the chat composer) flows through, gets detected by
+	// detectCandidateIntent, and routes to the topic-switch path.
 	letters := utf8.RuneCountInString(strings.TrimSpace(cleanContent))
-	if letters < 12 {
+	if letters < 12 && cleanContent != "__skip__" {
 		writeError(w, http.StatusBadRequest,
 			"пожалуйста, дайте развёрнутый ответ (хотя бы 1–2 предложения) или нажмите «следующий вопрос», чтобы пропустить.")
 		return
@@ -3486,15 +3490,29 @@ func (h *Handler) requestNextQuestion(ctx context.Context, session *InterviewMod
 	answerSignal := h.classifyAnswer(lastAnswer)
 	intent := h.detectCandidateIntent(lastAnswer)
 	askedBefore := h.countAIMessages(session.Messages)
+
+	// Honor explicit "skip" / "switch" intents BEFORE difficulty
+	// math, otherwise the candidate's request gets folded into the
+	// grading pipeline (and the answer counts as 'weak'/'uncertain').
+	//
+	// We force-rotate the topic AND tell the AI prompt downstream
+	// that the previous turn was a skip — verdict='skipped', no
+	// follow-up on the prior topic.
+	skipRequested := intent == "skip" || intent == "switch"
 	h.moduleMu.Lock()
-	h.updateDifficultyAndPressure(session, answerSignal)
-	if session.CurrentTopic == "skills_overview" && askedBefore >= 1 {
+	if skipRequested {
 		session.CurrentTopic = h.nextTopic(session.Role, session.TopicCursor)
 		session.TopicCursor++
-	}
-	if h.shouldSwitchTopic(session, answerSignal) {
-		session.CurrentTopic = h.nextTopic(session.Role, session.TopicCursor)
-		session.TopicCursor++
+	} else {
+		h.updateDifficultyAndPressure(session, answerSignal)
+		if session.CurrentTopic == "skills_overview" && askedBefore >= 1 {
+			session.CurrentTopic = h.nextTopic(session.Role, session.TopicCursor)
+			session.TopicCursor++
+		}
+		if h.shouldSwitchTopic(session, answerSignal) {
+			session.CurrentTopic = h.nextTopic(session.Role, session.TopicCursor)
+			session.TopicCursor++
+		}
 	}
 	h.moduleMu.Unlock()
 
@@ -4840,17 +4858,61 @@ func (h *Handler) getEmbeddingWithCache(ctx context.Context, text string, ttl ti
 	return embData.Embedding, nil
 }
 
+// detectCandidateIntent classifies short user replies that aren't
+// "real answers" but explicit control commands. Returning a non-empty
+// intent string makes requestNextQuestion route differently — e.g.
+// "skip" produces a topic switch instead of grading the previous turn.
 func (h *Handler) detectCandidateIntent(answer string) string {
 	v := strings.ToLower(strings.TrimSpace(answer))
 	if v == "" {
 		return ""
 	}
-	if strings.Contains(v, "раскрой") || strings.Contains(v, "подробнее") || strings.Contains(v, "объяс") || strings.Contains(v, "не понял") {
+
+	// Explicit "skip / next question" — both as a typed phrase and as
+	// the canonical sentinel emitted by the frontend's "Skip" button.
+	if v == "__skip__" {
+		return "skip"
+	}
+	skipPhrases := []string{
+		"пропустить", "пропусти", "пропустим",
+		"следующий вопрос", "следующая задача", "дальше",
+		"переходи дальше", "перейдем", "перейдём", "next question",
+		"не знаю", "затрудняюсь", "не уверен", "не помню",
+	}
+	for _, p := range skipPhrases {
+		if strings.Contains(v, p) {
+			return "skip"
+		}
+	}
+
+	// "Повтори / repeat" — candidate wants the question restated.
+	if strings.Contains(v, "повтори") || strings.Contains(v, "ещё раз") ||
+		strings.Contains(v, "еще раз") || strings.Contains(v, "перечитай") {
+		return "repeat"
+	}
+
+	// "Подсказка / hint" — candidate asks for a nudge, NOT a solution.
+	if strings.Contains(v, "подсказ") || strings.Contains(v, "наводка") ||
+		strings.Contains(v, "hint") {
+		return "hint"
+	}
+
+	// "Уточни / объясни / раскрой" — candidate wants the AI to
+	// rephrase or expand the question itself.
+	if strings.Contains(v, "уточни") || strings.Contains(v, "раскрой") ||
+		strings.Contains(v, "подробнее") || strings.Contains(v, "объясни") ||
+		strings.Contains(v, "не понял") {
 		return "clarify"
 	}
-	if strings.Contains(v, "другой вопрос") || strings.Contains(v, "смени вопрос") || strings.Contains(v, "другая тема") {
+
+	// "Другой вопрос / смени тему" — candidate doesn't want this
+	// topic at all, distinct from "skip" (skip just moves on; switch
+	// also nudges topic cursor).
+	if strings.Contains(v, "другой вопрос") || strings.Contains(v, "смени вопрос") ||
+		strings.Contains(v, "другая тема") || strings.Contains(v, "сменим тему") {
 		return "switch"
 	}
+
 	return ""
 }
 

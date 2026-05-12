@@ -7,6 +7,52 @@
  */
 
 /* ------------------------------------------------------------------ */
+/* Composer with Skip + Send (interview chat)                          */
+/* ------------------------------------------------------------------ */
+
+.message-composer-actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.composer-skip {
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  background: transparent;
+  color: var(--text-muted);
+  padding: 8px 16px;
+  font-weight: 500;
+  font-size: var(--fz-sm);
+  cursor: pointer;
+  transition: border-color var(--t-fast) var(--ease-out),
+    color var(--t-fast) var(--ease-out);
+}
+
+.composer-skip:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.composer-skip:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+@media (max-width: 720px) {
+  .message-composer {
+    grid-template-columns: 1fr;
+  }
+  .message-composer-actions {
+    flex-direction: row;
+  }
+  .composer-skip,
+  .composer-send {
+    flex: 1;
+  }
+}
+
+/* ------------------------------------------------------------------ */
 /* Per-answer verdict badge                                            */
 /* ------------------------------------------------------------------ */
 
