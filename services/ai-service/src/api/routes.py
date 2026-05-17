@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, 
 from fastapi.responses import JSONResponse
 
 from src.api.dependencies import DIContainer, get_di_container
+from src.config import get_settings
 from src.core.embeddings import get_local_embedding_client
 from src.models.responses import (
     AnalysisScores,
@@ -903,7 +904,12 @@ def _build_resume_prompt(request: ResumeInsightsRequest) -> str:
     role_preferences = ", ".join(request.role_preferences or []) or "не указаны"
     skills = "\n".join(f"- {item}" for item in (request.skills or [])[:20]) or "- нет данных"
     languages = "\n".join(f"- {item}" for item in (request.languages or [])[:12]) or "- нет данных"
-    excerpt = (request.text_excerpt or "").strip()[:6000] or "нет"
+    # 2400 chars ≈ 700–800 tokens. Keeps the whole resume prompt
+    # comfortably under Groq's 12k TPM free-tier limit. Previously
+    # 6000 chars overflowed and produced 429 rate-limit errors that
+    # silently fell through to the local heuristic fallback ("AI
+    # didn't actually analyze this CV").
+    excerpt = (request.text_excerpt or "").strip()[:2400] or "нет"
 
     return (
         "Сформируй аналитический отчет по резюме кандидата.\n"
@@ -959,12 +965,27 @@ async def resume_insights(
 
         language_insights: list[DeveloperLanguageInsight] = []
         for item in raw.get("language_insights", []):
+            # LLMs that can't honour json_schema sometimes flatten
+            # this list into plain strings ("Go", "Python") instead of
+            # the structured objects we asked for. Promote those to
+            # minimal-shape dicts so the parser doesn't crash on
+            # .get(...).
+            if isinstance(item, str):
+                item = {"language": item, "evidence": "По данным резюме."}
+            elif not isinstance(item, dict):
+                continue
             language = str(item.get("language", "")).strip()
             evidence = str(item.get("evidence", "")).strip()
             if not language or not evidence:
                 continue
-            confidence = int(item.get("confidence", 0))
-            topics = [str(topic).strip() for topic in item.get("interview_topics", []) if str(topic).strip()]
+            try:
+                confidence = int(item.get("confidence", 60))
+            except (TypeError, ValueError):
+                confidence = 60
+            raw_topics = item.get("interview_topics", [])
+            if not isinstance(raw_topics, list):
+                raw_topics = []
+            topics = [str(topic).strip() for topic in raw_topics if str(topic).strip()]
             language_insights.append(
                 DeveloperLanguageInsight(
                     language=language,
@@ -976,19 +997,26 @@ async def resume_insights(
 
         interview_tracks: list[DeveloperInterviewTrack] = []
         for item in raw.get("interview_tracks", []):
+            # Same defensive coercion as language_insights — LLMs that
+            # skip json_schema return strings or lists for these fields.
+            if isinstance(item, str):
+                item = {"role": item, "rationale": "Подходит по сильным сторонам резюме."}
+            elif not isinstance(item, dict):
+                continue
             role = str(item.get("role", "")).strip()
             rationale = str(item.get("rationale", "")).strip()
             if not role or not rationale:
                 continue
             mode = str(item.get("mode", "practice")).strip() or "practice"
             level = str(item.get("level", "Middle")).strip() or "Middle"
-            duration_minutes = max(10, min(120, int(item.get("duration_minutes", 30))))
-            focus_areas = [
-                str(value).strip() for value in item.get("focus_areas", []) if str(value).strip()
-            ]
-            primary_skills = [
-                str(value).strip() for value in item.get("primary_skills", []) if str(value).strip()
-            ]
+            try:
+                duration_minutes = max(10, min(120, int(item.get("duration_minutes", 30))))
+            except (TypeError, ValueError):
+                duration_minutes = 30
+            raw_focus = item.get("focus_areas", []) if isinstance(item.get("focus_areas"), list) else []
+            raw_primary = item.get("primary_skills", []) if isinstance(item.get("primary_skills"), list) else []
+            focus_areas = [str(value).strip() for value in raw_focus if str(value).strip()]
+            primary_skills = [str(value).strip() for value in raw_primary if str(value).strip()]
             interview_tracks.append(
                 DeveloperInterviewTrack(
                     role=role,
@@ -1003,11 +1031,18 @@ async def resume_insights(
 
         positions: list[DeveloperRoleRecommendation] = []
         for item in raw.get("recommended_positions", []):
+            if isinstance(item, str):
+                item = {"role": item, "rationale": "Подходит по профилю.", "fit_score": 70}
+            elif not isinstance(item, dict):
+                continue
             role = str(item.get("role", "")).strip()
             rationale = str(item.get("rationale", "")).strip()
             if not role or not rationale:
                 continue
-            fit_score = max(0, min(100, int(item.get("fit_score", 0))))
+            try:
+                fit_score = max(0, min(100, int(item.get("fit_score", 60))))
+            except (TypeError, ValueError):
+                fit_score = 60
             positions.append(
                 DeveloperRoleRecommendation(
                     role=role,

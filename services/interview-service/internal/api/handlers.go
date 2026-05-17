@@ -720,20 +720,22 @@ func (h *Handler) requestInterviewQuestionFromAI(session *InterviewModuleSession
 		return nil, err
 	}
 
-	// Retry once on transient errors (503 from rate limit, brief
-	// network blips). Free-tier OpenRouter throws 503 every ~20
-	// requests/minute and a 2-second sleep is enough to get past it.
+	// Retry up to 4 times on transient errors. Groq TPM limit fires
+	// after a few fast turns and the inner ai-service already sleeps
+	// up to 20s on the Retry-After hint, so we only need a short
+	// back-off here to give it a second chance.
 	var (
 		out     *nextQuestionResponse
 		callErr error
 	)
-	for attempt := 0; attempt < 2; attempt++ {
+	backoffs := []time.Duration{1500 * time.Millisecond, 3 * time.Second, 5 * time.Second}
+	for attempt := 0; attempt < 4; attempt++ {
 		out, callErr = h.callAIWithFailover(ctx, session, payload)
 		if callErr == nil && out != nil && strings.TrimSpace(out.Question) != "" {
 			break
 		}
-		if attempt == 0 {
-			time.Sleep(2 * time.Second)
+		if attempt < len(backoffs) {
+			time.Sleep(backoffs[attempt])
 		}
 	}
 	if callErr != nil {

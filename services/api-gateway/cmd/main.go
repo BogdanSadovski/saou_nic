@@ -84,6 +84,16 @@ func makeProxy(target *url.URL) *httputil.ReverseProxy {
 		originalDirector(req)
 		req.Host = target.Host
 	}
+	// Custom transport with response-header + idle timeouts tuned for
+	// the slowest upstream (interview-service → AI on free Groq tier,
+	// up to ~30s with retries). Defaults would either hang forever
+	// or 502 too early.
+	proxy.Transport = &http.Transport{
+		ResponseHeaderTimeout: 120 * time.Second,
+		IdleConnTimeout:       90 * time.Second,
+		MaxIdleConns:          100,
+		MaxIdleConnsPerHost:   20,
+	}
 	return proxy
 }
 
@@ -279,6 +289,13 @@ func main() {
 		Addr:              ":" + port,
 		Handler:           withRateLimit(newTokenBucketLimiter(10, 40), withCORS(mux)),
 		ReadHeaderTimeout: 10 * time.Second,
+		// Read/Write timeouts cover the whole life of an upstream
+		// request. Interview-service calls AI (free Groq tier can
+		// 429-and-retry up to ~30s) so 120s gives plenty of room
+		// before the gateway aborts with 502.
+		ReadTimeout:  120 * time.Second,
+		WriteTimeout: 120 * time.Second,
+		IdleTimeout:  90 * time.Second,
 	}
 
 	log.Printf("api-gateway listening on :%s", port)
