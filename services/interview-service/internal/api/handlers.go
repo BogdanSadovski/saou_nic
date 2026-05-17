@@ -674,12 +674,12 @@ func (h *Handler) requestInterviewQuestionFromAI(session *InterviewModuleSession
 		normalizedMode = "practice"
 	}
 
-	// Match the requestNextQuestion budget. Free LLMs typically
-	// answer in 10–15s for our strict JSON schema; an early 10s cap
-	// truncated the call and forced the practice-task fallback even
-	// when ai-service was healthy and authenticated. 35s leaves
-	// headroom for one retry inside callAIWithFailover.
-	ctx, cancel := context.WithTimeout(context.Background(), 35*time.Second)
+	// Free LLMs answer in 10–15s for the strict JSON schema, and a
+	// cold-start on OpenRouter free can hit 50–60s. Groq usually
+	// returns in <1s but we keep the budget large for the worst
+	// provider — better than killing a valid call mid-flight and
+	// showing the user a 'AI not connected' fallback.
+	ctx, cancel := context.WithTimeout(context.Background(), 75*time.Second)
 	defer cancel()
 
 	timeLeft := time.Until(session.ExpiresAt)
