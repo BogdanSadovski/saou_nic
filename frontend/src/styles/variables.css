@@ -1,24 +1,174 @@
+/**
+ * Design tokens — Apple Liquid Glass-inspired palette.
+ *
+ * Brand: violet/lavender accent that bleeds through translucent glass.
+ * Dark: pure black + charcoal layered surfaces with violet highlights.
+ * Light: soft off-white + cool grey with the same violet bleed.
+ *
+ * Components MUST consume tokens; no hardcoded colours, blur values
+ * or shadows so the two themes stay in lock-step.
+ */
+
 :root {
-  --font-sans: "SF Pro Display", "Inter", "Segoe UI", sans-serif;
-  --bg-0: #eef3ff;
-  --bg-1: #e8f0ff;
-  --text-0: #112034;
-  --text-muted: #455a74;
-  --glass-bg: rgba(255, 255, 255, 0.5);
-  --glass-border: rgba(255, 255, 255, 0.7);
-  --accent: #1274ff;
-  --accent-soft: #73b5ff;
-  --shadow-soft: 0 10px 30px rgba(20, 53, 97, 0.12);
+  /* Typography */
+  --font-sans: "SF Pro Display", -apple-system, BlinkMacSystemFont, "Inter",
+    "Segoe UI", sans-serif;
+  --font-mono: "SF Mono", "JetBrains Mono", ui-monospace, monospace;
+
+  --fz-xs: 12px;
+  --fz-sm: 13px;
+  --fz-md: 14px;
+  --fz-lg: 16px;
+  --fz-xl: 20px;
+  --fz-2xl: 24px;
+  --fz-3xl: 32px;
+  --fz-display: 44px;
+
+  --lh-tight: 1.15;
+  --lh-normal: 1.5;
+  --lh-loose: 1.7;
+
+  /* Spacing scale (4-pt grid) */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+  --sp-8: 32px;
+  --sp-10: 40px;
+  --sp-12: 48px;
+  --sp-16: 64px;
+
+  /* Radius — rounder, more iOS 26-ish */
+  --r-xs: 6px;
+  --r-sm: 10px;
+  --r-md: 14px;
+  --r-lg: 20px;
+  --r-xl: 26px;
+  --r-2xl: 32px;
+  --r-pill: 999px;
+
+  /* Glass blur tiers */
+  --blur-sm: 12px;
+  --blur-md: 24px;
+  --blur-lg: 36px;
+  --blur-xl: 48px;
+  --saturate: 180%;
+
+  /* Light theme surfaces */
+  --bg-0: #f4f3fb;
+  --bg-1: #ecebf5;
+  --bg-2: #ffffff;
+  --bg-elev: rgba(255, 255, 255, 0.72);
+  --bg-elev-soft: rgba(255, 255, 255, 0.45);
+  --bg-tint: rgba(110, 60, 220, 0.05);
+
+  --text-0: #0e0a1f;
+  --text-muted: #5a516e;
+  --text-subtle: #8a8298;
+
+  --line: rgba(14, 10, 31, 0.08);
+  --line-strong: rgba(14, 10, 31, 0.16);
+
+  --glass-bg: rgba(255, 255, 255, 0.55);
+  --glass-bg-strong: rgba(255, 255, 255, 0.78);
+  --glass-border: rgba(255, 255, 255, 0.85);
+  --glass-border-strong: rgba(255, 255, 255, 0.95);
+  --glass-highlight: rgba(255, 255, 255, 0.9);
+  --glass-shade: rgba(110, 60, 220, 0.06);
+
+  /* Brand & semantic — violet primary, cyan/magenta secondaries */
+  --accent: #6d3cdb;
+  --accent-strong: #5828c1;
+  --accent-soft: #a892ff;
+  --accent-fade: rgba(109, 60, 219, 0.16);
+  --accent-glow: rgba(109, 60, 219, 0.45);
+
+  --accent-2: #d955ff; /* magenta companion */
+  --accent-3: #4dd2ff; /* cyan companion */
+
+  --success: #34c77a;
+  --success-fade: rgba(52, 199, 122, 0.18);
+  --warning: #f5a623;
+  --warning-fade: rgba(245, 166, 35, 0.18);
+  --danger: #ff4d6d;
+  --danger-fade: rgba(255, 77, 109, 0.18);
+
+  /* Shadows — soft and layered */
+  --shadow-soft: 0 8px 24px rgba(14, 10, 31, 0.08);
+  --shadow-md: 0 12px 36px rgba(14, 10, 31, 0.12);
+  --shadow-lg: 0 24px 64px rgba(14, 10, 31, 0.18);
+  --shadow-glow: 0 0 60px var(--accent-glow);
+  --shadow-focus: 0 0 0 3px var(--accent-fade);
+
+  /* Motion */
+  --t-fast: 140ms;
+  --t-base: 240ms;
+  --t-slow: 400ms;
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-emph: cubic-bezier(0.4, 0, 0, 1);
+
+  /* Z-stack */
+  --z-banner: 90;
+  --z-modal: 100;
+  --z-toast: 120;
+  --z-checkout: 1000;
 }
 
 :root[data-theme="dark"] {
-  --bg-0: #08111d;
-  --bg-1: #101b2f;
-  --text-0: #eaf2ff;
-  --text-muted: #9fb2d1;
-  --glass-bg: rgba(18, 31, 50, 0.5);
-  --glass-border: rgba(126, 163, 209, 0.2);
-  --accent: #5ca2ff;
-  --accent-soft: #4bd6ff;
-  --shadow-soft: 0 10px 30px rgba(2, 8, 18, 0.5);
+  /* Pure black + charcoal layers, violet highlights */
+  --bg-0: #060309;
+  --bg-1: #0c0817;
+  --bg-2: #14102a;
+  --bg-elev: rgba(28, 22, 48, 0.6);
+  --bg-elev-soft: rgba(28, 22, 48, 0.32);
+  --bg-tint: rgba(160, 120, 255, 0.06);
+
+  --text-0: #f3eeff;
+  --text-muted: #b3a8d4;
+  --text-subtle: #807799;
+
+  --line: rgba(243, 238, 255, 0.06);
+  --line-strong: rgba(243, 238, 255, 0.14);
+
+  --glass-bg: rgba(20, 16, 42, 0.55);
+  --glass-bg-strong: rgba(20, 16, 42, 0.78);
+  --glass-border: rgba(168, 146, 255, 0.22);
+  --glass-border-strong: rgba(168, 146, 255, 0.34);
+  --glass-highlight: rgba(255, 255, 255, 0.12);
+  --glass-shade: rgba(0, 0, 0, 0.4);
+
+  /* Brand becomes more luminescent on dark */
+  --accent: #a892ff;
+  --accent-strong: #c0b0ff;
+  --accent-soft: #d2c5ff;
+  --accent-fade: rgba(168, 146, 255, 0.18);
+  --accent-glow: rgba(168, 146, 255, 0.5);
+
+  --accent-2: #ff79f5;
+  --accent-3: #65e8ff;
+
+  --success: #4ddca0;
+  --success-fade: rgba(77, 220, 160, 0.2);
+  --warning: #ffc24a;
+  --warning-fade: rgba(255, 194, 74, 0.2);
+  --danger: #ff7a92;
+  --danger-fade: rgba(255, 122, 146, 0.2);
+
+  --shadow-soft: 0 8px 24px rgba(0, 0, 0, 0.5);
+  --shadow-md: 0 12px 40px rgba(0, 0, 0, 0.6);
+  --shadow-lg: 0 24px 80px rgba(0, 0, 0, 0.75);
+  --shadow-glow: 0 0 80px var(--accent-glow);
+  --shadow-focus: 0 0 0 3px var(--accent-fade);
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --t-fast: 0ms;
+    --t-base: 0ms;
+    --t-slow: 0ms;
+  }
 }

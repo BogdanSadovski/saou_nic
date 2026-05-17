@@ -23,9 +23,20 @@ class LLMClient:
         self._model = model
         self._temperature = temperature
         self._max_tokens = max_tokens
+        # OpenRouter (https://openrouter.ai/api/v1) recommends two
+        # headers to identify the calling app for the free tier and
+        # the public rankings page. Sending them with any base_url is
+        # harmless — OpenAI and other compatible servers ignore unknown
+        # headers. Without these OpenRouter still works, but logs the
+        # request as "anonymous" and may rate-limit more aggressively.
+        default_headers = {
+            "HTTP-Referer": "https://github.com/BogdanSadovski/saou_nic",
+            "X-Title": "RealSync Interview Platform",
+        }
         self._client = AsyncOpenAI(
             api_key=api_key,
             base_url=base_url,
+            default_headers=default_headers,
         )
 
     async def generate(

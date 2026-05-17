@@ -76,6 +76,16 @@ func Load(configPath string) (*Config, error) {
 	v.SetConfigFile(configPath)
 	v.SetConfigType("yaml")
 
+	// Env-var overrides — both POSTGRES_* (compose convention) and DB_*
+	// (legacy) honoured. Allows changing DB credentials/host without an
+	// image rebuild.
+	_ = v.BindEnv("database.host", "POSTGRES_HOST", "DB_HOST")
+	_ = v.BindEnv("database.port", "POSTGRES_PORT", "DB_PORT")
+	_ = v.BindEnv("database.user", "POSTGRES_USER", "DB_USER")
+	_ = v.BindEnv("database.password", "POSTGRES_PASSWORD", "DB_PASSWORD")
+	_ = v.BindEnv("database.dbname", "POSTGRES_DB", "DB_NAME")
+	_ = v.BindEnv("jwt.secret", "JWT_SECRET")
+
 	v.SetDefault("server.port", 8081)
 	v.SetDefault("server.mode", "release")
 	v.SetDefault("server.read_timeout", "15s")

@@ -1,6 +1,6 @@
 """Pydantic models for API responses."""
 
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -76,6 +76,19 @@ class NextQuestionResponse(BaseModel):
     pressure_level: int = Field(default=1, ge=1, le=5)
     should_end: bool = False
     flags: dict[str, bool] = Field(default_factory=dict)
+    # Verdict on the candidate's LAST answer. Drives the inline
+    # ✅/⚠️/❌ badge in the chat and the final-report aggregation:
+    #   correct  — answer is technically right and complete enough
+    #   partial  — partially correct, important pieces missing
+    #   wrong    — factually incorrect
+    #   skipped  — candidate said "не знаю" / "пропустить" / no answer
+    #   off_topic — answer didn't address the question at all
+    #   none     — no prior answer to grade (first turn of session)
+    last_answer_verdict: Optional[
+        Literal["correct", "partial", "wrong", "skipped", "off_topic", "none"]
+    ] = None
+    # One-line reason that the badge tooltip can show.
+    last_answer_reason: Optional[str] = None
 
 
 class ValidateOutputResponse(BaseModel):

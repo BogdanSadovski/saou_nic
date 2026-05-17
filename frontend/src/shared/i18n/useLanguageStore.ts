@@ -13,7 +13,7 @@ export const useLanguageStore = create<LanguageState>((set) => ({
   
   setLanguage: (language: Language) => {
     localStorage.setItem("realsync-language", language);
-    set({ language: "ru" });
+    set({ language });
   },
 
   initialize: () => {

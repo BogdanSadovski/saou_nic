@@ -9,19 +9,26 @@ RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o code-executor ./c
 
 FROM node:20-alpine
 
+# Use the distro packages where available (faster, plays well with PEP 668)
+# and fall back to a venv for the rest. Avoid `--break-system-packages`,
+# which would silently corrupt the Alpine python install.
 RUN apk add --no-cache \
     python3 \
     py3-pip \
+    py3-virtualenv \
+    py3-requests \
+    py3-numpy \
+    py3-pandas \
     go \
     openjdk11 \
     ca-certificates \
     curl
 
-# Install Python dependencies for safe code execution
-RUN pip3 install --no-cache-dir \
-    requests \
-    numpy \
-    pandas
+# Provide a project-local venv on PATH for any future pip-only deps;
+# preinstalled apk packages above already cover requests/numpy/pandas.
+ENV VIRTUAL_ENV=/opt/venv
+RUN python3 -m venv --system-site-packages "$VIRTUAL_ENV"
+ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 
 WORKDIR /app
 

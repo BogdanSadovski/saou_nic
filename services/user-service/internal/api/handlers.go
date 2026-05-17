@@ -182,6 +182,39 @@ func (h *Handler) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 	respondWithJSON(w, http.StatusOK, user)
 }
 
+// ChangePassword updates the authenticated user's password after
+// verifying the current one. Returns 204 on success, 401 when the
+// current password is wrong, 400 on bad input.
+func (h *Handler) ChangePassword(w http.ResponseWriter, r *http.Request) {
+	userID, err := getUserIDFromContext(r)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	var req struct {
+		CurrentPassword string `json:"current_password"`
+		NewPassword     string `json:"new_password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondWithError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if len(req.NewPassword) < 8 {
+		respondWithError(w, http.StatusBadRequest, "new password must be at least 8 characters")
+		return
+	}
+
+	if err := h.userService.ChangePassword(r.Context(), userID, req.CurrentPassword, req.NewPassword); err != nil {
+		// Surface the validation reason verbatim — the service layer
+		// already returns user-friendly messages ("invalid current
+		// password", "user not found").
+		respondWithError(w, http.StatusUnauthorized, err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (h *Handler) GetUser(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	id, err := uuid.Parse(vars["id"])

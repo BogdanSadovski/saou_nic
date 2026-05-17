@@ -16,9 +16,9 @@ export function AuthForm() {
   const t = useTranslation();
 
   const [mode, setMode] = useState<AuthMode>("signin");
-  const [fullName, setFullName] = useState("Богдан Кандидат");
-  const [email, setEmail] = useState("demo@realsync.ai");
-  const [password, setPassword] = useState("password");
+  const [fullName, setFullName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   const submit = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -44,8 +44,45 @@ export function AuthForm() {
         await login(email, password);
         pushToast(t.signedIn);
       }
-    } catch {
-      setError("Ошибка авторизации. Проверьте доступность бэкенда и корректность данных.");
+    } catch (e) {
+      // Distinguish between backend-down (network/5xx/404) and bad
+      // credentials (401/403) so the user knows whether to fix the
+      // form or the infra.
+      const err = e as {
+        code?: string;
+        message?: string;
+        response?: { status?: number; data?: { error?: string; message?: string } };
+      };
+      const status = err.response?.status;
+      const code = err.code ?? "";
+      const isNetworkDown =
+        !err.response ||
+        code === "ERR_NETWORK" ||
+        code === "ECONNREFUSED" ||
+        code === "ECONNABORTED" ||
+        code === "ETIMEDOUT" ||
+        err.message === "Network Error";
+
+      if (isNetworkDown) {
+        setError(
+          "Бэкенд недоступен. Запустите api-gateway (порт 8000) — например, `make dev-up` или docker compose в infrastructure/docker.",
+        );
+      } else if (status === 404) {
+        setError(
+          "Эндпоинт авторизации не найден (404). Проверьте, что api-gateway и user-service запущены и настроены VITE_API_BASE_URL.",
+        );
+      } else if (status === 401 || status === 403) {
+        setError(mode === "signin" ? "Неверный email или пароль." : "Регистрация отклонена сервером.");
+      } else if (status === 409) {
+        setError("Пользователь с таким email уже существует.");
+      } else if (status && status >= 500) {
+        setError(
+          "Сервер авторизации перезапускается. Подождите 5–10 секунд и нажмите кнопку ещё раз — ваши данные сохранены.",
+        );
+      } else {
+        const serverMessage = err.response?.data?.error ?? err.response?.data?.message;
+        setError(serverMessage || "Не удалось выполнить запрос. Проверьте подключение и данные.");
+      }
       return;
     }
 

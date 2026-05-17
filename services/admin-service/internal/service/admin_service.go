@@ -60,6 +60,15 @@ func (s *AdminService) GetDashboardStats(ctx context.Context) (*DashboardStats, 
 	}
 	stats.TotalUsers = totalUsers
 
+	// New users today: count rows whose created_at falls inside the
+	// current calendar day (server timezone). Failures here aren't
+	// fatal — surface 0 with a log so the rest of the dashboard still
+	// renders.
+	startOfDay := time.Now().Truncate(24 * time.Hour)
+	if newToday, err := s.userRepo.CountCreatedSince(ctx, startOfDay); err == nil {
+		stats.NewUsersToday = newToday
+	}
+
 	// Active users (simplified - in production would filter by status)
 	users, total, err := s.userRepo.List(ctx, domain.ListUsersQuery{
 		Page:     1,
@@ -83,9 +92,12 @@ func (s *AdminService) GetDashboardStats(ctx context.Context) (*DashboardStats, 
 	}
 	stats.ActiveSubscriptions = int64(len(activeSubs))
 
-	// Count subscription tiers
+	// Count subscription tiers AND aggregate monthly revenue.
+	// Pricing is hard-coded by tier here (USD/month) — adjust the
+	// table when tiers change. Free contributes 0.
 	for _, sub := range activeSubs {
 		stats.SubscriptionTiers[sub.Tier]++
+		stats.RevenueThisMonth += tierMonthlyPriceUSD(sub.Tier)
 	}
 
 	// Recent audit logs

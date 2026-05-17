@@ -1,6 +1,6 @@
 import { Outlet, useLocation } from "react-router-dom";
 
-import { BottomNav } from "@/widgets/navbar/BottomNav";
+import { BackendStatusBanner } from "@/shared/ui/BackendStatusBanner";
 import { Navbar } from "@/widgets/navbar/Navbar";
 import { Sidebar } from "@/widgets/sidebar/Sidebar";
 
@@ -24,6 +24,8 @@ export function AppShell() {
       <div className="ambient ambient-a" />
       <div className="ambient ambient-b" />
 
+      <BackendStatusBanner />
+
       {!interviewImmersive && <Navbar />}
 
       <main className={mainClassName}>
@@ -32,8 +34,6 @@ export function AppShell() {
           <Outlet />
         </div>
       </main>
-
-      {!interviewImmersive && <BottomNav />}
     </div>
   );
 }

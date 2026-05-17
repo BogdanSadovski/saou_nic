@@ -1,6 +1,7 @@
 package api
 
 import (
+	"log"
 	"net/http"
 	"strconv"
 
@@ -39,6 +40,9 @@ func NewHandler(
 func (h *Handler) GetDashboardStats(c *gin.Context) {
 	stats, err := h.adminService.GetDashboardStats(c.Request.Context())
 	if err != nil {
+		// Log the underlying error so the operator can see what failed
+		// (gin's stdlib output strips err details otherwise).
+		log.Printf("admin: GetDashboardStats failed: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get dashboard stats"})
 		return
 	}
@@ -165,6 +169,7 @@ func (h *Handler) ListUsers(c *gin.Context) {
 
 	users, total, err := h.userService.ListUsers(c.Request.Context(), query)
 	if err != nil {
+		log.Printf("admin: ListUsers failed (page=%d size=%d): %v", query.Page, query.PageSize, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list users"})
 		return
 	}
@@ -412,6 +417,100 @@ func (h *Handler) UpdateSubscription(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, sub)
+}
+
+// ----------------------------------------------------------------
+// User-facing billing endpoints (no admin role required)
+// ----------------------------------------------------------------
+
+// GetMySubscription returns the current user's active subscription
+// (or 404 if they're on the free plan / never subscribed).
+func (h *Handler) GetMySubscription(c *gin.Context) {
+	userID, err := GetUserIDFromContext(c)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+
+	sub, err := h.subService.GetSubscriptionByUserID(c.Request.Context(), userID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "no subscription"})
+		return
+	}
+	c.JSON(http.StatusOK, sub)
+}
+
+// CreateMySubscription is the "checkout-success" hook — the fake
+// payment gateway POSTs here once the user enters their card details
+// to record their tier. Body: { tier, card_last4 }.
+//
+// Behaves as upsert: if the user already has an active subscription
+// it is updated to the new tier (upgrade/downgrade), otherwise a new
+// row is created. Without this an upgrade flow surfaces as
+// "user already has an active subscription".
+func (h *Handler) CreateMySubscription(c *gin.Context) {
+	userID, err := GetUserIDFromContext(c)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+
+	var req struct {
+		Tier      domain.SubscriptionTier `json:"tier" binding:"required,oneof=free basic pro enterprise starter team"`
+		CardLast4 string                  `json:"card_last4"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body", "details": err.Error()})
+		return
+	}
+
+	ctx := c.Request.Context()
+
+	// Upsert: if the user already has an active subscription, update
+	// it in place rather than 400ing — the front-end checkout flow
+	// covers both first-purchase and tier-change.
+	if existing, getErr := h.subService.GetSubscriptionByUserID(ctx, userID); getErr == nil && existing != nil {
+		updated, updErr := h.subService.UpdateSubscription(ctx, existing.ID, req.Tier, true, userID)
+		if updErr != nil {
+			log.Printf("billing: UpdateMySubscription user=%s tier=%s failed: %v", userID, req.Tier, updErr)
+			c.JSON(http.StatusBadRequest, gin.H{"error": updErr.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, updated)
+		return
+	}
+
+	// First-time purchase path. Self-service: the actor (adminID) is
+	// the user themselves so audit logs attribute correctly.
+	sub, err := h.subService.CreateSubscription(ctx, userID, req.Tier, userID)
+	if err != nil {
+		log.Printf("billing: CreateMySubscription user=%s tier=%s failed: %v", userID, req.Tier, err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusCreated, sub)
+}
+
+// CancelMySubscription downgrades the current user back to free.
+func (h *Handler) CancelMySubscription(c *gin.Context) {
+	userID, err := GetUserIDFromContext(c)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+
+	sub, err := h.subService.GetSubscriptionByUserID(c.Request.Context(), userID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "no subscription"})
+		return
+	}
+
+	if err := h.subService.CancelSubscription(c.Request.Context(), sub.ID, userID); err != nil {
+		log.Printf("billing: CancelMySubscription user=%s failed: %v", userID, err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.Status(http.StatusNoContent)
 }
 
 // CancelSubscription cancels a subscription.

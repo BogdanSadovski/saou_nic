@@ -72,6 +72,7 @@ export default function InterviewSessionPage() {
   const setAiTyping = useChatStore((state) => state.setAiTyping);
   const pushStreamChunk = useChatStore((state) => state.pushStreamChunk);
   const clearStreamBuffer = useChatStore((state) => state.clearStreamBuffer);
+  const applyVerdict = useChatStore((state) => state.applyVerdict);
 
   const countdownSec = useTimerStore((state) => state.countdownSec);
   const autoFinishTriggered = useTimerStore((state) => state.autoFinishTriggered);
@@ -202,9 +203,24 @@ export default function InterviewSessionPage() {
       return;
     }
 
+    // Freeze the countdown while the AI is "thinking". A free-tier
+    // cold-start LLM call can take 30–60 seconds; without this the
+    // candidate watches their 5-minute interview vanish on infra
+    // latency, not on their own thinking time.
+    //
+    // Detection covers two signals so neither WS race wins:
+    //   1. aiTyping — flipped by ai.typing.started / .stopped events
+    //   2. last message was from the candidate — covers the gap
+    //      between POST /messages and the typing.started broadcast.
+    const lastMsg = messages[messages.length - 1];
+    const awaitingAI = aiTyping || (lastMsg !== undefined && lastMsg.sender === "user");
+    if (awaitingAI) {
+      return;
+    }
+
     const timer = window.setInterval(() => tick(), 1000);
     return () => window.clearInterval(timer);
-  }, [tick, timerReady, bootLoading]);
+  }, [tick, timerReady, bootLoading, aiTyping, messages]);
 
   useEffect(() => {
     if (bootLoading || !timerReady || !autoFinishTriggered || !sessionId) {
@@ -280,12 +296,29 @@ export default function InterviewSessionPage() {
 
           if (payload.type === "message.ai") {
             const msgPayload = payload.payload;
+            const content = (msgPayload as { content?: string }).content || "";
+            const topic = (msgPayload as { topic?: string }).topic;
+            const difficulty = (msgPayload as { difficulty?: number }).difficulty;
+
+            // Console marker — confirms the message came from the
+            // real LLM, not a hardcoded fallback in interview-service.
+            // Both code paths (theory + practice) prefix their AI-down
+            // notice with "🤖 AI-", so a single check covers both.
+            const isLive = !content.startsWith("🤖 AI-");
+            // eslint-disable-next-line no-console
+            console.log(
+              `%c[AI ${isLive ? "✓ live LLM" : "✗ offline fallback"}]`,
+              isLive ? "color:#34c77a;font-weight:600" : "color:#e0a800;font-weight:600",
+              { topic, difficulty, length: content.length },
+              content.slice(0, 200) + (content.length > 200 ? "…" : ""),
+            );
+
             const mapped: InterviewMessage = {
               messageId: (msgPayload as { message_id?: string }).message_id || crypto.randomUUID(),
               sender: (msgPayload as { sender?: "ai" | "user" }).sender || "ai",
-              content: (msgPayload as { content?: string }).content || "",
-              topic: (msgPayload as { topic?: string }).topic,
-              difficulty: (msgPayload as { difficulty?: number }).difficulty,
+              content,
+              topic,
+              difficulty,
               createdAt:
                 (msgPayload as { created_at?: string }).created_at || new Date().toISOString(),
             };
@@ -294,10 +327,62 @@ export default function InterviewSessionPage() {
             return;
           }
 
+          // Backend credits the session timer for AI-think time so a
+          // cold-start LLM call doesn't eat the candidate's window.
+          // We bump countdownSec by the same amount; elapsedSec stays
+          // unchanged so the candidate's "real" interview time is
+          // honest.
+          if (payload.type === "session.timer.adjusted") {
+            const adj = payload.payload as { added_seconds?: number };
+            const added = Math.max(0, Math.round(adj.added_seconds ?? 0));
+            if (added > 0) {
+              useTimerStore.setState((s) => ({ countdownSec: s.countdownSec + added }));
+              // eslint-disable-next-line no-console
+              console.log(
+                "%c[timer ⏸ +%ds for AI thinking]",
+                "color:#a892ff;font-weight:600",
+                added,
+              );
+            }
+            return;
+          }
+
           if (payload.type === "ai.message.chunk") {
             const chunk = (payload.payload as { chunk?: string }).chunk || "";
             if (chunk) {
               pushStreamChunk(chunk);
+            }
+            return;
+          }
+
+          // Per-turn correctness mark on the candidate's previous answer.
+          // Backend emits this right after the AI returns its next-question
+          // payload with last_answer_verdict. We flip the existing user
+          // bubble to show the ✅/⚠️/❌ badge in place.
+          if (payload.type === "message.user.evaluated") {
+            const evalPayload = payload.payload as {
+              message_id?: string;
+              verdict?: string;
+              verdict_reason?: string;
+            };
+            const allowed = ["correct", "partial", "wrong", "skipped", "off_topic"] as const;
+            type Verdict = (typeof allowed)[number];
+            if (
+              evalPayload.message_id &&
+              evalPayload.verdict &&
+              (allowed as readonly string[]).includes(evalPayload.verdict)
+            ) {
+              // eslint-disable-next-line no-console
+              console.log(
+                `%c[AI verdict ▶ ${evalPayload.verdict}]`,
+                "color:#a892ff;font-weight:600",
+                evalPayload.verdict_reason || "(no reason given)",
+              );
+              applyVerdict(
+                evalPayload.message_id,
+                evalPayload.verdict as Verdict,
+                evalPayload.verdict_reason,
+              );
             }
             return;
           }

@@ -2,10 +2,13 @@ package api
 
 import (
 	"encoding/json"
+	"math"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"scoring-service/internal/domain"
 	"scoring-service/internal/service"
@@ -35,6 +38,9 @@ func NewHandler(scoringService *service.ScoringService) *Handler {
 type interviewMessage struct {
 	Sender  string `json:"sender"`
 	Content string `json:"content"`
+	// AI verdict on this user message — drives correctness/clarity
+	// math. Empty / "none" means the LLM didn't grade this turn.
+	Verdict string `json:"verdict,omitempty"`
 }
 
 type generateInterviewReportRequest struct {
@@ -214,24 +220,111 @@ func (h *Handler) generateInterviewReport(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	answerCount := 0
-	answerLen := 0
+	// New honest scoring:
+	//   1. Filter "real" answers (sender=user AND content >=12 chars).
+	//      Two-letter "hi" / "ok" / blanks no longer count.
+	//   2. If we have AI verdicts (preferred), score each answer from
+	//      its verdict:  correct=90 / partial=55 / wrong=20 /
+	//      skipped=0 / off_topic=10. This is the AI-graded path.
+	//   3. Otherwise grade from content length only, capped at 70.
+	//   4. Zero real answers → zeros + honest weakness, no canned
+	//      "strengths" gift.
+	correctness, clarity, completeness, relevance := 0.0, 0.0, 0.0, 0.0
+	strengths := []string{}
+	weaknesses := []string{}
+	recommendations := []string{}
+
+	type scoredAnswer struct {
+		base    float64
+		clarity float64
+		verdict string
+	}
+	var scored []scoredAnswer
+	var verdictCounts = map[string]int{}
+
 	for _, msg := range req.Messages {
-		if msg.Sender == "user" {
-			answerCount++
-			answerLen += len(msg.Content)
+		if msg.Sender != "user" {
+			continue
+		}
+		content := strings.TrimSpace(msg.Content)
+		if utf8.RuneCountInString(content) < 12 {
+			continue
+		}
+
+		var base, clr float64
+		switch msg.Verdict {
+		case "correct":
+			base, clr = 90, 92
+		case "partial":
+			base, clr = 55, 58
+		case "wrong":
+			base, clr = 20, 30
+		case "skipped":
+			base, clr = 0, 0
+		case "off_topic":
+			base, clr = 10, 20
+		default:
+			// No AI verdict — fall back to length heuristic, cap 70.
+			runes := utf8.RuneCountInString(content)
+			base = math.Min(70, 25+float64(runes)/8)
+			clr = math.Min(70, 30+float64(runes)/9)
+		}
+		scored = append(scored, scoredAnswer{base: base, clarity: clr, verdict: msg.Verdict})
+		if msg.Verdict != "" {
+			verdictCounts[msg.Verdict]++
 		}
 	}
 
-	avgLen := 0.0
-	if answerCount > 0 {
-		avgLen = float64(answerLen) / float64(answerCount)
+	if len(scored) == 0 {
+		// Zero substantive answers — refuse to fabricate a score.
+		correctness, clarity, completeness, relevance = 0, 0, 0, 0
+		weaknesses = append(weaknesses,
+			"Не было ни одного развёрнутого ответа — оценивать нечего.")
+		recommendations = append(recommendations,
+			"Попробуйте пройти интервью заново и отвечайте на каждый вопрос хотя бы 1–2 предложениями.")
+	} else {
+		totalBase, totalClr := 0.0, 0.0
+		for _, s := range scored {
+			totalBase += s.base
+			totalClr += s.clarity
+		}
+		n := float64(len(scored))
+		correctness = round2(totalBase / n)
+		clarity = round2(totalClr / n)
+		// Completeness penalises 'skipped' / 'wrong' more.
+		penalty := 0.0
+		penalty += float64(verdictCounts["skipped"]) * 7
+		penalty += float64(verdictCounts["wrong"]) * 5
+		penalty += float64(verdictCounts["off_topic"]) * 3
+		completeness = clampScore(correctness - penalty/n)
+		// Relevance from off_topic ratio.
+		offRatio := float64(verdictCounts["off_topic"]) / n
+		relevance = clampScore(85 - offRatio*60)
+
+		// Adaptive narrative from verdict mix.
+		if verdictCounts["correct"] >= verdictCounts["wrong"]+verdictCounts["off_topic"]+verdictCounts["skipped"] {
+			strengths = append(strengths, "Большая часть ответов точная и по делу.")
+		}
+		if verdictCounts["partial"] > 0 {
+			weaknesses = append(weaknesses, "Часть ответов раскрыта частично — не хватает edge-cases и trade-offs.")
+		}
+		if verdictCounts["wrong"] > 0 {
+			weaknesses = append(weaknesses, "Есть фактические ошибки в ответах — стоит подтянуть базу.")
+		}
+		if verdictCounts["skipped"] > 0 {
+			weaknesses = append(weaknesses, "Несколько вопросов пропущено — заметные пробелы в темах.")
+		}
+		if verdictCounts["off_topic"] > 0 {
+			weaknesses = append(weaknesses, "Иногда ответы уходили в сторону от вопроса.")
+		}
+		if len(strengths) == 0 {
+			strengths = append(strengths, "Есть начальный технический контекст.")
+		}
+		recommendations = append(recommendations,
+			"Тренировать структуру: тезис → аргументы → пример → trade-offs.",
+			"Подкреплять ответы метриками (latency, p95, throughput).")
 	}
 
-	correctness := clampScore(35 + avgLen/7)
-	clarity := clampScore(40 + avgLen/8)
-	completeness := clampScore(38 + avgLen/7.5)
-	relevance := clampScore(55 + float64(answerCount)*3)
 	overall := round2((correctness + clarity + completeness + relevance) / 4)
 
 	report := interviewReport{
@@ -241,9 +334,9 @@ func (h *Handler) generateInterviewReport(w http.ResponseWriter, r *http.Request
 		Completeness:    completeness,
 		Relevance:       relevance,
 		OverallScore:    overall,
-		Strengths:       []string{"Ответы дают контекст решения", "Есть попытка оценки рисков"},
-		Weaknesses:      []string{"Не везде раскрыта глубина по системному дизайну", "Недостаточно сравнений альтернатив"},
-		Recommendations: []string{"Добавлять измеримые критерии", "Явно проговаривать trade-offs"},
+		Strengths:       strengths,
+		Weaknesses:      weaknesses,
+		Recommendations: recommendations,
 		GeneratedAt:     time.Now(),
 	}
 

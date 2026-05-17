@@ -10,7 +10,10 @@ database:
   port: 5432
   user: postgres
   password: postgres_secret
-  dbname: platform_db
+  # Shared with user-service: admin reads/writes real users from
+  # user_service db. Subscriptions + audit_logs migrate into the same
+  # db (see scripts/run-migrations.sh applying admin migrations there).
+  dbname: user_service
   ssl_mode: disable
   max_conns: 10
   min_conns: 2

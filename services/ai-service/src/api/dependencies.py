@@ -68,7 +68,7 @@ class DIContainer:
             settings = get_settings()
             self._singletons["transcription_service"] = TranscriptionService(
                 api_key=settings.llm_api_key,
-                model=settings.llm_model,
+                model=settings.transcription_model,
                 max_file_size_mb=settings.transcription_max_file_size_mb,
                 base_url=settings.llm_base_url,
             )

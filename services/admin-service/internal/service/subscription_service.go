@@ -243,6 +243,26 @@ func (s *SubscriptionService) logAudit(ctx context.Context, adminID uuid.UUID, a
 	}()
 }
 
+// tierMonthlyPriceUSD returns the published monthly subscription
+// price for each tier in US dollars. Used by both Subscription
+// records (sub.Amount) and dashboard revenue aggregation.
+//
+// Keep in sync with the frontend TIER_CATALOG in
+// app/store/subscriptionStore.ts so admin numbers match what the
+// user sees on the checkout page.
+func tierMonthlyPriceUSD(tier domain.SubscriptionTier) float64 {
+	switch tier {
+	case domain.TierBasic, "starter":
+		return 9
+	case domain.TierPro:
+		return 19
+	case domain.TierEnterprise, "team":
+		return 49
+	default:
+		return 0
+	}
+}
+
 // Tier configuration helpers
 func tierMaxUsers(tier domain.SubscriptionTier) int {
 	switch tier {

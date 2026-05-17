@@ -46,6 +46,13 @@ export type InterviewSession = {
   endsAt: string;
 };
 
+export type InterviewAnswerVerdict =
+  | "correct"
+  | "partial"
+  | "wrong"
+  | "skipped"
+  | "off_topic";
+
 export type InterviewMessage = {
   messageId: string;
   sender: "ai" | "user";
@@ -53,6 +60,9 @@ export type InterviewMessage = {
   topic?: string;
   difficulty?: number;
   createdAt: string;
+  /** AI verdict on this answer (only on user messages). */
+  verdict?: InterviewAnswerVerdict;
+  verdictReason?: string;
 };
 
 export type CreateSessionPayload = {

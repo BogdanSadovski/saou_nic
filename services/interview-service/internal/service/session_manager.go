@@ -234,16 +234,14 @@ type SessionResults struct {
 
 // evaluateAnswer is a placeholder for actual code evaluation logic.
 // In production, this would integrate with a code execution service.
+const placeholderScorePercentage = 0.7
+const placeholderCorrectThreshold = 0.6
+
 func evaluateAnswer(code string, question *domain.Question) (bool, int) {
-	// Placeholder: basic evaluation based on code length and question points
 	if len(code) < 10 {
 		return false, 0
 	}
 
-	// Simple heuristic: award partial credit based on code length
-	// In reality, this would run test cases
-	scorePercentage := 0.7 // Assume 70% correct for placeholder
-	score := int(float64(question.Points) * scorePercentage)
-
-	return scorePercentage >= 0.8, score
+	score := int(float64(question.Points) * placeholderScorePercentage)
+	return placeholderScorePercentage >= placeholderCorrectThreshold, score
 }

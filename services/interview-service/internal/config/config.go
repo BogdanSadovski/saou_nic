@@ -2,8 +2,10 @@ package config
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -73,12 +75,60 @@ func LoadConfig(path string) (*Config, error) {
 		}
 	}
 
-	if dbHost := os.Getenv("DB_HOST"); dbHost != "" {
-		cfg.Database.Host = dbHost
+	// DATABASE_URL takes precedence over individual vars (compose convention).
+	if raw := strings.TrimSpace(os.Getenv("DATABASE_URL")); raw != "" {
+		if u, err := url.Parse(raw); err == nil && (u.Scheme == "postgres" || u.Scheme == "postgresql") {
+			if h := u.Hostname(); h != "" {
+				cfg.Database.Host = h
+			}
+			if p := u.Port(); p != "" {
+				if n, err := strconv.Atoi(p); err == nil {
+					cfg.Database.Port = n
+				}
+			}
+			if u.User != nil {
+				if name := u.User.Username(); name != "" {
+					cfg.Database.User = name
+				}
+				if pwd, ok := u.User.Password(); ok && pwd != "" {
+					cfg.Database.Password = pwd
+				}
+			}
+			if name := strings.TrimPrefix(u.Path, "/"); name != "" {
+				// strip ?schema=... query
+				if idx := strings.Index(name, "?"); idx >= 0 {
+					name = name[:idx]
+				}
+				cfg.Database.DBName = name
+			}
+		}
 	}
 
-	if dbPassword := os.Getenv("DB_PASSWORD"); dbPassword != "" {
-		cfg.Database.Password = dbPassword
+	pickEnv := func(keys ...string) string {
+		for _, k := range keys {
+			if v := os.Getenv(k); v != "" {
+				return v
+			}
+		}
+		return ""
+	}
+
+	if v := pickEnv("POSTGRES_HOST", "DB_HOST"); v != "" {
+		cfg.Database.Host = v
+	}
+	if v := pickEnv("POSTGRES_PORT", "DB_PORT"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			cfg.Database.Port = n
+		}
+	}
+	if v := pickEnv("POSTGRES_USER", "DB_USER"); v != "" {
+		cfg.Database.User = v
+	}
+	if v := pickEnv("POSTGRES_PASSWORD", "DB_PASSWORD"); v != "" {
+		cfg.Database.Password = v
+	}
+	if v := pickEnv("POSTGRES_DB", "DB_NAME"); v != "" {
+		cfg.Database.DBName = v
 	}
 
 	if redisHost := os.Getenv("REDIS_HOST"); redisHost != "" {

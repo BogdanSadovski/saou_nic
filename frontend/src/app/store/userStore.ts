@@ -11,10 +11,14 @@ type UserState = {
 
 const USER_KEY = "realsync_user";
 
+// Empty placeholder identity used during the brief window between app
+// boot and the first /users/me hydration. Empty fullName/email are
+// fine because most consumers either await hydrate() or render a
+// skeleton while user.id is the empty string.
 const initialUser: User = {
-  id: "u_1",
-  fullName: "Кандидат",
-  email: "candidate@example.com",
+  id: "",
+  fullName: "",
+  email: "",
   role: "candidate",
   connectedGithub: false,
 };

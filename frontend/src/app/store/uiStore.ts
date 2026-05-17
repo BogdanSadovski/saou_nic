@@ -1,9 +1,11 @@
 import { create } from "zustand";
 
-type ThemeMode = "light" | "dark";
+type ThemeMode = "light" | "dark" | "system";
 
 type UIState = {
   theme: ThemeMode;
+  /** Resolved theme actually applied to the DOM (system → light/dark). */
+  resolvedTheme: "light" | "dark";
   isCommandModalOpen: boolean;
   setTheme: (theme: ThemeMode) => void;
   toggleTheme: () => void;
@@ -11,24 +13,60 @@ type UIState = {
   closeCommandModal: () => void;
 };
 
-const detectSystemTheme = (): ThemeMode => {
-  if (typeof window === "undefined") {
-    return "light";
-  }
+const THEME_KEY = "realsync_theme";
 
-  return window.matchMedia("(prefers-color-scheme: dark)").matches
-    ? "dark"
-    : "light";
+const matchesDark = (): boolean =>
+  typeof window !== "undefined" && window.matchMedia("(prefers-color-scheme: dark)").matches;
+
+const loadStoredTheme = (): ThemeMode => {
+  if (typeof window === "undefined") return "system";
+  const raw = window.localStorage.getItem(THEME_KEY);
+  if (raw === "light" || raw === "dark" || raw === "system") {
+    return raw;
+  }
+  return "system";
 };
 
-export const useUIStore = create<UIState>((set) => ({
-  theme: detectSystemTheme(),
+const resolve = (theme: ThemeMode): "light" | "dark" =>
+  theme === "system" ? (matchesDark() ? "dark" : "light") : theme;
+
+const initialTheme = loadStoredTheme();
+
+export const useUIStore = create<UIState>((set, get) => ({
+  theme: initialTheme,
+  resolvedTheme: resolve(initialTheme),
   isCommandModalOpen: false,
-  setTheme: (theme) => set({ theme }),
-  toggleTheme: () =>
-    set((state) => ({
-      theme: state.theme === "light" ? "dark" : "light",
-    })),
+  setTheme: (theme) => {
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(THEME_KEY, theme);
+    }
+    set({ theme, resolvedTheme: resolve(theme) });
+  },
+  toggleTheme: () => {
+    const next = get().resolvedTheme === "light" ? "dark" : "light";
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(THEME_KEY, next);
+    }
+    set({ theme: next, resolvedTheme: next });
+  },
   openCommandModal: () => set({ isCommandModalOpen: true }),
   closeCommandModal: () => set({ isCommandModalOpen: false }),
 }));
+
+// Re-resolve "system" theme whenever the OS preference changes so the UI
+// follows the user's preferred scheme without a reload.
+if (typeof window !== "undefined" && window.matchMedia) {
+  const mql = window.matchMedia("(prefers-color-scheme: dark)");
+  const onChange = () => {
+    const { theme } = useUIStore.getState();
+    if (theme === "system") {
+      useUIStore.setState({ resolvedTheme: matchesDark() ? "dark" : "light" });
+    }
+  };
+  if (typeof mql.addEventListener === "function") {
+    mql.addEventListener("change", onChange);
+  } else if (typeof mql.addListener === "function") {
+    // Safari < 14
+    mql.addListener(onChange);
+  }
+}

@@ -269,6 +269,9 @@ func (cr *CriterionResults) TotalWeightedScore(weights map[string]float64) float
 	weightedSum := 0.0
 
 	for _, r := range cr.Results {
+		if r.MaxScore <= 0 {
+			continue
+		}
 		w := 1.0
 		if weight, ok := weights[r.Name]; ok {
 			w = weight

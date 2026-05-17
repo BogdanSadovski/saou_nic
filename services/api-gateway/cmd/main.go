@@ -183,10 +183,15 @@ func main() {
 	wsProxy := makeProxy(mustURL(getEnv("INTERVIEW_SERVICE_URL", "http://interview-service:8082")))
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) {
+	healthHandler := func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"status":"ok","service":"api-gateway"}`))
-	})
+	}
+	// Expose health under both `/health` (infra/Docker convention) and
+	// `/api/health` (so SPA clients can reach it via the same `/api/*`
+	// proxy without a separate hop).
+	mux.HandleFunc("/health", healthHandler)
+	mux.HandleFunc("/api/health", healthHandler)
 
 	mux.Handle("/ws", wsProxy)
 
@@ -208,6 +213,15 @@ func main() {
 
 	mux.Handle("/api/admin/", rewriteAndProxy(adminProxy, func(path string) string {
 		return singleJoiningSlash("/api/v1", stripPrefix("/api/admin")(path))
+	}))
+
+	// Billing routes also live on admin-service (subscription tables
+	// + audit logs) but are user-facing — keep the path under /billing
+	// so callers don't think they need admin role. Strip the leading
+	// /api so the rewrite produces /api/v1/billing/... rather than
+	// /api/v1/api/billing/...
+	mux.Handle("/api/billing/", rewriteAndProxy(adminProxy, func(path string) string {
+		return singleJoiningSlash("/api/v1", stripPrefix("/api")(path))
 	}))
 
 	// GitHub profile import is implemented in interview-service.

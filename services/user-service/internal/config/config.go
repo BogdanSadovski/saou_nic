@@ -2,7 +2,10 @@ package config
 
 import (
 	"fmt"
+	"net/url"
 	"os"
+	"strconv"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -68,6 +71,12 @@ func LoadConfig(path string) (*Config, error) {
 		return nil, fmt.Errorf("failed to parse config file: %w", err)
 	}
 
+	// Environment variables override YAML so deployments don't need to
+	// bake secrets/IPs into the image. Both POSTGRES_* (compose convention)
+	// and DB_* (legacy) prefixes are honoured. DATABASE_URL takes
+	// precedence over individual vars when set.
+	applyDatabaseEnv(&cfg.Database)
+
 	if jwtSecret := os.Getenv("JWT_SECRET"); jwtSecret != "" {
 		cfg.JWT.Secret = jwtSecret
 	}
@@ -77,6 +86,59 @@ func LoadConfig(path string) (*Config, error) {
 	}
 
 	return &cfg, nil
+}
+
+func applyDatabaseEnv(db *DatabaseConfig) {
+	if raw := strings.TrimSpace(os.Getenv("DATABASE_URL")); raw != "" {
+		if u, err := url.Parse(raw); err == nil && (u.Scheme == "postgres" || u.Scheme == "postgresql") {
+			if h := u.Hostname(); h != "" {
+				db.Host = h
+			}
+			if p := u.Port(); p != "" {
+				if n, err := strconv.Atoi(p); err == nil {
+					db.Port = n
+				}
+			}
+			if u.User != nil {
+				if name := u.User.Username(); name != "" {
+					db.User = name
+				}
+				if pwd, ok := u.User.Password(); ok && pwd != "" {
+					db.Password = pwd
+				}
+			}
+			if name := strings.TrimPrefix(u.Path, "/"); name != "" {
+				db.Name = name
+			}
+		}
+	}
+
+	pickEnv := func(keys ...string) string {
+		for _, k := range keys {
+			if v := os.Getenv(k); v != "" {
+				return v
+			}
+		}
+		return ""
+	}
+
+	if v := pickEnv("POSTGRES_HOST", "DB_HOST"); v != "" {
+		db.Host = v
+	}
+	if v := pickEnv("POSTGRES_PORT", "DB_PORT"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			db.Port = n
+		}
+	}
+	if v := pickEnv("POSTGRES_USER", "DB_USER"); v != "" {
+		db.User = v
+	}
+	if v := pickEnv("POSTGRES_PASSWORD", "DB_PASSWORD"); v != "" {
+		db.Password = v
+	}
+	if v := pickEnv("POSTGRES_DB", "DB_NAME"); v != "" {
+		db.Name = v
+	}
 }
 
 func (c *Config) validate() error {

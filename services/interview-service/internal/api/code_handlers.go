@@ -167,8 +167,17 @@ func intPtr(v int) *int {
 }
 
 func getUserIDFromContext(ctx context.Context) uuid.UUID {
-	if userID, ok := ctx.Value("user_id").(uuid.UUID); ok {
-		return userID
+	value := ctx.Value(ContextKeyUserID)
+	if value == nil {
+		return uuid.Nil
+	}
+	switch v := value.(type) {
+	case uuid.UUID:
+		return v
+	case string:
+		if parsed, err := uuid.Parse(v); err == nil {
+			return parsed
+		}
 	}
 	return uuid.Nil
 }

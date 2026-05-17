@@ -54,6 +54,15 @@ func SetupRouter(
 			users.POST("/:id/role", rbacMiddleware.RequirePermission(rbac.ResourceUsers, rbac.ActionUpdate), handler.ChangeUserRole)
 		}
 
+		// User-facing billing endpoints (no RBAC) — every authenticated
+		// user can manage their own subscription.
+		billing := v1.Group("/billing/me")
+		{
+			billing.GET("/subscription", handler.GetMySubscription)
+			billing.POST("/subscription", handler.CreateMySubscription)
+			billing.DELETE("/subscription", handler.CancelMySubscription)
+		}
+
 		// Subscription management routes
 		subscriptions := v1.Group("/subscriptions")
 		{

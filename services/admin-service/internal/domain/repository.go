@@ -2,6 +2,7 @@ package domain
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -16,6 +17,7 @@ type UserRepository interface {
 	Delete(ctx context.Context, id uuid.UUID) error
 	List(ctx context.Context, query ListUsersQuery) ([]User, int64, error)
 	Count(ctx context.Context) (int64, error)
+	CountCreatedSince(ctx context.Context, since time.Time) (int64, error)
 	UpdateStatus(ctx context.Context, id uuid.UUID, status UserStatus) error
 	UpdateRole(ctx context.Context, id uuid.UUID, role UserRole) error
 	UpdateLastLogin(ctx context.Context, id uuid.UUID) error

@@ -22,6 +22,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 
 	"github.com/interview-platform/interview-service/internal/domain"
 	"github.com/interview-platform/interview-service/internal/repository"
@@ -192,6 +193,11 @@ type InterviewChatMessage struct {
 	Topic      string    `json:"topic,omitempty"`
 	Difficulty int       `json:"difficulty,omitempty"`
 	CreatedAt  time.Time `json:"created_at"`
+	// AI verdict attached after the next-question AI call evaluates
+	// THIS message. Only set on Sender=="user". UI renders ✅/⚠️/❌
+	// badge based on Verdict, with VerdictReason as tooltip.
+	Verdict       string `json:"verdict,omitempty"`
+	VerdictReason string `json:"verdict_reason,omitempty"`
 }
 
 type InterviewModuleReport struct {
@@ -297,6 +303,12 @@ type nextQuestionResponse struct {
 	PressureLevel   int             `json:"pressure_level"`
 	ShouldEnd       bool            `json:"should_end"`
 	Flags           map[string]bool `json:"flags,omitempty"`
+	// AI verdict on the candidate's previous answer:
+	// correct / partial / wrong / skipped / off_topic / none.
+	// Surfaced to the chat UI as a per-message badge so the
+	// candidate immediately sees if the answer landed.
+	LastAnswerVerdict string `json:"last_answer_verdict,omitempty"`
+	LastAnswerReason  string `json:"last_answer_reason,omitempty"`
 }
 
 type createInterviewModuleSessionRequest struct {
@@ -662,7 +674,12 @@ func (h *Handler) requestInterviewQuestionFromAI(session *InterviewModuleSession
 		normalizedMode = "practice"
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	// Match the requestNextQuestion budget. Free LLMs typically
+	// answer in 10–15s for our strict JSON schema; an early 10s cap
+	// truncated the call and forced the practice-task fallback even
+	// when ai-service was healthy and authenticated. 35s leaves
+	// headroom for one retry inside callAIWithFailover.
+	ctx, cancel := context.WithTimeout(context.Background(), 35*time.Second)
 	defer cancel()
 
 	timeLeft := time.Until(session.ExpiresAt)
@@ -703,9 +720,24 @@ func (h *Handler) requestInterviewQuestionFromAI(session *InterviewModuleSession
 		return nil, err
 	}
 
-	out, err := h.callAIWithFailover(ctx, session, payload)
-	if err != nil {
-		return nil, err
+	// Retry once on transient errors (503 from rate limit, brief
+	// network blips). Free-tier OpenRouter throws 503 every ~20
+	// requests/minute and a 2-second sleep is enough to get past it.
+	var (
+		out     *nextQuestionResponse
+		callErr error
+	)
+	for attempt := 0; attempt < 2; attempt++ {
+		out, callErr = h.callAIWithFailover(ctx, session, payload)
+		if callErr == nil && out != nil && strings.TrimSpace(out.Question) != "" {
+			break
+		}
+		if attempt == 0 {
+			time.Sleep(2 * time.Second)
+		}
+	}
+	if callErr != nil {
+		return nil, callErr
 	}
 	if out == nil {
 		return nil, fmt.Errorf("empty ai response")
@@ -2681,6 +2713,7 @@ func (h *Handler) generateInitialQuestion(ctx context.Context, sessionID uuid.UU
 	h.rememberAskedQuestion(ctx, session.UserID, session.Role, aiMsg.Content)
 
 	h.broadcastSessionEvent(session.SessionID, "ai.typing.stopped", map[string]bool{"typing": false})
+	h.streamAIMessageContent(session.SessionID, aiMsg.Content)
 	h.broadcastSessionEvent(session.SessionID, "message.ai", aiMsg)
 	h.recordAuditEvent(ctx, session.SessionID, "llm_response", map[string]interface{}{"topic": aiMsg.Topic, "difficulty": aiMsg.Difficulty, "pressure": session.PressureLevel})
 }
@@ -2800,6 +2833,30 @@ func (h *Handler) AddInterviewModuleMessage(w http.ResponseWriter, r *http.Reque
 
 	cleanContent := h.sanitizeCandidateText(req.Content)
 
+	// Censorship: reject abusive language with a friendly 400 so the
+	// chat doesn't ship vulgarities into the AI prompt. We also drop
+	// outright off-topic ("solve me a math problem", "tell me a joke")
+	// requests so the AI stays interview-focused.
+	if isAbusive(cleanContent) {
+		writeError(w, http.StatusBadRequest, "сообщение содержит недопустимые выражения. пожалуйста, перефразируйте.")
+		return
+	}
+
+	// Short-answer guard. Anything under ~12 characters is either a
+	// stray keystroke or "не знаю" — both should NOT count as a
+	// graded turn. Surface a polite re-prompt instead of feeding it
+	// to the LLM and inflating the final average.
+	//
+	// Exception: the "__skip__" sentinel (sent by the Skip button in
+	// the chat composer) flows through, gets detected by
+	// detectCandidateIntent, and routes to the topic-switch path.
+	letters := utf8.RuneCountInString(strings.TrimSpace(cleanContent))
+	if letters < 12 && cleanContent != "__skip__" {
+		writeError(w, http.StatusBadRequest,
+			"пожалуйста, дайте развёрнутый ответ (хотя бы 1–2 предложения) или нажмите «следующий вопрос», чтобы пропустить.")
+		return
+	}
+
 	msg := InterviewChatMessage{
 		MessageID: uuid.New(),
 		Sender:    "user",
@@ -2822,11 +2879,55 @@ func (h *Handler) AddInterviewModuleMessage(w http.ResponseWriter, r *http.Reque
 	h.broadcastSessionEvent(session.SessionID, "ai.typing.started", map[string]bool{"typing": true})
 
 	remainingQuestions := session.QuestionLimit - questionsAsked
+
+	// Measure how long the AI takes so we can credit the session
+	// timer for it. A 60-second cold-start LLM call should not eat
+	// 60 seconds of the candidate's 5-minute interview window.
+	aiCallStart := time.Now()
 	next, err := h.requestNextQuestion(r.Context(), session, cleanContent)
 	if err != nil {
 		h.logger.WithError(err).Warn("failed to generate follow-up question, using fallback")
 		next = h.buildTechnicalFallbackQuestion(session, cleanContent)
 		h.fallbackRate.Add(1)
+	}
+	aiCallDuration := time.Since(aiCallStart)
+	// Push ExpiresAt forward by exactly the AI-think time. This
+	// mirrors the client-side timer pause while aiTyping is true —
+	// without it the server would still cut the session at the
+	// original wall-clock deadline even though the candidate didn't
+	// burn that time.
+	if aiCallDuration > 0 {
+		h.moduleMu.Lock()
+		session.ExpiresAt = session.ExpiresAt.Add(aiCallDuration)
+		h.moduleMu.Unlock()
+		h.broadcastSessionEvent(session.SessionID, "session.timer.adjusted", map[string]interface{}{
+			"added_seconds":    int(aiCallDuration.Seconds()),
+			"new_expires_at":   session.ExpiresAt.UTC().Format(time.RFC3339),
+			"reason":           "ai_thinking",
+		})
+	}
+
+	// Attach AI verdict to the user message we just received, then
+	// broadcast a dedicated message.user.evaluated event so the
+	// chat UI can flip the bubble from "pending" to the verdict
+	// badge. Anything not in the verdict allowlist is dropped.
+	if verdict := normaliseVerdict(next.LastAnswerVerdict); verdict != "" {
+		h.moduleMu.Lock()
+		for i := len(session.Messages) - 1; i >= 0; i-- {
+			if session.Messages[i].MessageID == msg.MessageID {
+				session.Messages[i].Verdict = verdict
+				session.Messages[i].VerdictReason = next.LastAnswerReason
+				msg.Verdict = verdict
+				msg.VerdictReason = next.LastAnswerReason
+				break
+			}
+		}
+		h.moduleMu.Unlock()
+		h.broadcastSessionEvent(session.SessionID, "message.user.evaluated", map[string]interface{}{
+			"message_id":     msg.MessageID,
+			"verdict":        verdict,
+			"verdict_reason": next.LastAnswerReason,
+		})
 	}
 
 	if remainingQuestions <= 1 || next.ShouldEnd {
@@ -2861,7 +2962,7 @@ func (h *Handler) AddInterviewModuleMessage(w http.ResponseWriter, r *http.Reque
 	h.rememberAskedQuestion(r.Context(), session.UserID, session.Role, aiMsg.Content)
 
 	h.broadcastSessionEvent(session.SessionID, "ai.typing.stopped", map[string]bool{"typing": false})
-	h.broadcastSessionEvent(session.SessionID, "ai.message.chunk", map[string]string{"chunk": aiMsg.Content})
+	h.streamAIMessageContent(session.SessionID, aiMsg.Content)
 	h.broadcastSessionEvent(session.SessionID, "message.ai", aiMsg)
 
 	remainingSec := int(time.Until(session.ExpiresAt) / time.Second)
@@ -3430,15 +3531,29 @@ func (h *Handler) requestNextQuestion(ctx context.Context, session *InterviewMod
 	answerSignal := h.classifyAnswer(lastAnswer)
 	intent := h.detectCandidateIntent(lastAnswer)
 	askedBefore := h.countAIMessages(session.Messages)
+
+	// Honor explicit "skip" / "switch" intents BEFORE difficulty
+	// math, otherwise the candidate's request gets folded into the
+	// grading pipeline (and the answer counts as 'weak'/'uncertain').
+	//
+	// We force-rotate the topic AND tell the AI prompt downstream
+	// that the previous turn was a skip — verdict='skipped', no
+	// follow-up on the prior topic.
+	skipRequested := intent == "skip" || intent == "switch"
 	h.moduleMu.Lock()
-	h.updateDifficultyAndPressure(session, answerSignal)
-	if session.CurrentTopic == "skills_overview" && askedBefore >= 1 {
+	if skipRequested {
 		session.CurrentTopic = h.nextTopic(session.Role, session.TopicCursor)
 		session.TopicCursor++
-	}
-	if h.shouldSwitchTopic(session, answerSignal) {
-		session.CurrentTopic = h.nextTopic(session.Role, session.TopicCursor)
-		session.TopicCursor++
+	} else {
+		h.updateDifficultyAndPressure(session, answerSignal)
+		if session.CurrentTopic == "skills_overview" && askedBefore >= 1 {
+			session.CurrentTopic = h.nextTopic(session.Role, session.TopicCursor)
+			session.TopicCursor++
+		}
+		if h.shouldSwitchTopic(session, answerSignal) {
+			session.CurrentTopic = h.nextTopic(session.Role, session.TopicCursor)
+			session.TopicCursor++
+		}
 	}
 	h.moduleMu.Unlock()
 
@@ -3448,7 +3563,12 @@ func (h *Handler) requestNextQuestion(ctx context.Context, session *InterviewMod
 	}
 
 	asked := h.countAIMessages(session.Messages)
-	requestCtx, cancel := context.WithTimeout(ctx, 12*time.Second)
+	// Free-tier OpenRouter (gpt-oss-120b, llama-3.3-70b etc.) routinely
+	// answers in 10–15 sec for the strict JSON schema we ask for. The
+	// previous 12-sec budget cut the call short and forced the
+	// fallback path even on healthy AI. Bumped to 35s — still leaves
+	// headroom for the http.Client per-call deadline (45s) below.
+	requestCtx, cancel := context.WithTimeout(ctx, 75*time.Second)
 	defer cancel()
 
 	backoff := []time.Duration{250 * time.Millisecond, 650 * time.Millisecond}
@@ -3568,7 +3688,11 @@ func (h *Handler) callAIWithFailover(ctx context.Context, session *InterviewModu
 		urls = append(urls, h.aiServiceURL)
 	}
 
-	client := &http.Client{Timeout: 8 * time.Second}
+	// Per-call HTTP deadline for ai-service. Must be longer than the
+	// outer requestCtx (35s) so deadline propagation fires there
+	// instead of an early socket-level timeout. Free LLM responses
+	// can drag to 20+ sec on first cold start.
+	client := &http.Client{Timeout: 90 * time.Second}
 	var lastErr error
 
 	for _, baseURL := range urls {
@@ -3732,31 +3856,135 @@ func (h *Handler) requestScoringReport(ctx context.Context, session *InterviewMo
 	return &parsed
 }
 
+// localFallbackReport is used when the scoring-service can't be
+// reached. It MUST NOT invent scores — previously it returned
+// 40+ baseline marks even for sessions with zero candidate answers,
+// which is what the user saw as "средние баллы за пустое интервью".
+//
+// New behaviour:
+//   - Count substantive answers (anything that passed the
+//     length-guard, i.e. >=12 chars after trim). Anything shorter
+//     was rejected at handler level, but defensively re-check here.
+//   - If there are no substantive answers, return all zeros and an
+//     honest "не было засчитанных ответов" weakness — the candidate
+//     should not be rewarded for silence.
+//   - Otherwise grade conservatively from length + technical-marker
+//     density per answer, capped at 70. The real AI/LLM scoring
+//     remains the source of truth; this fallback only fires when
+//     scoring-service is offline.
 func (h *Handler) localFallbackReport(session *InterviewModuleSession) *InterviewModuleReport {
 	h.fallbackRate.Add(1)
 	h.logger.WithFields(logrus.Fields{"metric": "fallback_rate", "value": h.fallbackRate.Load()}).Warn("fallback report used")
 
-	answerCount := 0
+	type answerSample struct {
+		length     int
+		signalHits int
+		uncertain  bool
+	}
+	var samples []answerSample
+	techMarkers := []string{
+		"trade-off", "tradeoff", "компромисс", "latency", "p95", "p99",
+		"throughput", "qps", "метрик", "consistency", "идемпотент",
+		"timeout", "retry", "cache", "кэш", "shard", "partition",
+		"репликац", "deadlock", "race condition",
+	}
+
 	for _, msg := range session.Messages {
-		if msg.Sender == "user" {
-			answerCount++
+		if msg.Sender != "user" {
+			continue
+		}
+		trimmed := strings.TrimSpace(msg.Content)
+		runes := utf8.RuneCountInString(trimmed)
+		if runes < 12 {
+			continue // not a real answer
+		}
+		lower := strings.ToLower(trimmed)
+		hits := 0
+		for _, marker := range techMarkers {
+			if strings.Contains(lower, marker) {
+				hits++
+			}
+		}
+		samples = append(samples, answerSample{
+			length:     runes,
+			signalHits: hits,
+			uncertain:  h.isUncertainAnswer(trimmed),
+		})
+	}
+
+	if len(samples) == 0 {
+		return &InterviewModuleReport{
+			SessionID:    session.SessionID,
+			Correctness:  0,
+			Clarity:      0,
+			Completeness: 0,
+			Relevance:    0,
+			OverallScore: 0,
+			Strengths:    []string{},
+			Weaknesses: []string{
+				"Кандидат не дал ни одного развёрнутого ответа — оценить нечего.",
+			},
+			Recommendations: []string{
+				"Попробуйте пройти интервью снова, отвечая на каждый вопрос хотя бы 1–2 предложениями.",
+			},
+			GeneratedAt: time.Now(),
 		}
 	}
-	base := 40.0 + float64(answerCount)*4.5
-	if base > 92 {
-		base = 92
+
+	// Per-sample score: length contributes up to 35, tech markers up
+	// to 25 (capped at 5 hits), uncertainty subtracts 25. Average
+	// across samples gives a conservative correctness estimate.
+	totalCorrectness := 0.0
+	totalClarity := 0.0
+	totalCompleteness := 0.0
+	for _, s := range samples {
+		base := 20.0 + math.Min(35.0, float64(s.length)/8.0) + math.Min(25.0, float64(s.signalHits)*5.0)
+		if s.uncertain {
+			base -= 25.0
+		}
+		if base < 0 {
+			base = 0
+		}
+		if base > 70 {
+			base = 70 // never claim mastery from a heuristic fallback
+		}
+		totalCorrectness += base
+		totalClarity += math.Max(0, base-3)
+		totalCompleteness += math.Max(0, base-2)
+	}
+	n := float64(len(samples))
+	correctness := math.Round(totalCorrectness / n)
+	clarity := math.Round(totalClarity / n)
+	completeness := math.Round(totalCompleteness / n)
+	relevance := math.Round((correctness + completeness) / 2)
+	overall := math.Round((correctness + clarity + completeness + relevance) / 4)
+
+	weaknesses := []string{}
+	recs := []string{}
+	if correctness < 40 {
+		weaknesses = append(weaknesses, "Ответы поверхностные — недостаточно конкретики и обоснований.")
+		recs = append(recs, "Тренируйте структуру ответа: тезис → аргументы → пример → trade-offs.")
+	} else if correctness < 60 {
+		weaknesses = append(weaknesses, "Есть пробелы в trade-offs и edge-cases.")
+		recs = append(recs, "Добавляйте в ответы метрики (latency/p95/throughput) и обоснование выбора.")
+	}
+	if len(weaknesses) == 0 {
+		weaknesses = append(weaknesses, "Не все ответы подкреплены конкретными метриками результата.")
+	}
+	if len(recs) == 0 {
+		recs = append(recs, "Продолжайте практику на интервью более высокого уровня.")
 	}
 
 	return &InterviewModuleReport{
 		SessionID:       session.SessionID,
-		Correctness:     base,
-		Clarity:         base - 2,
-		Completeness:    base - 1,
-		Relevance:       base + 1,
-		OverallScore:    base,
-		Strengths:       []string{"Структурированные ответы", "Уверенное владение базовыми концепциями"},
-		Weaknesses:      []string{"Не везде раскрыты trade-offs", "Требуется больше глубины в edge-cases"},
-		Recommendations: []string{"Тренировать системные объяснения", "Добавлять метрики и обоснование решений"},
+		Correctness:     correctness,
+		Clarity:         clarity,
+		Completeness:    completeness,
+		Relevance:       relevance,
+		OverallScore:    overall,
+		Strengths:       []string{},
+		Weaknesses:      weaknesses,
+		Recommendations: recs,
 		GeneratedAt:     time.Now(),
 	}
 }
@@ -3803,6 +4031,139 @@ func (h *Handler) broadcastSessionEvent(sessionID uuid.UUID, eventType string, p
 	}
 }
 
+// streamAIMessageContent simulates token-by-token streaming over the
+// existing WS channel. The frontend already handles ai.message.chunk
+// events (see chatStore.pushStreamChunk), so by emitting word-grouped
+// chunks with a small inter-chunk delay we get a typewriter-style
+// experience without introducing a real LLM streaming hop.
+//
+// Behaviour:
+//   - Splits the message preserving whitespace, then groups 1-3 tokens
+//     per chunk so the buffer grows in human-readable bursts (not single
+//     letters).
+//   - Sleeps proportionally to chunk length, capped, so a 700-char
+//     question streams in ~1.5-2.5s — perceived as "thinking, typing
+//     fast" rather than "instant" or "stuck".
+//   - Total stream is bounded by an upper deadline (maxDuration) so a
+//     pathological message can never block downstream message.ai.
+//   - Aborts immediately if the session has no live WS connections,
+//     since chunks are useless without subscribers.
+func (h *Handler) streamAIMessageContent(sessionID uuid.UUID, content string) {
+	if strings.TrimSpace(content) == "" {
+		return
+	}
+
+	h.moduleMu.RLock()
+	hasSubscribers := len(h.moduleWS[sessionID]) > 0
+	h.moduleMu.RUnlock()
+	if !hasSubscribers {
+		return
+	}
+
+	chunks := splitIntoStreamChunks(content)
+	if len(chunks) == 0 {
+		return
+	}
+
+	const (
+		perChunkBaseMS  = 18
+		perCharMS       = 4
+		maxChunkPauseMS = 110
+		maxDuration     = 2500 * time.Millisecond
+	)
+
+	deadline := time.Now().Add(maxDuration)
+	for _, chunk := range chunks {
+		h.broadcastSessionEvent(sessionID, "ai.message.chunk", map[string]string{"chunk": chunk})
+
+		// Inter-chunk pause scales with chunk size, capped, and never exceeds
+		// the overall deadline.
+		pause := time.Duration(perChunkBaseMS+len(chunk)*perCharMS) * time.Millisecond
+		if pause > time.Duration(maxChunkPauseMS)*time.Millisecond {
+			pause = time.Duration(maxChunkPauseMS) * time.Millisecond
+		}
+		if remaining := time.Until(deadline); remaining < pause {
+			pause = remaining
+		}
+		if pause <= 0 {
+			continue
+		}
+		time.Sleep(pause)
+	}
+}
+
+// splitIntoStreamChunks groups the message into 1-3 token bursts while
+// preserving the trailing whitespace so the concatenated chunks
+// reconstruct the original content byte-for-byte. Code/punctuation
+// boundaries get their own chunk so JSON-ish or technical answers
+// remain readable mid-stream.
+func splitIntoStreamChunks(content string) []string {
+	if content == "" {
+		return nil
+	}
+	// Tokenise: word + trailing whitespace + trailing punctuation cluster.
+	tokens := tokenizeForStream(content)
+	if len(tokens) == 0 {
+		return []string{content}
+	}
+
+	chunks := make([]string, 0, len(tokens))
+	var buf strings.Builder
+	tokensInBuf := 0
+	for _, tok := range tokens {
+		buf.WriteString(tok)
+		tokensInBuf++
+		// Flush every 1-3 tokens; on punctuation/newline we flush early
+		// so the typewriter pauses naturally at sentence breaks.
+		if tokensInBuf >= 3 || endsAtBoundary(tok) {
+			chunks = append(chunks, buf.String())
+			buf.Reset()
+			tokensInBuf = 0
+		}
+	}
+	if buf.Len() > 0 {
+		chunks = append(chunks, buf.String())
+	}
+	return chunks
+}
+
+func tokenizeForStream(s string) []string {
+	out := make([]string, 0, len(s)/4+1)
+	var current strings.Builder
+	flush := func() {
+		if current.Len() > 0 {
+			out = append(out, current.String())
+			current.Reset()
+		}
+	}
+	for _, r := range s {
+		current.WriteRune(r)
+		if r == ' ' || r == '\n' || r == '\t' {
+			flush()
+		}
+	}
+	flush()
+	return out
+}
+
+func endsAtBoundary(token string) bool {
+	if token == "" {
+		return false
+	}
+	// Strip the trailing whitespace we kept on each token, then look at
+	// the last meaningful rune.
+	trimmed := strings.TrimRight(token, " \t\n")
+	if trimmed == "" {
+		return false
+	}
+	last := trimmed[len(trimmed)-1]
+	switch last {
+	case '.', '!', '?', ':', ';', ',', ')', ']', '}', '"':
+		return true
+	}
+	return false
+}
+
 func (h *Handler) userIDFromContext(ctx context.Context) string {
 	if v := ctx.Value(ContextKeyUserID); v != nil {
 		if s, ok := v.(string); ok {
@@ -3834,21 +4195,96 @@ func (h *Handler) acquireSessionLock(ctx context.Context, sessionID uuid.UUID) (
 	return unlock, nil
 }
 
+// classifyAnswer scores a candidate answer on a small set of textual
+// signals and returns one of "weak" / "neutral" / "strong". The result
+// drives difficulty/pressure adjustments and topic-switch decisions.
+//
+// Weighting (heuristic, intentionally bounded so a single signal can't
+// dominate):
+//   - Length tier (short < 80 chars → -2, long > 350 chars → +1)
+//   - Uncertainty markers ("не знаю", "затрудняюсь" etc.) → -3
+//   - Engineering-density vocabulary (trade-off, latency, p95, метрик,
+//     consistency, idempot...) → +1 each, capped at +3
+//   - Code block / fenced snippet → +2 (live coding answers)
+//   - Numeric reasoning ("в 2 раза", "100ms", "10x") → +1
+//   - Structural cues (bullets, "сначала ... затем") → +1
+//
+// Negative cumulative score → weak, ≥3 → strong, otherwise neutral.
 func (h *Handler) classifyAnswer(answer string) string {
 	trimmed := strings.TrimSpace(answer)
 	if trimmed == "" {
 		return "weak"
 	}
+	lowered := strings.ToLower(trimmed)
+	score := 0
+
+	switch {
+	case len(trimmed) < 30:
+		score -= 3
+	case len(trimmed) < 80:
+		score -= 2
+	case len(trimmed) > 600:
+		score += 2
+	case len(trimmed) > 350:
+		score += 1
+	}
+
 	if h.isUncertainAnswer(trimmed) {
-		return "weak"
+		score -= 3
 	}
-	if len(trimmed) < 80 {
-		return "weak"
+
+	techMarkers := []string{
+		"trade-off", "tradeoff", "компромисс",
+		"latency", "p95", "p99", "throughput", "qps",
+		"метрик", "monitoring", "observability",
+		"consistency", "идемпотент", "idempot",
+		"transaction", "транзакц",
+		"timeout", "retry", "circuit breaker",
+		"cache", "кэш", "ttl",
+		"sharding", "partition", "репликац",
+		"deadlock", "race condition", "гонк",
 	}
-	if len(trimmed) > 220 && (strings.Contains(strings.ToLower(trimmed), "trade-off") || strings.Contains(strings.ToLower(trimmed), "метрик") || strings.Contains(strings.ToLower(trimmed), "latency")) {
+	techHits := 0
+	for _, marker := range techMarkers {
+		if strings.Contains(lowered, marker) {
+			techHits++
+		}
+	}
+	if techHits > 3 {
+		techHits = 3
+	}
+	score += techHits
+
+	// Fenced code or inline backticks → strong signal of practice answer.
+	if strings.Contains(trimmed, "```") || strings.Count(trimmed, "`") >= 4 {
+		score += 2
+	}
+
+	// Numeric reasoning — answers that put a number on the claim.
+	if matched, _ := regexp.MatchString(`\b\d+\s*(ms|сек|секунд|min|мин|%|x|раз|qps|rps|gb|mb)\b`, lowered); matched {
+		score += 1
+	}
+
+	// Structural cues.
+	if strings.Contains(trimmed, "\n- ") || strings.Contains(trimmed, "\n* ") {
+		score += 1
+	}
+	if strings.Contains(lowered, "сначала") && (strings.Contains(lowered, "затем") || strings.Contains(lowered, "потом")) {
+		score += 1
+	}
+	// Counter-questions show engagement.
+	if strings.Contains(trimmed, "?") && len(trimmed) > 120 {
+		score += 1
+	}
+
+	switch {
+	case score <= -2:
+		return "weak"
+	case score >= 3:
 		return "strong"
+	default:
+		return "neutral"
 	}
-	return "neutral"
 }
 
 func (h *Handler) updateDifficultyAndPressure(session *InterviewModuleSession, signal string) {
@@ -4472,17 +4908,61 @@ func (h *Handler) getEmbeddingWithCache(ctx context.Context, text string, ttl ti
 	return embData.Embedding, nil
 }
 
+// detectCandidateIntent classifies short user replies that aren't
+// "real answers" but explicit control commands. Returning a non-empty
+// intent string makes requestNextQuestion route differently — e.g.
+// "skip" produces a topic switch instead of grading the previous turn.
 func (h *Handler) detectCandidateIntent(answer string) string {
 	v := strings.ToLower(strings.TrimSpace(answer))
 	if v == "" {
 		return ""
 	}
-	if strings.Contains(v, "раскрой") || strings.Contains(v, "подробнее") || strings.Contains(v, "объяс") || strings.Contains(v, "не понял") {
+
+	// Explicit "skip / next question" — both as a typed phrase and as
+	// the canonical sentinel emitted by the frontend's "Skip" button.
+	if v == "__skip__" {
+		return "skip"
+	}
+	skipPhrases := []string{
+		"пропустить", "пропусти", "пропустим",
+		"следующий вопрос", "следующая задача", "дальше",
+		"переходи дальше", "перейдем", "перейдём", "next question",
+		"не знаю", "затрудняюсь", "не уверен", "не помню",
+	}
+	for _, p := range skipPhrases {
+		if strings.Contains(v, p) {
+			return "skip"
+		}
+	}
+
+	// "Повтори / repeat" — candidate wants the question restated.
+	if strings.Contains(v, "повтори") || strings.Contains(v, "ещё раз") ||
+		strings.Contains(v, "еще раз") || strings.Contains(v, "перечитай") {
+		return "repeat"
+	}
+
+	// "Подсказка / hint" — candidate asks for a nudge, NOT a solution.
+	if strings.Contains(v, "подсказ") || strings.Contains(v, "наводка") ||
+		strings.Contains(v, "hint") {
+		return "hint"
+	}
+
+	// "Уточни / объясни / раскрой" — candidate wants the AI to
+	// rephrase or expand the question itself.
+	if strings.Contains(v, "уточни") || strings.Contains(v, "раскрой") ||
+		strings.Contains(v, "подробнее") || strings.Contains(v, "объясни") ||
+		strings.Contains(v, "не понял") {
 		return "clarify"
 	}
-	if strings.Contains(v, "другой вопрос") || strings.Contains(v, "смени вопрос") || strings.Contains(v, "другая тема") {
+
+	// "Другой вопрос / смени тему" — candidate doesn't want this
+	// topic at all, distinct from "skip" (skip just moves on; switch
+	// also nudges topic cursor).
+	if strings.Contains(v, "другой вопрос") || strings.Contains(v, "смени вопрос") ||
+		strings.Contains(v, "другая тема") || strings.Contains(v, "сменим тему") {
 		return "switch"
 	}
+
 	return ""
 }
 
@@ -4622,76 +5102,61 @@ func (h *Handler) buildIntroQuestion(session *InterviewModuleSession) *nextQuest
 		return out
 	}
 
-	question := fmt.Sprintf("Коротко опишите ваш опыт по роли %s (%s): ключевые навыки, инструменты, один сильный проект и ваш личный вклад.", role, level)
-	if strings.TrimSpace(session.VacancyTitle) != "" {
-		if strings.Contains(strings.ToLower(question), "опишите") || strings.Contains(strings.ToLower(question), "расскажите") {
-			question = strings.TrimSuffix(question, "?") + fmt.Sprintf(" для вакансии %s?", session.VacancyTitle)
-		}
+	// AI failed to produce an opening question. Surface the same
+	// transparent system message as the rest of the fallback paths
+	// instead of returning a hardcoded 'Коротко опишите ваш опыт…'
+	// template that the user could not distinguish from a real LLM
+	// reply. Use distinct prefix so the frontend isLive heuristic
+	// catches it.
+	_, _ = role, level // kept for context; intentionally unused now
+	if err != nil {
+		h.logger.WithError(err).Warn("buildIntroQuestion: AI call failed, surfacing offline notice")
 	}
-
 	return &nextQuestionResponse{
-		Question:        question,
-		Topic:           "skills_overview",
-		DifficultyDelta: 0,
-		PressureLevel:   maxInt(1, session.PressureLevel),
-		ShouldEnd:       false,
+		Question: "🤖 AI-интервьюер ещё не подключён. Получите бесплатный ключ на openrouter.ai/keys " +
+			"(вход через Google/GitHub, карта не нужна) и выполните: " +
+			"`make set-llm-key KEY=sk-or-v1-...`. После этого перезапустите интервью.",
+		Topic:             "skills_overview",
+		DifficultyDelta:   0,
+		PressureLevel:     maxInt(1, session.PressureLevel),
+		ShouldEnd:         false,
+		LastAnswerVerdict: "skipped",
 	}
 }
 
+// buildTechnicalFallbackQuestion is invoked when requestNextQuestion
+// fails. AI is the sole source of interview questions — if it can't
+// answer, the candidate must see a single honest system message,
+// NOT another retry that will produce the same templated text.
+//
+// Anti-loop note: previously we tried requestInterviewQuestionFromAI
+// here as a "secondary" attempt. That helper hits the same ai-service
+// endpoint that just failed, so it just produced the same fallback
+// over and over and the chat got spammed with identical text. Now
+// we go straight to the transparent system message.
 func (h *Handler) buildTechnicalFallbackQuestion(session *InterviewModuleSession, lastAnswer string) *nextQuestionResponse {
+	_ = lastAnswer
 	topic := strings.TrimSpace(session.CurrentTopic)
 	if topic == "" || strings.EqualFold(topic, "skills_overview") {
 		topic = h.nextTopic(session.Role, session.TopicCursor)
 		session.TopicCursor++
 	}
-
-	mode := strings.ToLower(strings.TrimSpace(session.InterviewMode))
-	if mode != "theory" {
-		if out, err := h.requestInterviewQuestionFromAI(session, topic, lastAnswer, "practice"); err == nil && out != nil && strings.TrimSpace(out.Question) != "" {
-			out.Topic = "live_coding"
-			out.DifficultyDelta = 0
-			out.PressureLevel = maxInt(1, out.PressureLevel)
-			return out
-		}
-		return &nextQuestionResponse{
-			Question:        h.buildPracticeTaskQuestion(session, topic),
-			Topic:           "live_coding",
-			DifficultyDelta: 0,
-			PressureLevel:   maxInt(1, session.PressureLevel),
-			ShouldEnd:       false,
-		}
-	}
-
-	if out, err := h.requestInterviewQuestionFromAI(session, topic, lastAnswer, "theory"); err == nil && out != nil && strings.TrimSpace(out.Question) != "" {
-		out.Topic = topic
-		out.DifficultyDelta = 0
-		out.PressureLevel = maxInt(1, out.PressureLevel)
-		return out
-	}
-
-	question := "Теперь перейдем к технической части: разберите реальный кейс, варианты решения, trade-offs и метрики качества."
-
-	if strings.TrimSpace(lastAnswer) == "" {
-		question = h.buildIntroQuestion(session).Question
-	}
-
-	delta := 0
-	if h.isUncertainAnswer(lastAnswer) {
-		topic = h.nextTopic(session.Role, session.TopicCursor)
-		session.TopicCursor++
-		delta = -1
-		question = h.uncertaintyFallbackQuestion(session, topic)
-	}
-
 	return &nextQuestionResponse{
-		Question:        question,
-		Topic:           topic,
-		DifficultyDelta: delta,
-		PressureLevel:   maxInt(1, session.PressureLevel),
-		ShouldEnd:       false,
+		Question: "🤖 AI-интервьюер ещё не подключён. Получите бесплатный ключ на openrouter.ai/keys " +
+			"(вход через Google/GitHub, карта не нужна) и выполните: " +
+			"`make set-llm-key KEY=sk-or-v1-...`. После этого нажмите «следующий вопрос» — " +
+			"ответы сохранены, интервью продолжится с реальным AI.",
+		Topic:             topic,
+		DifficultyDelta:   0,
+		PressureLevel:     maxInt(1, session.PressureLevel),
+		ShouldEnd:         false,
+		LastAnswerVerdict: "skipped", // do not grade this turn
 	}
 }
 
+// buildPracticeTaskQuestion ALWAYS asks the AI for the task. If the
+// AI is unavailable we surface a transparent message rather than
+// returning a deterministic hard-coded coding problem.
 func (h *Handler) buildPracticeTaskQuestion(session *InterviewModuleSession, topic string) string {
 	mode := strings.ToLower(strings.TrimSpace(session.InterviewMode))
 	if mode == "" {
@@ -4704,14 +5169,26 @@ func (h *Handler) buildPracticeTaskQuestion(session *InterviewModuleSession, top
 			return candidate
 		}
 	}
-
-	fallbackTopic := strings.TrimSpace(topic)
-	if fallbackTopic == "" {
-		fallbackTopic = "live_coding"
-	}
-	return h.sanitizeModelText(h.buildDeterministicPracticeTask(session, fallbackTopic))
+	return "🤖 AI-сервис ещё не подключён. Получите бесплатный ключ на openrouter.ai/keys " +
+		"и выполните `make set-llm-key KEY=sk-or-v1-...`. Затем нажмите «следующая задача» — задание сгенерируется AI."
 }
 
+// isWeakPracticeTask rejects only OBVIOUSLY bad practice prompts —
+// the ones that look like the prompt-template leaked through, not
+// every natural-language coding task.
+//
+// Previously this required strict "вход + выход + пример + 140
+// chars" structure, which over-rejected genuine LLM-generated tasks
+// like "Реализуйте debounce(fn, delay) на JavaScript…" because they
+// don't follow the rigid school-textbook format. Result: every
+// practice session ended up showing the AI-offline fallback even
+// though the LLM was responding correctly.
+//
+// Now we only reject:
+//   - empty strings
+//   - prompt-template leakage markers ("по теме", "live_coding",
+//     "укажи сложность", "реализуй решение")
+//   - tasks shorter than 40 chars (genuinely useless)
 func (h *Handler) isWeakPracticeTask(question string) bool {
 	v := strings.ToLower(strings.TrimSpace(question))
 	if v == "" {
@@ -4731,11 +5208,8 @@ func (h *Handler) isWeakPracticeTask(question string) bool {
 		}
 	}
 
-	hasStructure := strings.Contains(v, "вход") || strings.Contains(v, "input")
-	hasStructure = hasStructure && (strings.Contains(v, "выход") || strings.Contains(v, "output"))
-	hasStructure = hasStructure && strings.Contains(v, "пример")
-
-	return !hasStructure || len(v) < 140
+	// Below 40 chars even a real LLM is just stubbing a placeholder.
+	return utf8.RuneCountInString(v) < 40
 }
 
 func (h *Handler) buildDeterministicPracticeTask(session *InterviewModuleSession, topic string) string {

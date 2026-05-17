@@ -4,7 +4,7 @@ import logging
 import re
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, status
 from fastapi.responses import JSONResponse
 
 from src.api.dependencies import DIContainer, get_di_container
@@ -116,21 +116,9 @@ async def analyze_answer(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         logger.exception("Unexpected error analyzing answer")
-        return AnalysisResponse(
-            scores=AnalysisScores(
-                correctness=0,
-                completeness=0,
-                clarity=0,
-                relevance=0,
-            ),
-            overall_score=0,
-            feedback="Анализ временно недоступен. Пожалуйста, попробуйте позже.",
-            strengths=[],
-            weaknesses=["Сервис анализа ИИ сейчас недоступен"],
-            suggested_improvements=[
-                "Повторите запрос на анализ через несколько минут"
-            ],
-        )
+        raise HTTPException(
+            status_code=500, detail="Internal server error"
+        ) from exc
 
 
 @router.post(
@@ -167,12 +155,9 @@ async def transcribe_audio(
     language: Annotated[
         str | None, Query(description="Language code (e.g. 'en', 'ru')")
     ] = None,
-    container: Annotated[DIContainer, Depends(_get_container)] = None,
+    container: Annotated[DIContainer, Depends(_get_container)] = ...,
 ) -> TranscriptionResponse:
     """Transcribe audio content to text."""
-    if container is None:
-        container = get_di_container()
-
     if not file.content_type or not file.content_type.startswith("audio/"):
         raise HTTPException(
             status_code=400,
@@ -207,6 +192,8 @@ _INTERVIEW_OUTPUT_SCHEMA = {
             "difficulty_delta",
             "pressure_level",
             "flags",
+            "last_answer_verdict",
+            "last_answer_reason",
         ],
         "properties": {
             "question": {"type": "string", "minLength": 8, "maxLength": 700},
@@ -227,6 +214,13 @@ _INTERVIEW_OUTPUT_SCHEMA = {
                     "policy_violation": {"type": "boolean"},
                 },
             },
+            # Verdict on the candidate's LAST answer (or "none" for the
+            # opening turn). Drives ✅/⚠️/❌ badges and the final report.
+            "last_answer_verdict": {
+                "type": "string",
+                "enum": ["correct", "partial", "wrong", "skipped", "off_topic", "none"],
+            },
+            "last_answer_reason": {"type": "string", "maxLength": 240},
         },
     },
 }
@@ -912,23 +906,23 @@ def _build_resume_prompt(request: ResumeInsightsRequest) -> str:
     excerpt = (request.text_excerpt or "").strip()[:6000] or "нет"
 
     return (
-        "Сформируй аналитический отчет по резюме кандидата.\\n"
-        "Пиши только на русском языке.\\n"
-        "Не выдумывай факты: опирайся на входные данные и фрагмент резюме.\\n"
-        "Дай: сильные стороны, зоны роста, конкретный план улучшения и рекомендации для интервью.\\n"
-        "Добавь language_insights и interview_tracks, где первый track — лучший старт для кандидата.\\n\\n"
-        f"Файл: {request.file_name}\\n"
-        f"Content-Type: {request.content_type or 'нет'}\\n"
-        f"Предпочтительные роли: {role_preferences}\\n"
-        f"Слов в резюме: {request.word_count}\\n"
-        f"Символов в резюме: {request.character_count}\\n"
-        f"Опытов (entries): {request.experience_entries}\\n"
-        f"Образований (entries): {request.education_entries}\\n\\n"
-        "Навыки:\\n"
-        f"{skills}\\n\\n"
-        "Языки программирования:\\n"
-        f"{languages}\\n\\n"
-        "Фрагмент резюме:\\n"
+        "Сформируй аналитический отчет по резюме кандидата.\n"
+        "Пиши только на русском языке.\n"
+        "Не выдумывай факты: опирайся на входные данные и фрагмент резюме.\n"
+        "Дай: сильные стороны, зоны роста, конкретный план улучшения и рекомендации для интервью.\n"
+        "Добавь language_insights и interview_tracks, где первый track — лучший старт для кандидата.\n\n"
+        f"Файл: {request.file_name}\n"
+        f"Content-Type: {request.content_type or 'нет'}\n"
+        f"Предпочтительные роли: {role_preferences}\n"
+        f"Слов в резюме: {request.word_count}\n"
+        f"Символов в резюме: {request.character_count}\n"
+        f"Опытов (entries): {request.experience_entries}\n"
+        f"Образований (entries): {request.education_entries}\n\n"
+        "Навыки:\n"
+        f"{skills}\n\n"
+        "Языки программирования:\n"
+        f"{languages}\n\n"
+        "Фрагмент резюме:\n"
         f"{excerpt}"
     )
 
@@ -1081,16 +1075,31 @@ async def resume_insights(
             interview_tracks=interview_tracks[:4],
             recommended_positions=positions[:5],
         )
-    except Exception:
+    except Exception as exc:
         logger.exception("resume insights generation failed, fallback will be used")
         positions = _fallback_resume_positions(request)
         top_role = positions[0].role if positions else "Software Engineer"
         seed_language = (request.languages[0] if request.languages else "General").strip() or "General"
+        # Distinguish "LLM not configured" from a transient failure so
+        # the user knows whether to retry or ask the administrator to
+        # set LLM_API_KEY / LLM_BASE_URL.
+        settings = get_settings()
+        is_llm_unconfigured = (
+            not (settings.llm_api_key or "").strip()
+            or "Connection error" in str(exc)
+            or "401" in str(exc)
+            or "Incorrect API key" in str(exc)
+        )
+        summary_msg = (
+            "AI-анализ временно недоступен: внешний LLM-провайдер не отвечает или "
+            "не настроен ключ доступа (LLM_API_KEY). Сервис вернул базовые "
+            "рекомендации, чтобы вы могли начать подготовку прямо сейчас."
+            if is_llm_unconfigured
+            else "Не удалось получить полный AI-анализ резюме, поэтому возвращен надежный fallback-отчет "
+            "с базовыми рекомендациями для подготовки к интервью."
+        )
         return ResumeInsightsResponse(
-            summary=(
-                "Не удалось получить полный AI-анализ резюме, поэтому возвращен надежный fallback-отчет "
-                "с базовыми рекомендациями для подготовки к интервью."
-            ),
+            summary=summary_msg,
             strong_points=[
                 "Резюме успешно обработано и может быть использовано для интервью-профилирования.",
                 "Есть базовые сигналы по стеку и направлениям для старта подготовки.",
@@ -1196,29 +1205,29 @@ def _build_developer_prompt(request: DeveloperInsightsRequest) -> str:
     ) or "- нет данных"
 
     return (
-        "Сформируй аналитический профиль разработчика по GitHub-данным.\\n"
-        "Пиши только на русском языке.\\n"
-        "Не выдумывай факты: опирайся только на входные метрики.\\n"
-        "Оцени объективно: без завышений и без чрезмерного негатива.\\n"
-        "Рекомендованные позиции должны быть конкретными и реалистичными для собеседования.\\n\\n"
-        "Сделай акцент на языках программирования: по каждому ключевому языку дай уверенность, доказательства и темы для интервью.\\n"
-        "Сформируй interview_tracks так, чтобы первый track был самым сильным направлением для кандидата.\\n"
-        f"GitHub username: {request.github_username}\\n"
-        f"Имя профиля: {request.profile_name or 'нет'}\\n"
-        f"Bio: {(request.bio or 'нет')[:500]}\\n"
-        f"Предпочтительные роли: {role_preferences}\\n"
-        f"Followers: {request.followers}\\n"
-        f"Following: {request.following}\\n"
-        f"Public repos: {request.public_repos}\\n"
-        f"Sampled repos: {request.sampled_repos}\\n"
-        f"Total stars: {request.total_stars}\\n"
-        f"Total forks: {request.total_forks}\\n"
-        f"Total open issues: {request.total_open_issues}\\n\\n"
-        "Language distribution:\\n"
-        f"{language_distribution}\\n\\n"
-        "Monthly activity:\\n"
-        f"{monthly_activity}\\n\\n"
-        "Top repositories:\\n"
+        "Сформируй аналитический профиль разработчика по GitHub-данным.\n"
+        "Пиши только на русском языке.\n"
+        "Не выдумывай факты: опирайся только на входные метрики.\n"
+        "Оцени объективно: без завышений и без чрезмерного негатива.\n"
+        "Рекомендованные позиции должны быть конкретными и реалистичными для собеседования.\n\n"
+        "Сделай акцент на языках программирования: по каждому ключевому языку дай уверенность, доказательства и темы для интервью.\n"
+        "Сформируй interview_tracks так, чтобы первый track был самым сильным направлением для кандидата.\n"
+        f"GitHub username: {request.github_username}\n"
+        f"Имя профиля: {request.profile_name or 'нет'}\n"
+        f"Bio: {(request.bio or 'нет')[:500]}\n"
+        f"Предпочтительные роли: {role_preferences}\n"
+        f"Followers: {request.followers}\n"
+        f"Following: {request.following}\n"
+        f"Public repos: {request.public_repos}\n"
+        f"Sampled repos: {request.sampled_repos}\n"
+        f"Total stars: {request.total_stars}\n"
+        f"Total forks: {request.total_forks}\n"
+        f"Total open issues: {request.total_open_issues}\n\n"
+        "Language distribution:\n"
+        f"{language_distribution}\n\n"
+        "Monthly activity:\n"
+        f"{monthly_activity}\n\n"
+        "Top repositories:\n"
         f"{top_repositories}"
     )
 
@@ -1375,13 +1384,24 @@ async def developer_insights(
             interview_tracks=interview_tracks[:4],
             recommended_positions=positions[:5],
         )
-    except Exception:
+    except Exception as exc:
         logger.exception("developer insights generation failed, fallback will be used")
+        settings = get_settings()
+        is_llm_unconfigured = (
+            not (settings.llm_api_key or "").strip()
+            or "Connection error" in str(exc)
+            or "401" in str(exc)
+            or "Incorrect API key" in str(exc)
+        )
+        summary_msg = (
+            "AI-анализ профиля временно недоступен: LLM-провайдер не отвечает или "
+            "не настроен LLM_API_KEY. Ниже — базовая оценка по публичным метрикам."
+            if is_llm_unconfigured
+            else "Не удалось получить полный AI-анализ, но базовая оценка показывает "
+            "потенциал для собеседований по инженерным ролям."
+        )
         return DeveloperInsightsResponse(
-            summary=(
-                "Не удалось получить полный AI-анализ, но базовая оценка показывает "
-                "потенциал для собеседований по инженерным ролям."
-            ),
+            summary=summary_msg,
             strengths=[
                 "Есть данные о репозиториях и активности для предварительного профилирования.",
                 "Публичный профиль позволяет сформировать стартовый список интервью-ролей.",
@@ -1465,6 +1485,10 @@ async def interviewer_next_question(
         "contains_solution": False,
         "policy_violation": False,
     }
+    # Verdict on the candidate's last answer — defaults to "none" when
+    # this is the opening turn or the LLM doesn't return anything.
+    accepted_verdict = "none" if not last_answer.strip() else "partial"
+    accepted_verdict_reason = ""
     answer_profile = _inspect_last_answer(last_answer, request.current_topic or request.role)
 
     regen_reason = ""
@@ -1484,9 +1508,27 @@ async def interviewer_next_question(
 
             question = str(raw.get("question", "")).strip()
             topic = str(raw.get("topic", accepted_topic)).strip() or accepted_topic
-            difficulty_delta = int(raw.get("difficulty_delta", 0))
-            pressure_level = int(raw.get("pressure_level", request.pressure_level))
-            llm_flags = raw.get("flags", {})
+            try:
+                difficulty_delta = int(raw.get("difficulty_delta", 0))
+            except (TypeError, ValueError):
+                difficulty_delta = 0
+            try:
+                pressure_level = int(raw.get("pressure_level", request.pressure_level))
+            except (TypeError, ValueError):
+                pressure_level = request.pressure_level
+            # Some free LLMs (notably gpt-oss-120b in practice mode)
+            # ignore the schema and return `flags` as a list instead
+            # of an object. Coerce defensively so a bad shape doesn't
+            # 503 the whole turn.
+            raw_flags = raw.get("flags")
+            if isinstance(raw_flags, dict):
+                llm_flags = raw_flags
+            elif isinstance(raw_flags, list):
+                # Try {"contains_explanation": true} when the list
+                # contains the literal flag names.
+                llm_flags = {str(item): True for item in raw_flags if isinstance(item, str)}
+            else:
+                llm_flags = {}
 
             is_valid, violations, sanitized = _sanitize_interviewer_question(question)
             derived_flags = _policy_flags_from_text(question)
@@ -1508,6 +1550,23 @@ async def interviewer_next_question(
                 accepted_flags = merged_flags
                 accepted_flags["answer_was_weak"] = bool(answer_profile["is_weak"])
                 accepted_flags["answer_was_partial"] = bool(answer_profile["is_partial"])
+
+                # Parse verdict on previous answer. The LLM may omit
+                # the field on first turn — coerce to "none".
+                verdict_raw = str(raw.get("last_answer_verdict", "")).strip().lower()
+                if verdict_raw in {"correct", "partial", "wrong", "skipped", "off_topic", "none"}:
+                    accepted_verdict = verdict_raw
+                elif not last_answer.strip():
+                    accepted_verdict = "none"
+                else:
+                    # Fallback: derive verdict from heuristic answer profile.
+                    if answer_profile.get("is_weak"):
+                        accepted_verdict = "wrong" if answer_profile.get("looks_offtopic") else "skipped"
+                    elif answer_profile.get("is_partial"):
+                        accepted_verdict = "partial"
+                    else:
+                        accepted_verdict = "correct"
+                accepted_verdict_reason = str(raw.get("last_answer_reason", "")).strip()[:240]
                 break
 
             regen_reason = ",".join(violations) if violations else "invalid_format"
@@ -1518,20 +1577,21 @@ async def interviewer_next_question(
                 regen_reason,
             )
     except Exception:
-        logger.exception("interviewer generation failed, fallback will be used")
+        logger.exception("interviewer generation failed; surfacing 503 to caller")
 
     if not accepted_question:
-        accepted_question = _fallback_question(request, answer_profile)
-        accepted_topic = request.current_topic or "core"
-        accepted_delta = _blend_difficulty_delta(0, answer_profile)
-        accepted_pressure = _blend_pressure_level(request.pressure_level, request.pressure_level, answer_profile)
-        accepted_flags = {
-            "contains_explanation": False,
-            "contains_solution": False,
-            "policy_violation": False,
-            "answer_was_weak": bool(answer_profile["is_weak"]),
-            "answer_was_partial": bool(answer_profile["is_partial"]),
-        }
+        # Do NOT return a templated 'Ответ пока слабый…' string here.
+        # In production this masqueraded as a real LLM-generated
+        # question and got repeated turn after turn, so the candidate
+        # saw the same fallback line indefinitely.
+        #
+        # Instead surface 503 — interview-service treats this as
+        # 'AI unavailable' and shows ONE transparent system message
+        # in the chat ('🤖 AI-интервьюер сейчас недоступен …').
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="LLM unavailable: configure LLM_API_KEY or retry shortly",
+        )
 
     if request.difficulty >= 7:
         follow_up = _hard_mode_follow_up(request.role, accepted_topic, accepted_question)
@@ -1549,6 +1609,8 @@ async def interviewer_next_question(
         pressure_level=pressure,
         should_end=should_end,
         flags=accepted_flags,
+        last_answer_verdict=accepted_verdict,
+        last_answer_reason=accepted_verdict_reason or None,
     )
 
 

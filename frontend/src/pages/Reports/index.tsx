@@ -3,7 +3,9 @@ import { useNavigate } from "react-router-dom";
 
 import { reportsApi } from "@/shared/api";
 import type { UserInterviewAnalyticsReport, UserInterviewEntry } from "@/shared/api/reports";
-import { FloatingInput, GlassButton, GlassCard } from "@/shared/ui";
+import { EmptyState, FloatingInput, GlassButton, GlassCard, Skeleton } from "@/shared/ui";
+import { ReportsCharts } from "./charts";
+import { renderAndPrintReport } from "./pdfExport";
 
 export default function ReportsPage() {
   const navigate = useNavigate();
@@ -24,8 +26,17 @@ export default function ReportsPage() {
     } catch (e) {
       const status = (e as { response?: { status?: number } })?.response?.status;
       const message = e instanceof Error ? e.message : "Не удалось загрузить отчет";
-      setError(message);
-      setAuthIssue(status === 401 || /401|auth|authorization|token/i.test(message));
+      // 404 means the user doesn't have any interview data yet — render a
+      // friendly empty state instead of a hard error so the page still
+      // works (search, exports, recommendations) without a backend report.
+      if (status === 404) {
+        setReport(reportsApi.emptyReport());
+        setError(null);
+        setAuthIssue(false);
+      } else {
+        setError(message);
+        setAuthIssue(status === 401 || /401|auth|authorization|token/i.test(message));
+      }
     } finally {
       setLoading(false);
     }
@@ -118,77 +129,7 @@ export default function ReportsPage() {
     if (!report) {
       return;
     }
-
-    const html = `
-      <html>
-        <head>
-          <title>User Interview Report</title>
-          <style>
-            body { font-family: 'Segoe UI', Arial, sans-serif; margin: 24px; color: #0d1b2a; }
-            h1 { margin: 0 0 6px; }
-            .meta { color: #42566b; margin-bottom: 16px; }
-            .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 14px 0 22px; }
-            .card { border: 1px solid #d5deea; border-radius: 12px; padding: 10px 12px; }
-            .k { font-size: 12px; color: #5a6d83; }
-            .v { font-size: 22px; font-weight: 700; }
-            h2 { margin: 20px 0 8px; }
-            ul { margin: 8px 0 0 18px; }
-            table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-            th, td { border: 1px solid #d5deea; padding: 8px; text-align: left; font-size: 12px; }
-            th { background: #eef4fb; }
-          </style>
-        </head>
-        <body>
-          <h1>Пользовательский отчет по интервью</h1>
-          <div class="meta">Пользователь: ${report.user_id} | Сформирован: ${new Date(report.generated_at).toLocaleString()}</div>
-
-          <div class="grid">
-            <div class="card"><div class="k">Всего интервью</div><div class="v">${report.totals.total_interviews}</div></div>
-            <div class="card"><div class="k">Завершено</div><div class="v">${report.totals.completed_interviews}</div></div>
-            <div class="card"><div class="k">Не завершено</div><div class="v">${report.totals.in_progress_interviews + report.totals.expired_interviews}</div></div>
-            <div class="card"><div class="k">Completion Rate</div><div class="v">${report.totals.completion_rate}%</div></div>
-            <div class="card"><div class="k">Средний балл</div><div class="v">${report.performance.average_score}</div></div>
-            <div class="card"><div class="k">Лучший балл</div><div class="v">${report.performance.best_score}</div></div>
-          </div>
-
-          <h2>Сильные стороны</h2>
-          <ul>${report.top_strengths.map((x) => `<li>${x}</li>`).join("") || "<li>Нет данных</li>"}</ul>
-
-          <h2>Слабые стороны</h2>
-          <ul>${report.top_weaknesses.map((x) => `<li>${x}</li>`).join("") || "<li>Нет данных</li>"}</ul>
-
-          <h2>Рекомендации</h2>
-          <ul>${report.top_recommendations.map((x) => `<li>${x}</li>`).join("") || "<li>Нет данных</li>"}</ul>
-
-          <h2>Последние интервью</h2>
-          <table>
-            <thead>
-              <tr>
-                <th>ID</th><th>Роль</th><th>Режим</th><th>Статус</th><th>Оценка</th><th>Сообщения</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${report.recent_interviews
-                .map(
-                  (item) =>
-                    `<tr><td>${item.session_id}</td><td>${item.role}</td><td>${item.interview_mode}</td><td>${item.status}</td><td>${item.overall_score ?? "-"}</td><td>${item.messages_total}</td></tr>`,
-                )
-                .join("")}
-            </tbody>
-          </table>
-        </body>
-      </html>
-    `;
-
-    const popup = window.open("", "_blank", "noopener,noreferrer,width=980,height=720");
-    if (!popup) {
-      return;
-    }
-    popup.document.open();
-    popup.document.write(html);
-    popup.document.close();
-    popup.focus();
-    popup.print();
+    void renderAndPrintReport(report);
   };
 
   const interviewRow = (item: UserInterviewEntry) => {
@@ -216,9 +157,23 @@ export default function ReportsPage() {
 
   if (loading) {
     return (
-      <section className="page">
+      <section className="page" aria-busy="true">
+        <div className="section-header">
+          <Skeleton width={260} height={28} />
+          <Skeleton width={180} height={36} />
+        </div>
         <GlassCard>
-          <h3>Загрузка отчета...</h3>
+          <div className="report-metrics-grid">
+            <Skeleton variant="card" />
+            <Skeleton variant="card" />
+            <Skeleton variant="card" />
+          </div>
+        </GlassCard>
+        <GlassCard>
+          <Skeleton count={4} />
+        </GlassCard>
+        <GlassCard>
+          <Skeleton variant="card" height={140} />
         </GlassCard>
       </section>
     );
@@ -227,20 +182,23 @@ export default function ReportsPage() {
   if (error) {
     return (
       <section className="page">
-        <GlassCard>
-          <h3>Ошибка загрузки отчета</h3>
-          <p className="muted">{error}</p>
-          <div className="report-actions">
+        <EmptyState
+          icon="⚠️"
+          title="Не удалось загрузить отчёт"
+          hint={error}
+          action={
             <GlassButton onClick={() => void loadReport()} type="button" variant="primary">
-              Повторить загрузку
+              Повторить
             </GlassButton>
-            {authIssue ? (
+          }
+          secondaryAction={
+            authIssue ? (
               <GlassButton onClick={() => navigate("/auth")} type="button" variant="ghost">
                 Войти заново
               </GlassButton>
-            ) : null}
-          </div>
-        </GlassCard>
+            ) : null
+          }
+        />
       </section>
     );
   }
@@ -248,13 +206,21 @@ export default function ReportsPage() {
   if (!report) {
     return (
       <section className="page">
-        <GlassCard>
-          <h3>Отчет пока пуст</h3>
-          <p className="muted">После прохождения интервью здесь появится аналитика.</p>
-        </GlassCard>
+        <EmptyState
+          icon="📊"
+          title="Отчёт пока пуст"
+          hint="После первого пройденного интервью здесь появится подробная аналитика, графики прогресса и персональные рекомендации."
+          action={
+            <GlassButton onClick={() => navigate("/interview")} type="button" variant="primary">
+              Начать интервью
+            </GlassButton>
+          }
+        />
       </section>
     );
   }
+
+  const hasInterviews = report.totals.total_interviews > 0;
 
   return (
     <section className="page">
@@ -315,6 +281,13 @@ export default function ReportsPage() {
             <p className="muted">Consistency: {innovationInsights.consistency}%</p>
           </GlassCard>
         </div>
+      ) : null}
+
+      {hasInterviews ? (
+        <GlassCard>
+          <h3>Графики прогресса</h3>
+          <ReportsCharts report={report} />
+        </GlassCard>
       ) : null}
 
       <div className="filters two-col">
@@ -410,11 +383,36 @@ export default function ReportsPage() {
       <GlassCard>
         <h3>Последние интервью (фильтруемые)</h3>
         {filtered.map(interviewRow)}
-        {filtered.length === 0 ? (
-          <GlassCard>
-            <h3>Ничего не найдено</h3>
-            <p className="muted">Попробуйте сбросить фильтры.</p>
-          </GlassCard>
+        {filtered.length === 0 && hasInterviews ? (
+          <EmptyState
+            icon="🔍"
+            title="Ничего не найдено"
+            hint="По текущим фильтрам ни одно интервью не подошло. Попробуйте сбросить поиск или статус."
+            action={
+              <GlassButton
+                onClick={() => {
+                  setSearch("");
+                  setStatusFilter("all");
+                }}
+                type="button"
+                variant="ghost"
+              >
+                Сбросить фильтры
+              </GlassButton>
+            }
+          />
+        ) : null}
+        {!hasInterviews ? (
+          <EmptyState
+            icon="🚀"
+            title="У вас ещё нет интервью"
+            hint="Пройдите первое практическое или теоретическое интервью — и сюда подтянутся метрики, тренд оценок и рекомендации."
+            action={
+              <GlassButton onClick={() => navigate("/interview")} type="button" variant="primary">
+                Начать первое интервью
+              </GlassButton>
+            }
+          />
         ) : null}
       </GlassCard>
     </section>
