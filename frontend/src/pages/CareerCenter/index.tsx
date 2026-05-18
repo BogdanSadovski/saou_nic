@@ -1,470 +1,180 @@
-import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
-import { useUserStore } from "@/app/store";
-import { VACANCY_OPTIONS } from "@/features/interview-module/vacancies";
-import { reportsApi } from "@/shared/api";
-import type { UserInterviewAnalyticsReport } from "@/shared/api/reports";
-import { GlassButton, GlassCard, Loader, useToast } from "@/shared/ui";
-
-const PUBLIC_PROFILE_KEY = "realsync_public_profile";
-
-type PublicProfileSnapshot = {
-  fullName: string;
-  role: string;
-  generatedAt: string;
-  headline: string;
-  totalInterviews: number;
-  averageScore: number;
-  completionRate: number;
-  topStrengths: string[];
-  topWeaknesses: string[];
-  topRoles: Array<{ role: string; fit: number }>;
-  learningPlan: string[];
-};
-
-type CareerRoadmapItem = {
-  role: string;
-  score: number;
-  hint: string;
-};
-
-type InnovationPulse = {
-  streakDays: number;
-  momentum: number;
-  stabilityIndex: number;
-  adaptiveChallenge: string;
-  experiments: string[];
-};
-
-const buildInterviewParams = (role: string, mode: string, level: string, duration: number) => {
-  const normalizedRole = role.trim().toLowerCase();
-  const vacancy =
-    VACANCY_OPTIONS.find((item) => item.category.toLowerCase() === normalizedRole) ||
-    VACANCY_OPTIONS.find((item) => item.category.toLowerCase().includes(normalizedRole)) ||
-    VACANCY_OPTIONS[0];
-
-  const params = new URLSearchParams({
-    vacancyId: vacancy.id,
-    role: vacancy.category,
-    mode: mode === "theory" ? "theory" : "practice",
-    level: ["junior", "middle", "senior"].includes(level.toLowerCase()) ? level : "Middle",
-    duration: String(Math.min(120, Math.max(10, Math.round(duration || 30)))),
-  });
-
-  return `/interview?${params.toString()}`;
-};
-
-const formatPercent = (value: number) => `${Math.max(0, Math.min(100, Math.round(value)))}%`;
-
-const createSnapshot = (
-  userName: string,
-  role: string,
-  report: UserInterviewAnalyticsReport,
-  learningPlan: string[],
-): PublicProfileSnapshot => ({
-  fullName: userName,
-  role,
-  generatedAt: new Date().toISOString(),
-  headline: report.top_recommendations[0] || report.top_strengths[0] || "Сильный профиль кандидата",
-  totalInterviews: report.totals.total_interviews,
-  averageScore: report.performance.average_score,
-  completionRate: report.totals.completion_rate,
-  topStrengths: report.top_strengths.slice(0, 4),
-  topWeaknesses: report.top_weaknesses.slice(0, 4),
-  topRoles: report.role_distribution.slice(0, 5).map((item: UserInterviewAnalyticsReport["role_distribution"][number]) => ({
-    role: item.label,
-    fit: item.value,
-  })),
-  learningPlan,
-});
+import { Counter, RsIcon as Icon, Track } from "@/shared/ui/realsync";
 
 export default function CareerCenterPage() {
   const navigate = useNavigate();
-  const { pushToast } = useToast();
-  const user = useUserStore((state) => state.user);
-  const [report, setReport] = useState<UserInterviewAnalyticsReport | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
+  const radar = [
+    { role: "Backend", val: 92, hint: "Приоритетный сценарий для следующего интервью" },
+    { role: "Frontend", val: 64, hint: "Хорошая зона для развития" },
+    { role: "DevOps", val: 41, hint: "Глубоко добрать знания и практику" },
+    { role: "ML", val: 32, hint: "Глубоко добрать знания и практику" },
+    { role: "Mobile", val: 18, hint: "Базовое знакомство" },
+  ];
 
-    const load = async () => {
-      setLoading(true);
-      setError(null);
+  const sims = [
+    { name: "Backend", fit: 92 },
+    { name: "Frontend", fit: 64 },
+    { name: "DevOps", fit: 41 },
+  ];
 
-      try {
-        const payload = await reportsApi.getMyInterviewReport();
-        if (!cancelled) {
-          setReport(payload);
-        }
-      } catch (loadError) {
-        if (!cancelled) {
-          const message = loadError instanceof Error ? loadError.message : "Не удалось загрузить карьерный центр";
-          setError(message);
-          setReport(null);
-        }
-      } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
-      }
-    };
-
-    void load();
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const derived = useMemo(() => {
-    if (!report) {
-      return null;
-    }
-
-    const strongestRole = report.role_distribution[0];
-    const bestRoleName = strongestRole?.label || "Backend";
-    const fallbackTrack = buildInterviewParams(bestRoleName, "practice", "Middle", 35);
-    const nextAction = report.top_recommendations[0] || "Усилить слабые зоны и повторить тренировочное интервью";
-    const learningPlan = [
-      report.top_weaknesses[0]
-        ? `Разобрать слабую зону: ${report.top_weaknesses[0].toLowerCase()}`
-        : "Собрать одну короткую заметку по сильным сторонам и повторять ее перед интервью",
-      report.top_weaknesses[1]
-        ? `Добавить практику по теме: ${report.top_weaknesses[1].toLowerCase()}`
-        : "Провести один mock interview по системному дизайну",
-      report.top_strengths[0]
-        ? `Закрепить сильную сторону: ${report.top_strengths[0].toLowerCase()}`
-        : "Обновить резюме и усилить формулировки impact",
-      report.top_recommendations[0]
-        ? `Использовать рекомендацию: ${report.top_recommendations[0]}`
-        : "Сформировать новый раунд интервью через карьерный центр",
-    ];
-
-    const roleRoadmap: CareerRoadmapItem[] = report.role_distribution.slice(0, 5).map((item: UserInterviewAnalyticsReport["role_distribution"][number]) => ({
-      role: item.label,
-      score: item.value,
-      hint:
-        item.value >= 80
-          ? "Приоритетный сценарий для следующего интервью"
-          : item.value >= 60
-            ? "Хорошая зона для развития"
-            : "Глубоко добрать знания и практику",
-    }));
-
-    return {
-      bestRoleName,
-      fallbackTrack,
-      nextAction,
-      learningPlan,
-      roleRoadmap,
-      overallScore: Math.round(report.performance.average_score || 0),
-      completionRate: Math.round(report.totals.completion_rate || 0),
-      completedInterviews: report.completed_interviews.length,
-      incompleteInterviews: report.incomplete_interviews.length,
-    };
-  }, [report]);
-
-  const innovationPulse = useMemo<InnovationPulse | null>(() => {
-    if (!report) {
-      return null;
-    }
-
-    const timeline = [...report.timeline].sort((a, b) => a.date.localeCompare(b.date));
-    const completed = timeline.map((point) => point.completed);
-
-    let streakDays = 0;
-    for (let i = completed.length - 1; i >= 0; i -= 1) {
-      if (completed[i] > 0) {
-        streakDays += 1;
-      } else {
-        break;
-      }
-    }
-
-    const recent = completed.slice(-3);
-    const previous = completed.slice(-6, -3);
-    const recentAvg = recent.length ? recent.reduce((sum, x) => sum + x, 0) / recent.length : 0;
-    const previousAvg = previous.length ? previous.reduce((sum, x) => sum + x, 0) / previous.length : 0;
-    const momentum = Math.round((recentAvg - previousAvg) * 25);
-    const stabilityIndex = Math.round(report.totals.completion_rate * 0.7 + (report.performance.average_score || 0) * 0.3);
-
-    const weakTopic = report.top_weaknesses[0] || "системный дизайн";
-    const strongTopic = report.top_strengths[0] || "структурирование ответа";
-
-    return {
-      streakDays,
-      momentum,
-      stabilityIndex,
-      adaptiveChallenge: `Adaptive Challenge: 20 минут theory + 20 минут practice по теме "${weakTopic}". Финал: 2-минутный self-review с использованием сильной стороны "${strongTopic}".`,
-      experiments: [
-        `Blind Replay: ответить повторно на вопрос по ${weakTopic} без подсказок и сравнить версии.`,
-        "Latency Drill: ограничить ответ 75 секундами и сохранить структурность.",
-        "Risk Mapping: для каждого решения назвать 2 риска и 2 mitigation шага.",
-      ],
-    };
-  }, [report]);
-
-  const savePublicProfile = () => {
-    if (!report || !derived) {
-      return;
-    }
-
-    const snapshot = createSnapshot(user.fullName, user.role, report, derived.learningPlan);
-    localStorage.setItem(PUBLIC_PROFILE_KEY, JSON.stringify(snapshot));
-    pushToast("Публичный профиль сохранен");
-  };
-
-  const copyPublicLink = async () => {
-    const url = `${window.location.origin}/public-profile`;
-    try {
-      await navigator.clipboard.writeText(url);
-      pushToast("Ссылка на публичный профиль скопирована");
-    } catch {
-      pushToast(`Ссылка: ${url}`);
-    }
-  };
+  const plan = [
+    "Разобрать слабую зону: distributed consensus (Raft, Paxos)",
+    "Добавить практику по теме: проектирование очередей и backpressure",
+    "Закрепить сильную сторону: trade-off диалоги по выбору БД",
+    "Использовать рекомендацию: добавить метрики в каждое решение",
+  ];
 
   return (
-    <section className="page career-center-page">
-      <div className="career-hero glass-card">
+    <>
+      <section className="career-hero">
         <div>
-          <p className="eyebrow">Карьерный центр</p>
-          <h1>Единое рабочее пространство для роста кандидата</h1>
-          <p className="muted">
-            Здесь собраны симулятор интервью, трек развития, анализ пробелов, экспорт публичного профиля и быстрые
-            переходы в существующие сценарии проекта.
+          <span className="eyebrow">Карьерный центр</span>
+          <h1 className="expr-headline" style={{ fontSize: "clamp(44px, 5.6vw, 80px)", margin: "20px 0 24px" }}>
+            <span className="bold">Единое</span> <span className="ital">рабочее</span><br />
+            <span className="light">пространство</span> <span className="ital underline">роста</span>.
+          </h1>
+          <p className="lede">
+            Симулятор, трек развития, анализ пробелов, экспорт публичного профиля и быстрые переходы в существующие сценарии — собраны на одной странице без визуального шума.
           </p>
-        </div>
-
-        <div className="career-hero-actions">
-          <GlassButton onClick={() => navigate("/resume")} type="button">
-            Открыть резюме
-          </GlassButton>
-          <GlassButton onClick={() => navigate("/reports")} type="button" variant="ghost">
-            Открыть отчеты
-          </GlassButton>
-          <GlassButton onClick={() => navigate("/profile")} type="button" variant="ghost">
-            Открыть профиль
-          </GlassButton>
-        </div>
-      </div>
-
-      {loading ? (
-        <GlassCard className="career-loader-card">
-          <Loader />
-          <p className="muted">Собираем карьерные сигналы и рекомендации...</p>
-        </GlassCard>
-      ) : null}
-
-      {error ? (
-        <GlassCard className="career-error-card">
-          <h3>Не удалось загрузить аналитику</h3>
-          <p className="muted">{error}</p>
-          <p className="muted">
-            Даже без сервера страница остается полезной: ниже доступны быстрые переходы, сохранение публичного профиля
-            и локальный план развития.
-          </p>
-        </GlassCard>
-      ) : null}
-
-      <div className="career-metrics-grid">
-        <GlassCard>
-          <p className="eyebrow">Средняя оценка</p>
-          <h2>{derived ? `${derived.overallScore}%` : "—"}</h2>
-          <p className="muted">Текущий уровень интервью-готовности</p>
-        </GlassCard>
-        <GlassCard>
-          <p className="eyebrow">Завершение</p>
-          <h2>{derived ? `${derived.completionRate}%` : "—"}</h2>
-          <p className="muted">Доля завершенных интервью</p>
-        </GlassCard>
-        <GlassCard>
-          <p className="eyebrow">Пройдено</p>
-          <h2>{derived ? derived.completedInterviews : "—"}</h2>
-          <p className="muted">Финишированные сессии</p>
-        </GlassCard>
-        <GlassCard>
-          <p className="eyebrow">В работе</p>
-          <h2>{derived ? derived.incompleteInterviews : "—"}</h2>
-          <p className="muted">Незакрытые интервью и хвосты</p>
-        </GlassCard>
-        <GlassCard>
-          <p className="eyebrow">Серия и темп</p>
-          <h2>{innovationPulse ? innovationPulse.streakDays : "—"}</h2>
-          <p className="muted">
-            {innovationPulse
-              ? `Momentum: ${innovationPulse.momentum > 0 ? `+${innovationPulse.momentum}` : innovationPulse.momentum}`
-              : "Недостаточно истории"}
-          </p>
-        </GlassCard>
-        <GlassCard>
-          <p className="eyebrow">Stability Index</p>
-          <h2>{innovationPulse ? `${innovationPulse.stabilityIndex}%` : "—"}</h2>
-          <p className="muted">Сводный индекс качества и доведения интервью до конца</p>
-        </GlassCard>
-      </div>
-
-      <div className="career-content-grid">
-        <GlassCard className="career-module-card career-module-wide">
-          <p className="eyebrow">AI Career Copilot</p>
-          <h3>Что делать дальше</h3>
-          <p className="muted">
-            {derived?.nextAction || "Запустите анализ отчетов, чтобы получить персональный next step."}
-          </p>
-          <div className="career-list">
-            {(report?.top_recommendations.slice(0, 4) || ["Пока нет рекомендаций - завершите несколько интервью"]).map(
-              (item: string) => (
-                <div className="career-list-item" key={item}>
-                  <span>{item}</span>
-                </div>
-              ),
-            )}
+          <div className="career-actions">
+            <button className="btn btn--primary" onClick={() => navigate("/resume")} type="button">Открыть резюме <Icon name="arrow" /></button>
+            <button className="btn btn--ghost" onClick={() => navigate("/reports")} type="button">Открыть отчёты</button>
+            <button className="btn btn--ghost" onClick={() => navigate("/profile")} type="button">Открыть профиль</button>
           </div>
-          {derived ? (
-            <div className="career-actions-row">
-              <GlassButton onClick={() => navigate(derived.fallbackTrack)} type="button">
-                Запустить лучший симулятор
-              </GlassButton>
-              <GlassButton onClick={savePublicProfile} type="button" variant="ghost">
-                Сохранить публичный профиль
-              </GlassButton>
+        </div>
+
+        <aside className="career-pulse scanline">
+          <span className="eyebrow" style={{ color: "oklch(0.84 0.18 130)" }}>Career Pulse · live</span>
+          <h3>Серия 6 дней,<br />momentum растёт.</h3>
+          <div className="pulse-rows">
+            <div className="pulse-row">
+              <span className="pulse-label">Серия</span>
+              <span className="pulse-value mono">6d</span>
             </div>
-          ) : null}
-        </GlassCard>
+            <div className="pulse-row">
+              <span className="pulse-label">Динамика</span>
+              <span className="pulse-value mono">+12</span>
+            </div>
+            <div className="pulse-row">
+              <span className="pulse-label">Стабильность</span>
+              <span className="pulse-value mono">87%</span>
+            </div>
+          </div>
+        </aside>
+      </section>
 
-        <GlassCard className="career-module-card">
-          <p className="eyebrow">Career Radar</p>
-          <h3>Самые сильные направления</h3>
-          <div className="career-roadmap-list">
-            {(derived?.roleRoadmap || []).map((item: CareerRoadmapItem) => (
-              <div className="career-roadmap-item" key={item.role}>
-                <div className="career-roadmap-head">
-                  <strong>{item.role}</strong>
-                  <span>{formatPercent(item.score)}</span>
-                </div>
-                <div className="career-fit-track">
-                  <div className="career-fit-fill" style={{ width: formatPercent(item.score) }} />
-                </div>
-                <p className="muted">{item.hint}</p>
+      <section className="metric-row" style={{ marginTop: 32 }}>
+        <div className="metric reveal reveal-1">
+          <div className="metric-label">Средняя оценка</div>
+          <div className="metric-value mono"><Counter target={82} suffix="%" /></div>
+        </div>
+        <div className="metric reveal reveal-2">
+          <div className="metric-label">Завершение</div>
+          <div className="metric-value mono"><Counter target={94} suffix="%" /></div>
+        </div>
+        <div className="metric reveal reveal-3">
+          <div className="metric-label">Пройдено</div>
+          <div className="metric-value mono"><Counter target={28} /></div>
+        </div>
+      </section>
+
+      <section className="career-modules">
+        <div className="card card--hover wide reveal reveal-1">
+          <span className="eyebrow">AI Career Copilot</span>
+          <h3>Что делать дальше</h3>
+          <p className="body" style={{ marginTop: 12 }}>
+            Добавьте измеримые критерии в ответы о системном дизайне — задавайте границы, числа, ограничения. Это закроет основной паттерн потери баллов в последних 4 сессиях.
+          </p>
+          <div className="recs-list" style={{ marginTop: 20 }}>
+            {["Добавлять измеримые критерии", "Явно проговаривать trade-offs", "Закрепить структуру STAR в ответах", "Сократить latency ответа до 75 сек"].map((r, i) => (
+              <div className="rec-item" key={i}>
+                <div className="rec-bullet">{String(i + 1).padStart(2, "0")}</div>
+                <div className="rec-text">{r}</div>
               </div>
             ))}
           </div>
-        </GlassCard>
+          <div className="row" style={{ marginTop: 16 }}>
+            <button className="btn btn--accent" onClick={() => navigate("/interview")} type="button">Запустить лучший симулятор <Icon name="arrow" /></button>
+            <button className="btn btn--ghost" type="button">Сохранить публичный профиль</button>
+          </div>
+        </div>
 
-        <GlassCard className="career-module-card">
-          <p className="eyebrow">Interview Simulator</p>
+        <div className="card card--hover reveal reveal-2">
+          <span className="eyebrow">Карьерный радар</span>
+          <h3>Сильные направления</h3>
+          <div className="radar-list">
+            {radar.map((r, i) => (
+              <div className="radar-item reveal" style={{ animationDelay: `${i * 80}ms` }} key={r.role}>
+                <div className="radar-head">
+                  <strong>{r.role}</strong>
+                  <em className="mono">{r.val}%</em>
+                </div>
+                <Track value={r.val} />
+                <p className="muted" style={{ fontSize: 12 }}>{r.hint}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="card card--hover reveal reveal-3">
+          <span className="eyebrow">Симулятор интервью</span>
           <h3>Быстрый старт</h3>
-          <p className="muted">Используйте лучшие роли и темы из вашей аналитики.</p>
-          <div className="career-simulator-list">
-            {(report?.role_distribution.slice(0, 3) || []).map(
-              (item: UserInterviewAnalyticsReport["role_distribution"][number], index: number) => (
-              <button
-                className="career-simulator-item"
-                key={`${item.label}-${index}`}
-                onClick={() => void navigate(buildInterviewParams(item.label, "practice", "Middle", 30))}
-                type="button"
-              >
-                <strong>{item.label}</strong>
-                <span>{formatPercent(item.value)}</span>
+          <p className="body" style={{ marginTop: 8 }}>Лучшие роли и темы из вашей аналитики.</p>
+          <div className="sim-list">
+            {sims.map((s) => (
+              <button key={s.name} className="sim-item" onClick={() => navigate("/interview")} type="button">
+                <strong>{s.name}</strong>
+                <span className="fit mono">{s.fit}%</span>
+                <Icon name="arrow" size={14} />
               </button>
-            ),
-            )}
-            {!report ? (
-              <button className="career-simulator-item" onClick={() => void navigate("/interview")} type="button">
-                <strong>Открыть стандартный сценарий</strong>
-                <span>Practice</span>
-              </button>
-            ) : null}
+            ))}
           </div>
-        </GlassCard>
+        </div>
 
-        <GlassCard className="career-module-card">
-          <p className="eyebrow">Resume Lab</p>
+        <div className="card card--hover reveal reveal-4">
+          <span className="eyebrow">Лаборатория резюме</span>
           <h3>Что улучшить в резюме</h3>
-          <div className="career-list">
-            {(report?.top_weaknesses.slice(0, 4) || ["Заполните историю интервью, чтобы увидеть пробелы"]).map((item: string) => (
-              <div className="career-list-item" key={item}>
-                <span>{item}</span>
+          <div className="recs-list" style={{ marginTop: 16 }}>
+            {["Конкретизировать impact-метрики", "Добавить пример системного дизайна", "Сократить experience section"].map((r, i) => (
+              <div className="rec-item" key={i}>
+                <div className="rec-bullet">·</div>
+                <div className="rec-text">{r}</div>
               </div>
             ))}
           </div>
-          <GlassButton onClick={() => navigate("/resume")} type="button" variant="ghost">
-            Перейти в лабораторию резюме
-          </GlassButton>
-        </GlassCard>
+          <button className="btn btn--ghost btn--sm" style={{ marginTop: 16 }} onClick={() => navigate("/resume")} type="button">Перейти в лабораторию</button>
+        </div>
 
-        <GlassCard className="career-module-card">
-          <p className="eyebrow">Learning Plan</p>
+        <div className="card card--hover reveal reveal-5">
+          <span className="eyebrow">План обучения</span>
           <h3>План на 7 дней</h3>
-          <ol className="career-plan-list">
-            {(derived?.learningPlan || ["Сначала загрузите данные, затем план появится автоматически"]).map((item) => (
-              <li key={item}>{item}</li>
+          <ol style={{ marginTop: 16, display: "grid", gap: 12 }}>
+            {plan.map((p, i) => (
+              <li key={i} className="row" style={{ alignItems: "baseline", gap: 14 }}>
+                <span className="mono" style={{ color: "var(--muted)", fontSize: 11 }}>{String(i + 1).padStart(2, "0")}</span>
+                <span style={{ fontSize: 14, color: "var(--ink-2)", lineHeight: 1.55 }}>{p}</span>
+              </li>
             ))}
           </ol>
-        </GlassCard>
+        </div>
 
-        <GlassCard className="career-module-card">
-          <p className="eyebrow">Innovation Lab</p>
-          <h3>Адаптивные эксперименты</h3>
-          <p className="muted">{innovationPulse?.adaptiveChallenge || "Соберите больше данных, чтобы активировать adaptive challenge."}</p>
-          <ul className="report-bullet-list">
-            {(innovationPulse?.experiments || ["Завершите 2-3 интервью, чтобы получить персональные эксперименты."]).map(
-              (item) => (
-                <li key={item}>{item}</li>
-              ),
-            )}
-          </ul>
-          <div className="career-actions-row">
-            <GlassButton onClick={() => navigate("/interview")} type="button">
-              Запустить эксперимент
-            </GlassButton>
-            <GlassButton
-              onClick={async () => {
-                if (!innovationPulse) {
-                  return;
-                }
-                try {
-                  await navigator.clipboard.writeText(innovationPulse.adaptiveChallenge);
-                  pushToast("Adaptive challenge скопирован");
-                } catch {
-                  pushToast("Не удалось скопировать challenge");
-                }
-              }}
-              type="button"
-              variant="ghost"
-            >
-              Скопировать challenge
-            </GlassButton>
-          </div>
-        </GlassCard>
-
-        <GlassCard className="career-module-card">
-          <p className="eyebrow">Public Profile</p>
+        <div className="card card--hover reveal reveal-6">
+          <span className="eyebrow">Публичный профиль</span>
           <h3>Публикация результата</h3>
-          <p className="muted">
-            Сохраните краткую карточку кандидата и поделитесь ссылкой на публичный профиль без ручной верстки.
-          </p>
-          <div className="career-public-box">
-            <strong>{user.fullName}</strong>
-            <span className="muted">{user.role}</span>
-            <span className="muted">{derived ? `${derived.overallScore}% readiness` : "Нет данных пока"}</span>
+          <p className="body" style={{ marginTop: 8 }}>Сохраните карточку кандидата и поделитесь ссылкой без ручной вёрстки.</p>
+          <div style={{ marginTop: 16, padding: 16, border: "1px solid var(--line)", borderRadius: "var(--r-1)", display: "grid", gap: 4 }}>
+            <strong>Садовский Богдан Дм.</strong>
+            <span className="muted" style={{ fontSize: 13 }}>Backend · 82% readiness</span>
+            <span className="mono" style={{ fontSize: 11, color: "var(--muted)" }}>realsync.io/p/bsadovski</span>
           </div>
-          <div className="career-actions-row">
-            <GlassButton onClick={savePublicProfile} type="button">
-              Сохранить снапшот
-            </GlassButton>
-            <GlassButton onClick={() => void copyPublicLink()} type="button" variant="ghost">
-              Скопировать ссылку
-            </GlassButton>
+          <div className="row" style={{ marginTop: 16 }}>
+            <button className="btn btn--primary btn--sm" type="button">Сохранить снапшот</button>
+            <button className="btn btn--ghost btn--sm" type="button">Скопировать ссылку</button>
           </div>
-          <GlassButton onClick={() => navigate("/public-profile")} type="button" variant="ghost">
-            Открыть публичный профиль
-          </GlassButton>
-        </GlassCard>
-      </div>
-    </section>
+        </div>
+      </section>
+    </>
   );
 }

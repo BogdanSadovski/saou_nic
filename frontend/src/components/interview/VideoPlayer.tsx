@@ -41,10 +41,10 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         }}
         controls
       >
-        Your browser does not support the video tag.
+        Ваш браузер не поддерживает видео.
       </video>
       <button className="video-player__toggle" onClick={togglePlay}>
-        {isPlaying ? 'Pause' : 'Play'}
+        {isPlaying ? 'Пауза' : 'Воспроизвести'}
       </button>
     </div>
   );

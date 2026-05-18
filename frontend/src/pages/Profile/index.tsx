@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
 import {
@@ -10,71 +10,103 @@ import {
   useUIStore,
   useUserStore,
 } from "@/app/store";
-import { GithubConnectCard } from "@/features/github-connect/GithubConnectCard";
-import { reportsApi, userApi } from "@/shared/api";
-import type { UserInterviewAnalyticsReport } from "@/shared/api/reports";
-import { useTranslation } from "@/shared/i18n";
-import {
-  EmptyState,
-  FloatingInput,
-  GlassButton,
-  GlassCard,
-  Icon,
-  Skeleton,
-  useToast,
-} from "@/shared/ui";
+import { githubApi, type GithubImportResponse } from "@/shared/api/github";
+import { userApi } from "@/shared/api";
+import { formatBYNAmount } from "@/shared/lib/currency";
+import { BynSign, useToast } from "@/shared/ui";
+import { RsIcon as Icon } from "@/shared/ui/realsync";
 
 export default function ProfilePage() {
-  const t = useTranslation();
   const navigate = useNavigate();
   const { pushToast } = useToast();
 
-  // User identity ----------------------------------------------------------
+  // Identity ---------------------------------------------------------------
   const user = useUserStore((s) => s.user);
   const updateProfile = useUserStore((s) => s.updateProfile);
   const hydrate = useUserStore((s) => s.hydrate);
   const logout = useAuthStore((s) => s.logout);
 
-  const [fullName, setFullName] = useState(user.fullName);
+  const [name, setName] = useState(user.fullName);
   const [email, setEmail] = useState(user.email);
-  const [savingProfile, setSavingProfile] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
 
   useEffect(() => {
     void hydrate();
   }, [hydrate]);
 
   useEffect(() => {
-    setFullName(user.fullName);
+    setName(user.fullName);
     setEmail(user.email);
   }, [user.fullName, user.email]);
 
-  // Activity stats (real data) ---------------------------------------------
-  const [report, setReport] = useState<UserInterviewAnalyticsReport | null>(null);
-  const [reportLoading, setReportLoading] = useState(true);
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      setReportLoading(true);
-      try {
-        const data = await reportsApi.getMyInterviewReport();
-        if (!cancelled) setReport(data);
-      } catch (e) {
-        const status = (e as { response?: { status?: number } })?.response?.status;
-        if (!cancelled && status === 404) setReport(reportsApi.emptyReport());
-      } finally {
-        if (!cancelled) setReportLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  // Preferences ------------------------------------------------------------
+  // UI / theme -------------------------------------------------------------
   const theme = useUIStore((s) => s.theme);
   const setTheme = useUIStore((s) => s.setTheme);
+
+  // Preferences (compact/motion/sound) ------------------------------------
   const prefs = usePreferencesStore();
+
+  // GitHub -----------------------------------------------------------------
+  const [ghUsername, setGhUsername] = useState("");
+  const [ghConnecting, setGhConnecting] = useState(false);
+  const [ghReport, setGhReport] = useState<GithubImportResponse | null>(() => {
+    try {
+      const raw = localStorage.getItem("realsync_github_report");
+      return raw ? (JSON.parse(raw) as GithubImportResponse) : null;
+    } catch {
+      return null;
+    }
+  });
+  const [lastGhUsername, setLastGhUsername] = useState<string>(() => {
+    return localStorage.getItem("realsync_github_username") || "";
+  });
+
+  const importGithub = async (rawValue: string) => {
+    const value = rawValue.trim();
+    if (!value) {
+      pushToast("Введите GitHub-логин");
+      return;
+    }
+    setGhConnecting(true);
+    try {
+      const profileUrl = /^https?:\/\//i.test(value)
+        ? value
+        : `https://github.com/${value.replace(/^@/, "")}`;
+      const report = await githubApi.importProfile({ profileUrl });
+      setGhReport(report);
+      const username = report.username || value.replace(/^@/, "");
+      setLastGhUsername(username);
+      try {
+        localStorage.setItem("realsync_github_report", JSON.stringify(report));
+        localStorage.setItem("realsync_github_username", username);
+      } catch {/* quota */}
+      await updateProfile({ connectedGithub: true });
+      pushToast("GitHub-профиль импортирован");
+      setGhUsername("");
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Не удалось подключить GitHub";
+      pushToast(msg);
+    } finally {
+      setGhConnecting(false);
+    }
+  };
+
+  const connectGithub = () => importGithub(ghUsername);
+  const resyncGithub = () => importGithub(lastGhUsername || ghUsername);
+
+  const disconnectGithub = async () => {
+    try {
+      await updateProfile({ connectedGithub: false });
+      setGhReport(null);
+      setLastGhUsername("");
+      localStorage.removeItem("realsync_github_report");
+      localStorage.removeItem("realsync_github_username");
+      pushToast("GitHub отключён");
+    } catch {
+      pushToast("Не удалось отключить");
+    }
+  };
 
   // Subscription -----------------------------------------------------------
   const subscription = useSubscriptionStore();
@@ -84,8 +116,6 @@ export default function ProfilePage() {
   const [searchParams, setSearchParams] = useSearchParams();
 
   useEffect(() => {
-    // Pull fresh state from localStorage and from the backend so the
-    // UI shows the truth — admin counts and Profile tier always match.
     refreshSubscription();
     void hydrateSubscription();
     const paid = searchParams.get("paid");
@@ -100,37 +130,22 @@ export default function ProfilePage() {
       next.delete("paid");
       setSearchParams(next, { replace: true });
     }
-    // We only want this effect to fire once on mount + when the URL changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const handleSaveProfile = async () => {
-    setSavingProfile(true);
+  // Save profile -----------------------------------------------------------
+  const save = async () => {
+    setSaving(true);
     try {
-      await updateProfile({ fullName, email });
-      pushToast(t.profileUpdated);
+      await updateProfile({ fullName: name, email });
+      setSaved(true);
+      pushToast("Профиль обновлён");
+      setTimeout(() => setSaved(false), 1600);
     } catch {
-      pushToast("Не удалось обновить профиль");
+      pushToast("Не удалось сохранить профиль");
     } finally {
-      setSavingProfile(false);
+      setSaving(false);
     }
-  };
-
-  const handleExportData = () => {
-    const payload = {
-      exported_at: new Date().toISOString(),
-      user,
-      preferences: prefs,
-      report,
-    };
-    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `realsync-export-${user.id}-${Date.now()}.json`;
-    link.click();
-    URL.revokeObjectURL(url);
-    pushToast("Данные экспортированы");
   };
 
   const handleLogout = () => {
@@ -139,451 +154,849 @@ export default function ProfilePage() {
     navigate("/auth", { replace: true });
   };
 
-  // Initials for the hero avatar.
-  const initials = (() => {
+  const handleCancelSub = async () => {
+    try {
+      await cancelSubscription();
+      pushToast("Подписка отменена");
+    } catch {
+      pushToast("Не удалось отменить подписку");
+    }
+  };
+
+  const initials = useMemo(() => {
     const src = (user.fullName || user.email || "").trim();
     if (!src) return "·";
     const parts = src.split(/[\s@]+/).filter(Boolean);
     if (parts.length === 1) return parts[0]!.slice(0, 2).toUpperCase();
     return (parts[0]![0]! + parts[1]![0]!).toUpperCase();
-  })();
+  }, [user.fullName, user.email]);
 
-  const handleCopyId = async () => {
-    if (!user.id) return;
-    try {
-      await navigator.clipboard.writeText(user.id);
-      pushToast("ID скопирован");
-    } catch {
-      pushToast("Не удалось скопировать");
-    }
-  };
+  // Deterministic GH-style cells
+  const cells = useMemo(
+    () =>
+      Array.from({ length: 49 }, (_, i) => {
+        const r = ((i * 31 + 13) % 7) / 7 + ((i * 17) % 5) / 10;
+        return r > 1.1 ? "l4" : r > 0.85 ? "l3" : r > 0.55 ? "l2" : r > 0.3 ? "l1" : "";
+      }),
+    [],
+  );
+
+  const firstName = (name || "").split(" ")[0] || "";
+  const secondName = (name || "").split(" ").slice(1).join(" ") || "";
 
   return (
-    <section className="page profile-page">
-      {/* Hero card with avatar, identity, quick stats */}
-      <GlassCard className="profile-hero">
-        <div className="profile-hero-main">
-          <div className="profile-avatar-xl" aria-hidden="true">
-            {initials}
-          </div>
-          <div className="profile-hero-info">
-            <span className="eyebrow">Личный профиль</span>
-            <h1 className="profile-hero-name">
-              {user.fullName || user.email || "Профиль"}
-            </h1>
-            <p className="muted profile-hero-email">
-              <Icon name="user" size={14} />
-              <span>{user.email || "—"}</span>
-            </p>
-            <div className="profile-hero-tags">
-              <span className={`report-status report-status-${user.role === "admin" ? "pending" : "active"}`}>
-                <Icon name="shield" size={12} /> {user.role}
-              </span>
-              {subscription.tier !== "free" ? (
-                <span className={`report-status report-status-${subscription.tier}`}>
-                  <Icon name="sparkles" size={12} /> {getTierTitle(subscription.tier)}
-                </span>
-              ) : (
-                <span className="report-status">
-                  <Icon name="credit" size={12} /> Free
-                </span>
-              )}
-              {user.connectedGithub ? (
-                <span className="report-status">
-                  <Icon name="github" size={12} /> GitHub подключён
-                </span>
-              ) : null}
-            </div>
-            {user.id ? (
-              <button className="profile-id-pill" onClick={() => void handleCopyId()} type="button" title="Скопировать ID">
-                <span className="muted">ID:</span>
-                <code>{user.id.slice(0, 8)}…</code>
-                <Icon name="resume" size={14} />
-              </button>
-            ) : null}
-          </div>
-        </div>
-        <div className="profile-hero-quick">
-          {reportLoading ? (
-            <Skeleton variant="card" height={64} />
-          ) : (
-            <>
-              <div className="profile-hero-quick-item">
-                <Icon name="mic" size={16} />
-                <span className="muted">Интервью</span>
-                <strong>{report?.totals.total_interviews ?? 0}</strong>
-              </div>
-              <div className="profile-hero-quick-item">
-                <Icon name="chart" size={16} />
-                <span className="muted">Средний балл</span>
-                <strong>{Math.round(report?.performance.average_score ?? 0)}</strong>
-              </div>
-              <div className="profile-hero-quick-item">
-                <Icon name="sparkles" size={16} />
-                <span className="muted">Лучший балл</span>
-                <strong>{Math.round(report?.performance.best_score ?? 0)}</strong>
-              </div>
-            </>
-          )}
-        </div>
-      </GlassCard>
+    <>
+      <span className="eyebrow">Профиль · персональное</span>
+      <h1 className="expr-headline" style={{ fontSize: 72, marginTop: 8 }}>
+        <span className="ital">Профиль</span>.
+      </h1>
 
       <div className="profile-grid">
-        {/* Account info */}
-        <GlassCard>
-          <h3 className="card-title-with-icon">
-            <Icon name="user" size={18} /> Учётная запись
-          </h3>
-          <p className="muted">{t.manageLocalIdentity}</p>
-
-          <FloatingInput
-            label={t.fullName}
-            onChange={(e) => setFullName(e.target.value)}
-            value={fullName}
-          />
-          <FloatingInput
-            label={t.email}
-            onChange={(e) => setEmail(e.target.value)}
-            value={email}
-          />
-          <p className="muted profile-role">
-            {t.role}: <strong>{user.role}</strong>
-          </p>
-
-          <div className="modal-actions">
-            <GlassButton
-              disabled={savingProfile}
-              onClick={() => void handleSaveProfile()}
-              type="button"
-            >
-              {savingProfile ? "Сохраняем..." : t.saveChanges}
-            </GlassButton>
-            <GlassButton onClick={handleLogout} type="button" variant="ghost">
-              <span className="btn-with-icon">
-                <Icon name="logout" size={16} />
-                <span>Выйти</span>
-              </span>
-            </GlassButton>
-          </div>
-        </GlassCard>
-
-        {/* Activity stats */}
-        <GlassCard>
-          <h3 className="card-title-with-icon">
-            <Icon name="chart" size={18} /> Моя активность
-          </h3>
-          {reportLoading ? (
-            <Skeleton count={4} />
-          ) : !report || report.totals.total_interviews === 0 ? (
-            <EmptyState
-              icon="📊"
-              title="Пока нет интервью"
-              hint="Пройдите первое — здесь появятся ваши метрики и темп прогресса."
-              action={
-                <GlassButton onClick={() => navigate("/interview")} type="button" variant="primary">
-                  Начать интервью
-                </GlassButton>
-              }
-            />
-          ) : (
-            <div className="profile-stats-grid">
-              <div className="profile-stat">
-                <span className="muted">Всего интервью</span>
-                <strong>{report.totals.total_interviews}</strong>
+        {/* LEFT COLUMN */}
+        <div style={{ display: "grid", gap: 24 }}>
+          {/* Личные данные */}
+          <section className="profile-card">
+            <div className="row" style={{ gap: 20 }}>
+              <div
+                className="avatar"
+                style={{
+                  width: 72,
+                  height: 72,
+                  fontSize: 28,
+                  background: "var(--ink)",
+                  color: "var(--accent)",
+                  display: "grid",
+                  placeItems: "center",
+                  borderRadius: 16,
+                  fontFamily: "var(--f-display)",
+                }}
+              >
+                {initials}
               </div>
-              <div className="profile-stat">
-                <span className="muted">Завершено</span>
-                <strong>{report.totals.completed_interviews}</strong>
-              </div>
-              <div className="profile-stat">
-                <span className="muted">Средний балл</span>
-                <strong>{Math.round(report.performance.average_score)}</strong>
-              </div>
-              <div className="profile-stat">
-                <span className="muted">Лучший балл</span>
-                <strong>{Math.round(report.performance.best_score)}</strong>
-              </div>
-              <div className="profile-stat">
-                <span className="muted">Завершаемость</span>
-                <strong>{Math.round(report.totals.completion_rate)}%</strong>
-              </div>
-              <div className="profile-stat">
-                <span className="muted">Отчёты</span>
-                <strong>{report.performance.reports_generated}</strong>
+              <div>
+                <h2 style={{ fontSize: 36 }}>
+                  {firstName} {secondName}
+                </h2>
+                <p className="muted">
+                  {(user.role || "user").toUpperCase()} · {email}
+                </p>
               </div>
             </div>
-          )}
-        </GlassCard>
-      </div>
 
-      {/* Settings */}
-      <GlassCard>
-        <h3 className="card-title-with-icon">
-          <Icon name="settings" size={18} /> Настройки
-        </h3>
-        <div className="settings-grid">
-          <div className="settings-row">
-            <div>
-              <strong>Тема оформления</strong>
-              <p className="muted">Светлая, тёмная или подстраивается под систему.</p>
+            <div className="profile-fields">
+              <div className="field">
+                <label>Имя и фамилия</label>
+                <input
+                  className="input"
+                  onChange={(e) => setName(e.target.value)}
+                  value={name}
+                />
+              </div>
+              <div className="field">
+                <label>Email</label>
+                <input
+                  className="input"
+                  onChange={(e) => setEmail(e.target.value)}
+                  value={email}
+                />
+              </div>
+              <div className="field">
+                <label>ID пользователя</label>
+                <input className="input" readOnly value={user.id || "—"} />
+              </div>
+              <div className="field">
+                <label>Роль</label>
+                <div className="row" style={{ gap: 6 }}>
+                  <span className="tag tag--ink">
+                    {(user.role || "user").toUpperCase()}
+                  </span>
+                  {user.connectedGithub ? (
+                    <span className="tag tag--lime">GitHub связан</span>
+                  ) : null}
+                </div>
+              </div>
             </div>
-            <div className="settings-segmented" role="radiogroup">
-              {(["light", "system", "dark"] as const).map((mode) => (
+
+            <div className="row" style={{ marginTop: 24, gap: 12 }}>
+              <button
+                className="btn btn--primary"
+                disabled={saving}
+                onClick={() => void save()}
+                type="button"
+              >
+                {saved ? (
+                  <>
+                    <Icon name="check" size={14} /> Сохранено
+                  </>
+                ) : saving ? (
+                  "Сохраняем…"
+                ) : (
+                  "Сохранить изменения"
+                )}
+              </button>
+            </div>
+          </section>
+
+          {/* Безопасность */}
+          <SecuritySection />
+
+          {/* Подписка и оплата */}
+          <section className="profile-card">
+            <header className="row-between" style={{ alignItems: "baseline" }}>
+              <div>
+                <span className="eyebrow">Подписка и оплата</span>
+                <h2 style={{ fontSize: 28, marginTop: 4 }}>
+                  {getTierTitle(subscription.tier)}
+                </h2>
+              </div>
+              {subscription.tier !== "free" ? (
+                <span className="tag tag--lime">ACTIVE</span>
+              ) : (
+                <span className="tag">FREE</span>
+              )}
+            </header>
+
+            {subscription.intent ? (
+              <div style={{ marginTop: 14 }}>
+                <p className="muted" style={{ fontSize: 13 }}>
+                  Карта •••• {subscription.intent.cardLast4} ·{" "}
+                  {formatBYNAmount(subscription.intent.amount)} <BynSign size={12} />/мес
+                </p>
+                <p className="muted" style={{ fontSize: 13 }}>
+                  Действует до{" "}
+                  {new Date(subscription.intent.expiresAt).toLocaleDateString("ru-RU")}
+                </p>
+              </div>
+            ) : (
+              <p className="muted" style={{ marginTop: 12, fontSize: 13 }}>
+                Выберите подходящий тариф ниже.
+              </p>
+            )}
+
+            <div className="grid-3" style={{ marginTop: 20, gap: 16 }}>
+              {TIER_CATALOG.map((tier) => {
+                const isCurrent = subscription.tier === tier.tier;
+                const cardStyle: React.CSSProperties = tier.highlight
+                  ? {
+                      background: "var(--ink)",
+                      color: "var(--bg)",
+                      borderColor: "var(--ink)",
+                    }
+                  : {};
+                return (
+                  <article
+                    className="card card--hover"
+                    key={tier.tier}
+                    style={cardStyle}
+                  >
+                    <span
+                      className="eyebrow"
+                      style={tier.highlight ? { color: "var(--accent)" } : {}}
+                    >
+                      {tier.tier.toUpperCase()}
+                    </span>
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "baseline",
+                        gap: 6,
+                        marginTop: 10,
+                      }}
+                    >
+                      <span
+                        className="display"
+                        style={{
+                          fontSize: 40,
+                          color: tier.highlight ? "var(--accent)" : "var(--ink)",
+                          display: "inline-flex",
+                          alignItems: "baseline",
+                          gap: 6,
+                        }}
+                      >
+                        {formatBYNAmount(tier.price)}
+                        <BynSign size={24} />
+                      </span>
+                      <span className="muted" style={{ fontSize: 13 }}>
+                        / мес
+                      </span>
+                    </div>
+                    <ul
+                      style={{
+                        display: "grid",
+                        gap: 8,
+                        marginTop: 14,
+                        fontSize: 13,
+                        color: tier.highlight
+                          ? "oklch(0.82 0.01 60)"
+                          : "var(--ink-2)",
+                      }}
+                    >
+                      {tier.perks.map((p) => (
+                        <li
+                          key={p}
+                          style={{ paddingLeft: 14, position: "relative" }}
+                        >
+                          <span
+                            style={{
+                              position: "absolute",
+                              left: 0,
+                              color: "var(--accent)",
+                            }}
+                          >
+                            ·
+                          </span>
+                          {p}
+                        </li>
+                      ))}
+                    </ul>
+                    <div style={{ marginTop: 18 }}>
+                      {isCurrent ? (
+                        <span className="tag tag--lime">ТЕКУЩИЙ ТАРИФ</span>
+                      ) : (
+                        <button
+                          className="btn btn--accent btn--sm"
+                          onClick={() =>
+                            navigate(
+                              `/billing/checkout?tier=${tier.tier}&amount=${tier.price}`,
+                            )
+                          }
+                          type="button"
+                        >
+                          Оформить
+                        </button>
+                      )}
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+
+            <div className="row" style={{ marginTop: 20, gap: 12 }}>
+              <button
+                className="btn btn--ghost btn--sm"
+                onClick={() => navigate("/billing")}
+                type="button"
+              >
+                Открыть биллинг
+              </button>
+              {subscription.tier !== "free" && (
                 <button
-                  key={mode}
-                  className={theme === mode ? "is-active" : ""}
-                  onClick={() => setTheme(mode)}
-                  role="radio"
-                  aria-checked={theme === mode}
+                  className="btn btn--ghost btn--sm"
+                  onClick={() => void handleCancelSub()}
                   type="button"
                 >
-                  {mode === "light" ? "Светлая" : mode === "dark" ? "Тёмная" : "Авто"}
+                  Отменить подписку
                 </button>
-              ))}
+              )}
             </div>
-          </div>
-
-          <div className="settings-row">
-            <div>
-              <strong>Плотный режим</strong>
-              <p className="muted">Уплотняет таблицы и карточки.</p>
-            </div>
-            <Toggle
-              checked={prefs.compactDensity}
-              onChange={(v) => prefs.setCompactDensity(v)}
-              ariaLabel="Плотный режим"
-            />
-          </div>
-
-          <div className="settings-row">
-            <div>
-              <strong>Снижение анимаций</strong>
-              <p className="muted">Уменьшает скорость переходов и эффектов.</p>
-            </div>
-            <Toggle
-              checked={prefs.reduceMotion}
-              onChange={(v) => prefs.setReduceMotion(v)}
-              ariaLabel="Снижение анимаций"
-            />
-          </div>
-
-          <div className="settings-row">
-            <div>
-              <strong>Звуки во время интервью</strong>
-              <p className="muted">Тонкие сигналы таймера и готовности AI.</p>
-            </div>
-            <Toggle
-              checked={prefs.soundEnabled}
-              onChange={(v) => prefs.setSoundEnabled(v)}
-              ariaLabel="Звуки"
-            />
-          </div>
+          </section>
         </div>
-      </GlassCard>
 
-      {/* Notifications */}
-      <GlassCard>
-        <h3 className="card-title-with-icon">
-          <Icon name="bell" size={18} /> Уведомления
-        </h3>
-        <p className="muted">Будем присылать только то, что вы сами выбрали.</p>
-        <div className="settings-grid">
-          {(
-            [
-              ["interview_reminder", "Напоминания об интервью"],
-              ["result_ready", "Готовы результаты"],
-              ["weekly_digest", "Еженедельный дайджест прогресса"],
-            ] as const
-          ).map(([channel, label]) => (
-            <div className="settings-row" key={channel}>
+        {/* RIGHT COLUMN */}
+        <div style={{ display: "grid", gap: 24 }}>
+          {/* GitHub card */}
+          <section className="gh-card">
+            <div className="row-between" style={{ alignItems: "baseline" }}>
               <div>
-                <strong>{label}</strong>
+                <span className="eyebrow">GitHub</span>
+                <h2 className="display" style={{ fontSize: 36, marginTop: 6 }}>
+                  Подключение.
+                </h2>
               </div>
-              <Toggle
-                checked={prefs.notifications[channel]}
-                onChange={(v) => prefs.setNotification(channel, v)}
-                ariaLabel={label}
-              />
+              {user.connectedGithub ? (
+                <button className="btn btn--ghost btn--sm" type="button" onClick={() => void disconnectGithub()}>
+                  <Icon name="github" size={14} /> Отключить
+                </button>
+              ) : null}
             </div>
-          ))}
-        </div>
-      </GlassCard>
 
-      {/* Security: password change */}
-      <SecuritySection />
+            <div
+              style={{
+                padding: 18,
+                border: "1px solid var(--line)",
+                borderRadius: "var(--r-1)",
+                background: "var(--paper-2)",
+              }}
+            >
+              <div className="row" style={{ gap: 14 }}>
+                <div
+                  style={{
+                    width: 44,
+                    height: 44,
+                    borderRadius: 12,
+                    background: "var(--ink)",
+                    color: "var(--bg)",
+                    display: "grid",
+                    placeItems: "center",
+                  }}
+                >
+                  <Icon name="github" size={20} />
+                </div>
+                <div style={{ flex: 1 }}>
+                  <strong>
+                    {user.connectedGithub ? "Подключён" : "Не подключён"}
+                  </strong>
+                  <div
+                    className="mono"
+                    style={{ fontSize: 11, color: "var(--muted)" }}
+                  >
+                    {user.connectedGithub
+                      ? "Контрибуции и языки анализируются"
+                      : "Подключите аккаунт, чтобы анализировать контрибуции"}
+                  </div>
+                </div>
+                <span
+                  className={`tag ${user.connectedGithub ? "tag--lime" : ""}`}
+                >
+                  {user.connectedGithub ? "СИНХРОН." : "ВЫКЛ"}
+                </span>
+              </div>
 
-      {/* Subscription / billing */}
-      <GlassCard>
-        <div className="section-header">
-          <h3 className="card-title-with-icon">
-            <Icon name="credit" size={18} /> Подписка
-          </h3>
-          {subscription.tier !== "free" ? (
-            <span className={`report-status report-status-${subscription.tier}`}>
-              Активный тариф: {getTierTitle(subscription.tier)}
-            </span>
-          ) : (
-            <span className="report-status">Тариф: Free</span>
-          )}
-        </div>
+              {!user.connectedGithub ? (
+                <form
+                  onSubmit={(e) => { e.preventDefault(); void connectGithub(); }}
+                  style={{ marginTop: 14, display: "grid", gap: 10 }}
+                >
+                  <div className="field">
+                    <label htmlFor="gh-username">GitHub-логин</label>
+                    <input
+                      id="gh-username"
+                      className="input"
+                      value={ghUsername}
+                      onChange={(e) => setGhUsername(e.target.value)}
+                      placeholder="octocat"
+                      autoComplete="off"
+                      disabled={ghConnecting}
+                    />
+                  </div>
+                  <button
+                    type="submit"
+                    className="btn btn--primary btn--sm"
+                    disabled={ghConnecting || !ghUsername.trim()}
+                  >
+                    {ghConnecting ? "Подключаем…" : "Подключить GitHub"}
+                  </button>
+                </form>
+              ) : (
+                <div className="row" style={{ marginTop: 12, gap: 10 }}>
+                  <button
+                    className="btn btn--ghost btn--sm"
+                    type="button"
+                    onClick={() => void resyncGithub()}
+                    disabled={ghConnecting}
+                  >
+                    <Icon name="github" size={14} /> Пересинхронизировать
+                  </button>
+                </div>
+              )}
+            </div>
 
-        {subscription.intent ? (
-          <div className="subscription-summary">
             <div>
-              <strong>{getTierTitle(subscription.tier)}</strong>
-              <span className="muted"> · продлится до {new Date(subscription.intent.expiresAt).toLocaleDateString("ru-RU")}</span>
-            </div>
-            <div className="muted">
-              Карта •••• {subscription.intent.cardLast4} ·{" "}
-              {subscription.intent.amount.toLocaleString("en-US", { style: "currency", currency: "USD" })}
-            </div>
-            <div className="modal-actions">
-              <GlassButton
-                onClick={() =>
-                  navigate(
-                    `/billing/checkout?tier=${subscription.tier}&amount=${subscription.intent?.amount ?? 0}`,
-                  )
-                }
-                type="button"
-                variant="ghost"
+              <div
+                className="row-between mono"
+                style={{
+                  fontSize: 11,
+                  color: "var(--muted)",
+                  marginBottom: 10,
+                  letterSpacing: "0.08em",
+                  textTransform: "uppercase",
+                }}
               >
-                Продлить
-              </GlassButton>
-              <GlassButton
+                <span>контрибуции — последние 7 недель</span>
+                <span>
+                  {ghReport
+                    ? `${(ghReport.charts.contribution_days || []).reduce((s, d) => s + (d.count || 0), 0)} коммитов`
+                    : "187 коммитов"}
+                </span>
+              </div>
+              <div className="gh-grid">
+                {cells.map((lv, i) => (
+                  <div
+                    key={i}
+                    className={`gh-cell ${lv}`}
+                    style={{
+                      animationDelay: `${i * 6}ms`,
+                      animation: `reveal 480ms var(--ease-out) ${i * 6}ms backwards`,
+                    }}
+                  />
+                ))}
+              </div>
+            </div>
+
+            <div className="hr"></div>
+
+            <div className="grid-2" style={{ gap: 12 }}>
+              <div>
+                <div
+                  className="mono"
+                  style={{
+                    fontSize: 11,
+                    color: "var(--muted)",
+                    letterSpacing: "0.08em",
+                    textTransform: "uppercase",
+                  }}
+                >
+                  Топ-репо
+                </div>
+                {(() => {
+                  const top = ghReport?.top_repositories?.[0];
+                  return top ? (
+                    <>
+                      <div className="display" style={{ fontSize: 22, marginTop: 4 }}>{top.name}</div>
+                      <div className="muted" style={{ fontSize: 12 }}>
+                        {[
+                          top.language,
+                          `${top.stars} ⭐`,
+                          `${top.forks} forks`,
+                        ].filter(Boolean).join(" · ")}
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="display" style={{ fontSize: 22, marginTop: 4 }}>realsync-core</div>
+                      <div className="muted" style={{ fontSize: 12 }}>Go · 142 ⭐ · 12 contributors</div>
+                    </>
+                  );
+                })()}
+              </div>
+              <div>
+                <div
+                  className="mono"
+                  style={{
+                    fontSize: 11,
+                    color: "var(--muted)",
+                    letterSpacing: "0.08em",
+                    textTransform: "uppercase",
+                  }}
+                >
+                  Языки
+                </div>
+                <div
+                  className="row"
+                  style={{ marginTop: 8, gap: 6, flexWrap: "wrap" }}
+                >
+                  {(() => {
+                    const dist = ghReport?.charts.language_distribution;
+                    if (dist && dist.length) {
+                      const total = dist.reduce((s, d) => s + d.value, 0) || 1;
+                      return dist.slice(0, 4).map((d, i) => (
+                        <span key={d.label} className={`tag ${i === 0 ? "tag--lime" : ""}`}>
+                          {d.label} {Math.round((d.value / total) * 100)}%
+                        </span>
+                      ));
+                    }
+                    return (
+                      <>
+                        <span className="tag tag--lime">Go 62%</span>
+                        <span className="tag">TS 24%</span>
+                        <span className="tag">Py 8%</span>
+                        <span className="tag">Other 6%</span>
+                      </>
+                    );
+                  })()}
+                </div>
+              </div>
+            </div>
+          </section>
+
+          {/* Полная GitHub-аналитика — только когда есть импорт */}
+          {ghReport ? (
+            <section className="profile-card">
+              <header className="row-between" style={{ alignItems: "baseline" }}>
+                <div>
+                  <span className="eyebrow">GitHub · аналитика</span>
+                  <h2 style={{ fontSize: 24, marginTop: 6 }}>
+                    {ghReport.profile_name || ghReport.username}
+                  </h2>
+                </div>
+                <a
+                  className="mono"
+                  href={ghReport.profile_url}
+                  rel="noreferrer"
+                  target="_blank"
+                  style={{ fontSize: 12, color: "var(--muted)", textDecoration: "none" }}
+                >
+                  @{ghReport.username} ↗
+                </a>
+              </header>
+
+              {/* Stats sysbar */}
+              <div className="sysbar" style={{ marginTop: 16 }}>
+                <span><span className="k">подписчиков</span><span className="v">{ghReport.stats.followers}</span></span>
+                <span><span className="k">репо</span><span className="v">{ghReport.stats.public_repos}</span></span>
+                <span><span className="k">звёзд</span><span className="v">{ghReport.stats.total_stars}</span></span>
+                <span><span className="k">форков</span><span className="v">{ghReport.stats.total_forks}</span></span>
+                <span><span className="k">issues</span><span className="v">{ghReport.stats.total_open_issues}</span></span>
+              </div>
+
+              {/* AI summary */}
+              {ghReport.ai_insights.summary ? (
+                <p style={{ marginTop: 16, fontSize: 14, color: "var(--ink-2)", lineHeight: 1.55 }}>
+                  {ghReport.ai_insights.summary}
+                </p>
+              ) : null}
+
+              {/* Strengths + Risks */}
+              <div className="grid-2" style={{ gap: 18, marginTop: 18 }}>
+                {ghReport.ai_insights.strengths?.length ? (
+                  <div>
+                    <div className="mono" style={{ fontSize: 11, color: "var(--muted)", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 8 }}>
+                      Сильные стороны
+                    </div>
+                    <ul style={{ display: "grid", gap: 6 }}>
+                      {ghReport.ai_insights.strengths.slice(0, 4).map((s, i) => (
+                        <li key={i} style={{ fontSize: 13, color: "var(--ink-2)", paddingLeft: 14, position: "relative" }}>
+                          <span style={{ position: "absolute", left: 0, color: "var(--accent)" }}>·</span>{s}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+                {ghReport.ai_insights.risks?.length ? (
+                  <div>
+                    <div className="mono" style={{ fontSize: 11, color: "var(--muted)", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 8 }}>
+                      Зоны риска
+                    </div>
+                    <ul style={{ display: "grid", gap: 6 }}>
+                      {ghReport.ai_insights.risks.slice(0, 4).map((s, i) => (
+                        <li key={i} style={{ fontSize: 13, color: "var(--ink-2)", paddingLeft: 14, position: "relative" }}>
+                          <span style={{ position: "absolute", left: 0, color: "oklch(0.65 0.14 25)" }}>·</span>{s}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+              </div>
+
+              {/* Recommended positions */}
+              {ghReport.ai_insights.recommended_positions?.length ? (
+                <div style={{ marginTop: 18 }}>
+                  <div className="mono" style={{ fontSize: 11, color: "var(--muted)", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 10 }}>
+                    Рекомендованные позиции
+                  </div>
+                  <div style={{ display: "grid", gap: 8 }}>
+                    {ghReport.ai_insights.recommended_positions.slice(0, 3).map((p) => (
+                      <div
+                        key={p.role}
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns: "1fr 60px",
+                          alignItems: "center",
+                          gap: 12,
+                          padding: "10px 12px",
+                          background: "var(--paper-2)",
+                          border: "1px solid var(--line)",
+                          borderRadius: "var(--r-1)",
+                        }}
+                      >
+                        <div>
+                          <strong style={{ fontSize: 14 }}>{p.role}</strong>
+                          <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>{p.rationale}</div>
+                        </div>
+                        <span className="mono" style={{ fontSize: 13, color: "var(--accent-ink, var(--ink))", textAlign: "right" }}>
+                          {p.fit_score}%
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
+              {/* Top repos */}
+              {ghReport.top_repositories?.length ? (
+                <div style={{ marginTop: 18 }}>
+                  <div className="mono" style={{ fontSize: 11, color: "var(--muted)", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 10 }}>
+                    Топ-репозитории
+                  </div>
+                  <div style={{ display: "grid", gap: 8 }}>
+                    {ghReport.top_repositories.slice(0, 4).map((r) => (
+                      <a
+                        key={r.name}
+                        href={r.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns: "1fr auto",
+                          gap: 10,
+                          alignItems: "baseline",
+                          padding: "10px 12px",
+                          background: "var(--paper-2)",
+                          border: "1px solid var(--line)",
+                          borderRadius: "var(--r-1)",
+                          textDecoration: "none",
+                          color: "var(--ink)",
+                        }}
+                      >
+                        <div>
+                          <strong style={{ fontSize: 14 }}>{r.name}</strong>
+                          {r.description ? (
+                            <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>{r.description}</div>
+                          ) : null}
+                        </div>
+                        <span className="mono" style={{ fontSize: 12, color: "var(--muted)" }}>
+                          {r.language || "—"} · {r.stars} ⭐
+                        </span>
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
+              {/* Interview tracks */}
+              {ghReport.ai_insights.interview_tracks?.length ? (
+                <div style={{ marginTop: 18 }}>
+                  <div className="mono" style={{ fontSize: 11, color: "var(--muted)", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 10 }}>
+                    Рекомендованные треки интервью
+                  </div>
+                  <div style={{ display: "grid", gap: 8 }}>
+                    {ghReport.ai_insights.interview_tracks.slice(0, 3).map((tr, i) => (
+                      <button
+                        key={`${tr.role}-${i}`}
+                        type="button"
+                        onClick={() => {
+                          const sp = new URLSearchParams({
+                            role: tr.role,
+                            mode: tr.mode,
+                            level: tr.level,
+                            duration: String(tr.duration_minutes),
+                          });
+                          navigate(`/interview?${sp.toString()}`);
+                        }}
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns: "1fr auto",
+                          gap: 10,
+                          alignItems: "center",
+                          padding: "12px 14px",
+                          background: "var(--paper-2)",
+                          border: "1px solid var(--line)",
+                          borderRadius: "var(--r-1)",
+                          cursor: "pointer",
+                          textAlign: "left",
+                          color: "var(--ink)",
+                        }}
+                      >
+                        <div>
+                          <strong style={{ fontSize: 14 }}>{tr.role}</strong>
+                          <div className="mono muted" style={{ fontSize: 11, marginTop: 2 }}>
+                            {tr.mode === "theory" ? "теория" : "практика"} · {tr.level} · {tr.duration_minutes} мин
+                          </div>
+                        </div>
+                        <Icon name="arrow" size={14} />
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
+              {/* Action plan */}
+              {ghReport.ai_insights.action_plan?.length ? (
+                <div style={{ marginTop: 18 }}>
+                  <div className="mono" style={{ fontSize: 11, color: "var(--muted)", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 10 }}>
+                    План действий
+                  </div>
+                  <ol style={{ display: "grid", gap: 8 }}>
+                    {ghReport.ai_insights.action_plan.slice(0, 4).map((p, i) => (
+                      <li
+                        key={i}
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns: "28px 1fr",
+                          gap: 10,
+                          fontSize: 13,
+                          color: "var(--ink-2)",
+                        }}
+                      >
+                        <span className="mono" style={{ color: "var(--muted)", fontSize: 11 }}>{String(i + 1).padStart(2, "0")}</span>
+                        <span>{p}</span>
+                      </li>
+                    ))}
+                  </ol>
+                </div>
+              ) : null}
+            </section>
+          ) : null}
+
+          {/* Настройки интерфейса */}
+          <section className="profile-card">
+            <header className="dash-section-head">
+              <h2 style={{ fontSize: 24 }}>Интерфейс</h2>
+            </header>
+            <div className="profile-fields">
+              <div className="field">
+                <label>Тема</label>
+                <div className="segmented">
+                  {(["light", "system", "dark"] as const).map((mode) => (
+                    <button
+                      key={mode}
+                      aria-checked={theme === mode}
+                      className={theme === mode ? "is-active" : ""}
+                      onClick={() => setTheme(mode)}
+                      role="radio"
+                      type="button"
+                    >
+                      {mode === "light"
+                        ? "Светлая"
+                        : mode === "dark"
+                          ? "Тёмная"
+                          : "Системная"}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="field">
+                <label>Язык</label>
+                <div className="segmented">
+                  <button className="is-active" type="button">
+                    Русский
+                  </button>
+                  <button disabled type="button">
+                    English
+                  </button>
+                </div>
+              </div>
+              <div className="field">
+                <label>Плотный режим</label>
+                <div className="segmented">
+                  <button
+                    className={!prefs.compactDensity ? "is-active" : ""}
+                    onClick={() => prefs.setCompactDensity(false)}
+                    type="button"
+                  >
+                    Обычный
+                  </button>
+                  <button
+                    className={prefs.compactDensity ? "is-active" : ""}
+                    onClick={() => prefs.setCompactDensity(true)}
+                    type="button"
+                  >
+                    Компактный
+                  </button>
+                </div>
+              </div>
+              <div className="field">
+                <label>Анимации</label>
+                <div className="segmented">
+                  <button
+                    className={!prefs.reduceMotion ? "is-active" : ""}
+                    onClick={() => prefs.setReduceMotion(false)}
+                    type="button"
+                  >
+                    Полные
+                  </button>
+                  <button
+                    className={prefs.reduceMotion ? "is-active" : ""}
+                    onClick={() => prefs.setReduceMotion(true)}
+                    type="button"
+                  >
+                    Сниженные
+                  </button>
+                </div>
+              </div>
+              <div className="field">
+                <label>Звуки во время интервью</label>
+                <div className="segmented">
+                  <button
+                    className={prefs.soundEnabled ? "is-active" : ""}
+                    onClick={() => prefs.setSoundEnabled(true)}
+                    type="button"
+                  >
+                    Вкл
+                  </button>
+                  <button
+                    className={!prefs.soundEnabled ? "is-active" : ""}
+                    onClick={() => prefs.setSoundEnabled(false)}
+                    type="button"
+                  >
+                    Выкл
+                  </button>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          {/* Опасная зона */}
+          <section
+            className="profile-card"
+            style={{ borderColor: "var(--line)" }}
+          >
+            <header className="dash-section-head">
+              <h2 style={{ fontSize: 24 }}>Опасная зона</h2>
+            </header>
+            <p className="muted" style={{ fontSize: 13 }}>
+              Выход с устройства и сброс пользовательских настроек до значений
+              по умолчанию.
+            </p>
+            <div className="row" style={{ marginTop: 16, gap: 12, flexWrap: "wrap" }}>
+              <button
+                className="btn btn--ghost btn--sm"
                 onClick={() => {
-                  void cancelSubscription();
-                  pushToast("Подписка отменена");
+                  prefs.reset();
+                  pushToast("Настройки сброшены");
                 }}
                 type="button"
-                variant="ghost"
               >
-                Отменить
-              </GlassButton>
-            </div>
-          </div>
-        ) : null}
-
-        <div className="tier-grid">
-          {TIER_CATALOG.map((tier) => {
-            const isCurrent = subscription.tier === tier.tier;
-            return (
-              <div
-                className={`tier-card${tier.highlight ? " is-highlight" : ""}${isCurrent ? " is-current" : ""}`}
-                key={tier.tier}
+                Сбросить настройки
+              </button>
+              <button
+                className="btn btn--ghost btn--sm"
+                onClick={handleLogout}
+                type="button"
               >
-                <div className="tier-card-head">
-                  <span className="tier-name">{tier.title}</span>
-                  {tier.highlight ? <span className="tier-badge">Популярный</span> : null}
-                </div>
-                <div className="tier-price">
-                  <strong>${tier.price}/mo</strong>
-                  <span className="muted">/мес</span>
-                </div>
-                <ul className="tier-perks">
-                  {tier.perks.map((perk) => (
-                    <li key={perk}>{perk}</li>
-                  ))}
-                </ul>
-                <button
-                  className={`tier-cta${tier.highlight ? " is-primary" : ""}`}
-                  disabled={isCurrent}
-                  onClick={() =>
-                    navigate(`/billing/checkout?tier=${tier.tier}&amount=${tier.price}`)
-                  }
-                  type="button"
-                >
-                  {isCurrent ? "Текущий тариф" : `Перейти на ${tier.title}`}
-                </button>
-              </div>
-            );
-          })}
-        </div>
-
-        <p className="muted tier-disclaimer">
-          Оплата проходит через защищённый платёжный шлюз — данные карты
-          не сохраняются на нашей стороне. Подписка продлевается ежемесячно,
-          её можно отменить в один клик.
-        </p>
-      </GlassCard>
-
-      {/* Connected accounts */}
-      <GlassCard>
-        <h3 className="card-title-with-icon">
-          <Icon name="github" size={18} /> Связанные аккаунты
-        </h3>
-        <GithubConnectCard />
-      </GlassCard>
-
-      {/* Data + danger zone */}
-      <GlassCard>
-        <h3 className="card-title-with-icon">
-          <Icon name="shield" size={18} /> Данные и приватность
-        </h3>
-        <div className="settings-grid">
-          <div className="settings-row">
-            <div>
-              <strong>Экспорт данных</strong>
-              <p className="muted">
-                Скачать JSON-снимок профиля, настроек и аналитики интервью.
-              </p>
+                Выйти
+              </button>
             </div>
-            <GlassButton onClick={handleExportData} type="button" variant="ghost">
-              Скачать .json
-            </GlassButton>
-          </div>
-          <div className="settings-row">
-            <div>
-              <strong>Сбросить настройки</strong>
-              <p className="muted">Возвращает темy, плотность и уведомления к значениям по умолчанию.</p>
-            </div>
-            <GlassButton
-              onClick={() => {
-                prefs.reset();
-                pushToast("Настройки сброшены");
-              }}
-              type="button"
-              variant="ghost"
-            >
-              Сбросить
-            </GlassButton>
-          </div>
+          </section>
         </div>
-      </GlassCard>
-    </section>
-  );
-}
-
-type ToggleProps = {
-  checked: boolean;
-  onChange: (value: boolean) => void;
-  ariaLabel: string;
-};
-
-/**
- * Accessible iOS-style toggle. Pure CSS, no extra deps.
- */
-function Toggle({ checked, onChange, ariaLabel }: ToggleProps) {
-  return (
-    <button
-      aria-checked={checked}
-      aria-label={ariaLabel}
-      className={`pref-toggle${checked ? " is-on" : ""}`}
-      onClick={() => onChange(!checked)}
-      role="switch"
-      type="button"
-    >
-      <span className="pref-toggle__knob" />
-    </button>
+      </div>
+    </>
   );
 }
 
 /**
- * Password-change form. Calls PUT /users/me/password and surfaces
- * the validation reason inline ("invalid current password" / new
- * password too short, etc.) so the user can fix it without guessing.
- *
- * Self-contained component so the main ProfilePage state surface
- * stays focused on identity and billing.
+ * Password-change form. Calls userApi.changePassword and surfaces
+ * the validation reason inline.
  */
 function SecuritySection() {
   const { pushToast } = useToast();
@@ -612,8 +1025,7 @@ function SecuritySection() {
       setConfirm("");
       pushToast("Пароль обновлён");
     } catch (err) {
-      const status = (err as { response?: { status?: number; data?: { error?: string } } })
-        ?.response?.status;
+      const status = (err as { response?: { status?: number } })?.response?.status;
       const message =
         (err as { response?: { data?: { error?: string } } })?.response?.data?.error ||
         (err as Error).message;
@@ -628,41 +1040,63 @@ function SecuritySection() {
   };
 
   return (
-    <GlassCard>
-      <h3 className="card-title-with-icon">
-        <Icon name="shield" size={18} /> Безопасность
-      </h3>
-      <p className="muted">
-        Сменить пароль. Минимальная длина — 8 символов. После смены остальные сессии
-        останутся активны до истечения их refresh-токена.
+    <section className="profile-card">
+      <header className="dash-section-head">
+        <h2 style={{ fontSize: 24 }}>Безопасность</h2>
+      </header>
+      <p className="muted" style={{ fontSize: 13 }}>
+        Минимальная длина пароля — 8 символов. Остальные сессии останутся
+        активны до истечения refresh-токена.
       </p>
-      <form onSubmit={handleSubmit} className="security-form">
-        <FloatingInput
-          autoComplete="current-password"
-          label="Текущий пароль"
-          onChange={(e) => setCurrent(e.target.value)}
-          type="password"
-          value={current}
-        />
-        <FloatingInput
-          autoComplete="new-password"
-          label="Новый пароль"
-          onChange={(e) => setNext(e.target.value)}
-          type="password"
-          value={next}
-        />
-        <FloatingInput
-          autoComplete="new-password"
-          label="Повторите новый пароль"
-          onChange={(e) => setConfirm(e.target.value)}
-          type="password"
-          value={confirm}
-        />
-        {error ? <p className="form-error">{error}</p> : null}
-        <GlassButton disabled={submitting || !current || !next} type="submit">
-          {submitting ? "Сохраняем..." : "Сменить пароль"}
-        </GlassButton>
+      <form className="profile-fields" onSubmit={handleSubmit} style={{ marginTop: 14 }}>
+        <div className="field">
+          <label>Текущий пароль</label>
+          <input
+            autoComplete="current-password"
+            className="input"
+            onChange={(e) => setCurrent(e.target.value)}
+            type="password"
+            value={current}
+          />
+        </div>
+        <div className="field">
+          <label>Новый пароль</label>
+          <input
+            autoComplete="new-password"
+            className="input"
+            onChange={(e) => setNext(e.target.value)}
+            type="password"
+            value={next}
+          />
+        </div>
+        <div className="field">
+          <label>Повторите новый пароль</label>
+          <input
+            autoComplete="new-password"
+            className="input"
+            onChange={(e) => setConfirm(e.target.value)}
+            type="password"
+            value={confirm}
+          />
+        </div>
+        {error ? (
+          <p
+            className="mono"
+            style={{ fontSize: 12, color: "oklch(0.50 0.18 25)" }}
+          >
+            {error}
+          </p>
+        ) : null}
+        <div>
+          <button
+            className="btn btn--primary btn--sm"
+            disabled={submitting || !current || !next}
+            type="submit"
+          >
+            {submitting ? "Сохраняем…" : "Сменить пароль"}
+          </button>
+        </div>
       </form>
-    </GlassCard>
+    </section>
   );
 }

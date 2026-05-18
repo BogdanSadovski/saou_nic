@@ -17,7 +17,7 @@ const LoginForm: React.FC<LoginFormProps> = ({ onLogin, isLoading = false, error
 
   return (
     <form className="login-form" onSubmit={handleSubmit}>
-      <h2 className="login-form__title">Sign In</h2>
+      <h2 className="login-form__title">Войти</h2>
 
       {error && <div className="login-form__error">{error}</div>}
 
@@ -38,7 +38,7 @@ const LoginForm: React.FC<LoginFormProps> = ({ onLogin, isLoading = false, error
 
       <div className="login-form__field">
         <label htmlFor="password" className="login-form__label">
-          Password
+          Пароль
         </label>
         <input
           id="password"
@@ -52,7 +52,7 @@ const LoginForm: React.FC<LoginFormProps> = ({ onLogin, isLoading = false, error
       </div>
 
       <button type="submit" className="login-form__submit" disabled={isLoading}>
-        {isLoading ? 'Signing in...' : 'Sign In'}
+        {isLoading ? 'Входим...' : 'Войти'}
       </button>
     </form>
   );

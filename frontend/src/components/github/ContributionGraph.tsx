@@ -47,18 +47,18 @@ const ContributionGraph: React.FC<ContributionGraphProps> = ({
           <div
             key={day.date}
             className={`contribution-graph__day ${getIntensity(day.count)}`}
-            title={`${day.date}: ${day.count} contributions`}
+            title={`${day.date}: ${day.count} коммитов`}
           />
         ))}
       </div>
       <div className="contribution-graph__legend">
-        <span>Less</span>
+        <span>Меньше</span>
         <div className="contribution-graph__day contribution-graph__day--none" />
         <div className="contribution-graph__day contribution-graph__day--low" />
         <div className="contribution-graph__day contribution-graph__day--medium" />
         <div className="contribution-graph__day contribution-graph__day--high" />
         <div className="contribution-graph__day contribution-graph__day--very-high" />
-        <span>More</span>
+        <span>Больше</span>
       </div>
     </div>
   );

@@ -52,10 +52,10 @@ const Timer: React.FC<TimerProps> = ({ durationSeconds, onEnd, paused = false })
       </span>
       <div className="timer__controls">
         <button className="timer__btn" onClick={handleTogglePause}>
-          {isPaused ? 'Resume' : 'Pause'}
+          {isPaused ? 'Продолжить' : 'Пауза'}
         </button>
         <button className="timer__btn timer__btn--secondary" onClick={handleReset}>
-          Reset
+          Сбросить
         </button>
       </div>
     </div>

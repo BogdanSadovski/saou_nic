@@ -56,7 +56,7 @@ export default function PublicProfilePage() {
   return (
     <section className="page public-profile-page">
       <GlassCard className="public-profile-hero">
-        <p className="eyebrow">Public Profile</p>
+        <p className="eyebrow">Публичный профиль</p>
         <h1>{snapshot.fullName}</h1>
         <p className="muted">{snapshot.headline}</p>
         <div className="public-profile-meta">

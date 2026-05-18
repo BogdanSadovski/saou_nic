@@ -2,40 +2,32 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { reportsApi } from "@/shared/api";
-import type { UserInterviewAnalyticsReport, UserInterviewEntry } from "@/shared/api/reports";
-import { EmptyState, FloatingInput, GlassButton, GlassCard, Skeleton } from "@/shared/ui";
-import { ReportsCharts } from "./charts";
+import type { UserInterviewAnalyticsReport } from "@/shared/api/reports";
+import { Counter, RsIcon as Icon, Sparkline } from "@/shared/ui/realsync";
 import { renderAndPrintReport } from "./pdfExport";
 
 export default function ReportsPage() {
   const navigate = useNavigate();
   const [report, setReport] = useState<UserInterviewAnalyticsReport | null>(null);
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<"all" | "finished" | "active" | "expired">("all");
+  const [filter, setFilter] = useState<"all" | "finished" | "active" | "expired">("all");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [authIssue, setAuthIssue] = useState(false);
 
   const loadReport = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
-      setAuthIssue(false);
       const userReport = await reportsApi.getMyInterviewReport();
       setReport(userReport);
     } catch (e) {
       const status = (e as { response?: { status?: number } })?.response?.status;
       const message = e instanceof Error ? e.message : "Не удалось загрузить отчет";
-      // 404 means the user doesn't have any interview data yet — render a
-      // friendly empty state instead of a hard error so the page still
-      // works (search, exports, recommendations) without a backend report.
       if (status === 404) {
         setReport(reportsApi.emptyReport());
         setError(null);
-        setAuthIssue(false);
       } else {
         setError(message);
-        setAuthIssue(status === 401 || /401|auth|authorization|token/i.test(message));
       }
     } finally {
       setLoading(false);
@@ -47,76 +39,22 @@ export default function ReportsPage() {
   }, [loadReport]);
 
   const filtered = useMemo(() => {
-    if (!report) {
-      return [];
-    }
+    if (!report) return [];
     const q = search.trim().toLowerCase();
     return report.recent_interviews.filter((item) => {
-      const byStatus = statusFilter === "all" ? true : item.status === statusFilter;
-      const bySearch =
+      const okStatus = filter === "all" || item.status === filter;
+      const okSearch =
         !q ||
         item.role.toLowerCase().includes(q) ||
         (item.vacancy_title || "").toLowerCase().includes(q) ||
-        (item.current_topic || "").toLowerCase().includes(q);
-      return byStatus && bySearch;
+        item.session_id.toLowerCase().includes(q);
+      return okStatus && okSearch;
     });
-  }, [report, search, statusFilter]);
-
-  const innovationInsights = useMemo(() => {
-    if (!report) {
-      return null;
-    }
-
-    const timeline = [...report.timeline].sort((a, b) => a.date.localeCompare(b.date));
-    const completedSeries = timeline.map((point) => point.completed);
-    const startedSeries = timeline.map((point) => point.started);
-
-    const tail = completedSeries.slice(-3);
-    const prev = completedSeries.slice(-6, -3);
-    const tailAvg = tail.length ? tail.reduce((acc, value) => acc + value, 0) / tail.length : 0;
-    const prevAvg = prev.length ? prev.reduce((acc, value) => acc + value, 0) / prev.length : 0;
-    const momentum = Math.round((tailAvg - prevAvg) * 20);
-
-    let streakDays = 0;
-    for (let i = completedSeries.length - 1; i >= 0; i -= 1) {
-      if (completedSeries[i] > 0) {
-        streakDays += 1;
-      } else {
-        break;
-      }
-    }
-
-    const startedTotal = startedSeries.reduce((acc, value) => acc + value, 0);
-    const completedTotal = completedSeries.reduce((acc, value) => acc + value, 0);
-    const consistency = startedTotal > 0 ? Math.round((completedTotal / startedTotal) * 100) : 0;
-    const reliability = Math.round((consistency * 0.6 + report.totals.completion_rate * 0.4));
-
-    const primaryWeakness = report.top_weaknesses[0] || "системное мышление";
-    const challenge = `Challenge дня: 25 минут на практический раунд по теме "${primaryWeakness}" с фокусом на trade-offs и метрики.`;
-
-    const experiments = [
-      `Dual Mode Sprint: 15 минут theory + 15 минут practice по теме ${primaryWeakness}.`,
-      "Replay Debrief: пересоберите 1 неуспешный ответ в формате STAR и сравните с исходным.",
-      "Pressure Test: ограничьте ответ 90 секундами и добавьте 2 fallback-стратегии.",
-    ];
-
-    return {
-      momentum,
-      streakDays,
-      consistency,
-      reliability,
-      challenge,
-      experiments,
-    };
-  }, [report]);
+  }, [report, search, filter]);
 
   const exportJson = () => {
-    if (!report) {
-      return;
-    }
-    const blob = new Blob([JSON.stringify(report, null, 2)], {
-      type: "application/json",
-    });
+    if (!report) return;
+    const blob = new Blob([JSON.stringify(report, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
@@ -126,295 +64,200 @@ export default function ReportsPage() {
   };
 
   const exportPdf = () => {
-    if (!report) {
-      return;
-    }
+    if (!report) return;
     void renderAndPrintReport(report);
-  };
-
-  const interviewRow = (item: UserInterviewEntry) => {
-    return (
-      <div className="report-interview-row" key={item.session_id}>
-        <div>
-          <strong>{item.role}</strong>
-          <small>{item.vacancy_title || "Без вакансии"}</small>
-        </div>
-        <div>
-          <span className={`report-status report-status-${item.status}`}>{item.status}</span>
-          <small>{item.interview_mode}</small>
-        </div>
-        <div>
-          <strong>{item.overall_score ?? "-"}</strong>
-          <small>score</small>
-        </div>
-        <div>
-          <strong>{item.messages_total}</strong>
-          <small>messages</small>
-        </div>
-      </div>
-    );
   };
 
   if (loading) {
     return (
-      <section className="page" aria-busy="true">
-        <div className="section-header">
-          <Skeleton width={260} height={28} />
-          <Skeleton width={180} height={36} />
-        </div>
-        <GlassCard>
-          <div className="report-metrics-grid">
-            <Skeleton variant="card" />
-            <Skeleton variant="card" />
-            <Skeleton variant="card" />
-          </div>
-        </GlassCard>
-        <GlassCard>
-          <Skeleton count={4} />
-        </GlassCard>
-        <GlassCard>
-          <Skeleton variant="card" height={140} />
-        </GlassCard>
-      </section>
+      <main className="page">
+        <h1 className="expr-headline"><span className="ital">Загрузка</span> отчёта</h1>
+      </main>
     );
   }
 
   if (error) {
     return (
-      <section className="page">
-        <EmptyState
-          icon="⚠️"
-          title="Не удалось загрузить отчёт"
-          hint={error}
-          action={
-            <GlassButton onClick={() => void loadReport()} type="button" variant="primary">
-              Повторить
-            </GlassButton>
-          }
-          secondaryAction={
-            authIssue ? (
-              <GlassButton onClick={() => navigate("/auth")} type="button" variant="ghost">
-                Войти заново
-              </GlassButton>
-            ) : null
-          }
-        />
-      </section>
+      <main className="page">
+        <h1 className="expr-headline"><span className="ital">Не удалось</span> загрузить отчёт</h1>
+        <p className="muted">{error}</p>
+        <button className="btn btn--primary" onClick={() => void loadReport()} type="button">Повторить</button>
+      </main>
     );
   }
 
-  if (!report) {
-    return (
-      <section className="page">
-        <EmptyState
-          icon="📊"
-          title="Отчёт пока пуст"
-          hint="После первого пройденного интервью здесь появится подробная аналитика, графики прогресса и персональные рекомендации."
-          action={
-            <GlassButton onClick={() => navigate("/interview")} type="button" variant="primary">
-              Начать интервью
-            </GlassButton>
-          }
-        />
-      </section>
-    );
-  }
+  if (!report) return null;
 
-  const hasInterviews = report.totals.total_interviews > 0;
+  const totals = report.totals;
+  const perf = report.performance;
+  const completionRate = Math.round(totals.completion_rate);
+  const avg = Math.round(perf.average_score);
+  const best = Math.round(perf.best_score);
+  const incomplete = totals.in_progress_interviews + totals.expired_interviews;
+
+  const stats = [
+    { l: "Всего", v: totals.total_interviews },
+    { l: "Завершено", v: totals.completed_interviews },
+    { l: "Не завершено", v: incomplete },
+    { l: "Завершение", v: completionRate, s: "%" as const },
+    { l: "Среднее", v: avg },
+    { l: "Лучший", v: best },
+  ];
+
+  const timelineCompleted = [...report.timeline].sort((a, b) => a.date.localeCompare(b.date)).map((p) => p.completed);
+  const sparkData = timelineCompleted.length ? timelineCompleted.slice(-10) : [2, 3, 2, 4, 3, 5, 4, 6, 5, 7];
 
   return (
-    <section className="page">
-      <div className="section-header">
-        <h1>Отчет по пользователю</h1>
-        <div className="report-actions">
-          <GlassButton onClick={exportJson} type="button" variant="ghost">
-            Экспорт JSON
-          </GlassButton>
-          <GlassButton onClick={exportPdf} type="button" variant="primary">
-            Экспорт PDF
-          </GlassButton>
+    <main className="page" data-screen-label="06 Reports">
+      <div className="sysbar reveal" style={{ marginBottom: 24 }}>
+        <span><span className="dot"></span><span className="k">report</span><span className="v">v3.2</span></span>
+        <span><span className="k">user_id</span><span className="v">{report.user_id.slice(0, 8)}</span></span>
+        <span><span className="k">generated</span><span className="v">{new Date(report.generated_at).toLocaleString("ru-RU")}</span></span>
+        <span><span className="k">data points</span><span className="v">{totals.total_interviews}</span></span>
+        <span><span className="k">format</span><span className="v">analytics.v2</span></span>
+      </div>
+
+      <header className="reports-head">
+        <div>
+          <span className="eyebrow">Отчёт пользователя</span>
+          <h1 className="expr-headline" style={{ fontSize: 72 }}>
+            <span className="bold">Отчёт</span><br />
+            <span className="ital">по пользователю</span>.
+          </h1>
+          <div className="id mono">user_id: {report.user_id.slice(0, 12)} · report v3.2</div>
         </div>
-      </div>
-
-      <div className="dashboard-grid report-metrics-grid">
-        <GlassCard>
-          <p className="muted">Всего интервью</p>
-          <h2>{report.totals.total_interviews}</h2>
-        </GlassCard>
-        <GlassCard>
-          <p className="muted">Завершено</p>
-          <h2>{report.totals.completed_interviews}</h2>
-        </GlassCard>
-        <GlassCard>
-          <p className="muted">Не завершено</p>
-          <h2>{report.totals.in_progress_interviews + report.totals.expired_interviews}</h2>
-        </GlassCard>
-        <GlassCard>
-          <p className="muted">Completion rate</p>
-          <h2>{report.totals.completion_rate}%</h2>
-        </GlassCard>
-        <GlassCard>
-          <p className="muted">Средний балл</p>
-          <h2>{report.performance.average_score}</h2>
-        </GlassCard>
-        <GlassCard>
-          <p className="muted">Лучший балл</p>
-          <h2>{report.performance.best_score}</h2>
-        </GlassCard>
-      </div>
-
-      {innovationInsights ? (
-        <div className="dashboard-grid report-metrics-grid">
-          <GlassCard>
-            <p className="muted">Карьерный пульс</p>
-            <h2>{innovationInsights.momentum > 0 ? `+${innovationInsights.momentum}` : innovationInsights.momentum}</h2>
-            <p className="muted">Динамика завершения интервью за последние сессии</p>
-          </GlassCard>
-          <GlassCard>
-            <p className="muted">Серия дней</p>
-            <h2>{innovationInsights.streakDays}</h2>
-            <p className="muted">Дней подряд с завершенными интервью</p>
-          </GlassCard>
-          <GlassCard>
-            <p className="muted">Индекс надежности</p>
-            <h2>{innovationInsights.reliability}%</h2>
-            <p className="muted">Consistency: {innovationInsights.consistency}%</p>
-          </GlassCard>
+        <div className="row">
+          <button className="btn btn--ghost" onClick={exportJson} type="button"><Icon name="download" size={14} /> Экспорт JSON</button>
+          <button className="btn btn--primary" onClick={exportPdf} type="button"><Icon name="download" size={14} /> Экспорт PDF</button>
         </div>
-      ) : null}
+      </header>
 
-      {hasInterviews ? (
-        <GlassCard>
-          <h3>Графики прогресса</h3>
-          <ReportsCharts report={report} />
-        </GlassCard>
-      ) : null}
-
-      <div className="filters two-col">
-        <FloatingInput label="Поиск по роли/теме/вакансии" onChange={(e) => setSearch(e.target.value)} value={search} />
-        <div className="interview-field">
-          <label htmlFor="status-filter">Статус интервью</label>
-          <select
-            id="status-filter"
-            onChange={(event) => setStatusFilter(event.target.value as "all" | "finished" | "active" | "expired")}
-            value={statusFilter}
-          >
-            <option value="all">Все</option>
-            <option value="finished">Завершенные</option>
-            <option value="active">В процессе</option>
-            <option value="expired">Истекшие</option>
-          </select>
-        </div>
-      </div>
-
-      <div className="home-grid">
-        <GlassCard>
-          <h3>Сильные стороны</h3>
-          <ul className="report-bullet-list">
-            {report.top_strengths.map((item) => (
-              <li key={item}>{item}</li>
-            ))}
-            {report.top_strengths.length === 0 ? <li>Недостаточно данных</li> : null}
-          </ul>
-        </GlassCard>
-        <GlassCard>
-          <h3>Слабые стороны</h3>
-          <ul className="report-bullet-list">
-            {report.top_weaknesses.map((item) => (
-              <li key={item}>{item}</li>
-            ))}
-            {report.top_weaknesses.length === 0 ? <li>Недостаточно данных</li> : null}
-          </ul>
-        </GlassCard>
-      </div>
-
-      <GlassCard>
-        <h3>Рекомендации к развитию</h3>
-        <ul className="report-bullet-list">
-          {report.top_recommendations.map((item) => (
-            <li key={item}>{item}</li>
-          ))}
-          {report.top_recommendations.length === 0 ? <li>Недостаточно данных</li> : null}
-        </ul>
-      </GlassCard>
-
-      {innovationInsights ? (
-        <GlassCard className="report-innovation-card">
-          <h3>Innovation Sprint</h3>
-          <p className="muted">{innovationInsights.challenge}</p>
-          <ul className="report-bullet-list">
-            {innovationInsights.experiments.map((item) => (
-              <li key={item}>{item}</li>
-            ))}
-          </ul>
-          <div className="report-actions">
-            <GlassButton onClick={() => navigate("/interview")} type="button">
-              Запустить спринт-интервью
-            </GlassButton>
-            <GlassButton
-              onClick={async () => {
-                try {
-                  await navigator.clipboard.writeText(innovationInsights.challenge);
-                } catch {
-                  // noop: clipboard may be unavailable in insecure contexts.
-                }
-              }}
-              type="button"
-              variant="ghost"
-            >
-              Скопировать challenge
-            </GlassButton>
+      <section className="report-stats">
+        {stats.map((s, i) => (
+          <div className="report-stat reveal" style={{ animationDelay: `${i * 60}ms` }} key={s.l}>
+            <div className="report-stat-label">{s.l}</div>
+            <div className="report-stat-value mono">
+              <Counter target={s.v} />{s.s ? <span className="report-stat-suffix">{s.s}</span> : null}
+            </div>
           </div>
-        </GlassCard>
-      ) : null}
+        ))}
+      </section>
 
-      <GlassCard>
-        <h3>Завершенные интервью</h3>
-        {report.completed_interviews.slice(0, 12).map(interviewRow)}
-        {report.completed_interviews.length === 0 ? <p className="muted">Пока нет завершенных интервью</p> : null}
-      </GlassCard>
+      <section className="metric-row" style={{ marginTop: 0, borderTop: "none" }}>
+        <div className="metric">
+          <div className="metric-label">Карьерный пульс</div>
+          <div className="metric-value mono">+{Math.max(0, Math.round((perf.latest_score || 0) - perf.average_score))}</div>
+          <div className="metric-delta">Динамика завершения за последние сессии</div>
+          <div className="metric-spark"><Sparkline data={sparkData} width={220} height={32} /></div>
+        </div>
+        <div className="metric">
+          <div className="metric-label">Серия дней</div>
+          <div className="metric-value mono"><Counter target={Math.min(7, timelineCompleted.filter((c) => c > 0).length)} /></div>
+          <div className="metric-delta">Дней подряд с завершёнными интервью</div>
+        </div>
+        <div className="metric">
+          <div className="metric-label">Индекс надёжности</div>
+          <div className="metric-value mono"><Counter target={completionRate} suffix="%" /></div>
+          <div className="metric-delta">Consistency · {completionRate}%</div>
+        </div>
+      </section>
 
-      <GlassCard>
-        <h3>Незавершенные интервью</h3>
-        {report.incomplete_interviews.slice(0, 12).map(interviewRow)}
-        {report.incomplete_interviews.length === 0 ? <p className="muted">Незавершенных интервью нет</p> : null}
-      </GlassCard>
+      <section className="lists-grid">
+        <div className="list-col">
+          <h3>Сильные стороны</h3>
+          <ul>
+            {report.top_strengths.length === 0 ? <li>Недостаточно данных</li> : report.top_strengths.map((s) => <li key={s}>{s}</li>)}
+          </ul>
+        </div>
+        <div className="list-col">
+          <h3>Слабые стороны</h3>
+          <ul>
+            {report.top_weaknesses.length === 0 ? <li>Недостаточно данных</li> : report.top_weaknesses.map((s) => <li key={s}>{s}</li>)}
+          </ul>
+        </div>
+      </section>
 
-      <GlassCard>
-        <h3>Последние интервью (фильтруемые)</h3>
-        {filtered.map(interviewRow)}
-        {filtered.length === 0 && hasInterviews ? (
-          <EmptyState
-            icon="🔍"
-            title="Ничего не найдено"
-            hint="По текущим фильтрам ни одно интервью не подошло. Попробуйте сбросить поиск или статус."
-            action={
-              <GlassButton
-                onClick={() => {
-                  setSearch("");
-                  setStatusFilter("all");
-                }}
-                type="button"
-                variant="ghost"
-              >
-                Сбросить фильтры
-              </GlassButton>
-            }
-          />
-        ) : null}
-        {!hasInterviews ? (
-          <EmptyState
-            icon="🚀"
-            title="У вас ещё нет интервью"
-            hint="Пройдите первое практическое или теоретическое интервью — и сюда подтянутся метрики, тренд оценок и рекомендации."
-            action={
-              <GlassButton onClick={() => navigate("/interview")} type="button" variant="primary">
-                Начать первое интервью
-              </GlassButton>
-            }
-          />
-        ) : null}
-      </GlassCard>
-    </section>
+      <section style={{ marginTop: 40 }}>
+        <header className="dash-section-head">
+          <h2>Спринт развития</h2>
+          <span className="eyebrow">adaptive · v2</span>
+        </header>
+        <div className="card scanline" style={{ background: "var(--ink)", color: "var(--bg)", borderColor: "var(--ink)" }}>
+          <p style={{ fontFamily: "var(--f-display)", fontSize: 28, lineHeight: 1.1, maxWidth: "50ch" }}>
+            <em style={{ color: "var(--accent)", fontStyle: "italic" }}>Challenge дня.</em>{" "}
+            25 минут практический раунд с фокусом на trade-offs и метрики.
+          </p>
+          <ul style={{ marginTop: 20, display: "grid", gap: 10 }}>
+            {[
+              "Dual Mode Sprint: 15 мин theory + 15 мин practice",
+              "Replay Debrief: пересоберите 1 неуспешный ответ в STAR",
+              "Pressure Test: ограничьте ответ 90 сек + 2 fallback-стратегии",
+            ].map((it, i) => (
+              <li key={it} style={{ display: "grid", gridTemplateColumns: "24px 1fr", gap: 12, color: "oklch(0.82 0.01 60)", fontSize: 14 }}>
+                <span className="mono" style={{ color: "var(--accent)" }}>{String(i + 1).padStart(2, "0")}</span>
+                <span>{it}</span>
+              </li>
+            ))}
+          </ul>
+          <div className="row" style={{ marginTop: 22 }}>
+            <button className="btn btn--accent" onClick={() => navigate("/interview")} type="button">Запустить спринт-интервью <Icon name="arrow" /></button>
+            <button className="btn" style={{ border: "1px solid oklch(0.35 0.01 60)", color: "var(--bg)" }} type="button">Скопировать challenge</button>
+          </div>
+        </div>
+      </section>
+
+      <section style={{ marginTop: 40 }}>
+        <header className="dash-section-head">
+          <h2>Все интервью</h2>
+          <div className="row">
+            <div className="vacancy-search" style={{ padding: "8px 14px" }}>
+              <Icon name="search" size={14} />
+              <input
+                placeholder="Поиск…"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                style={{ width: 160 }}
+              />
+            </div>
+            <div className="segmented">
+              {(["all", "finished", "active", "expired"] as const).map((s) => (
+                <button key={s} className={filter === s ? "is-active" : ""} onClick={() => setFilter(s)} type="button">
+                  {s === "all" ? "Все" : s === "finished" ? "Завершённые" : s === "active" ? "Активные" : "Истёкшие"}
+                </button>
+              ))}
+            </div>
+          </div>
+        </header>
+
+        <div className="report-table">
+          <div className="report-row head">
+            <span></span>
+            <span>Сессия</span>
+            <span>Режим</span>
+            <span>Статус</span>
+            <span>Баллы</span>
+            <span style={{ textAlign: "right" }}>Дата</span>
+          </div>
+          {filtered.map((r, i) => (
+            <div className="report-row" key={r.session_id}>
+              <span className="num">{String(i + 1).padStart(2, "0")}</span>
+              <div>
+                <strong>{r.role} · #{r.session_id.slice(0, 6)}</strong>
+                <div className="mono" style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>{r.messages_total} сообщений</div>
+              </div>
+              <span className="mono" style={{ fontSize: 12, color: "var(--muted)" }}>{r.interview_mode}</span>
+              <span><span className={`status ${r.status}`}>{r.status}</span></span>
+              <span className="score mono">{r.overall_score ?? "—"}</span>
+              <span className="mono" style={{ fontSize: 12, color: "var(--muted)", textAlign: "right" }}>
+                {r.started_at ? new Date(r.started_at).toLocaleDateString("ru-RU", { day: "2-digit", month: "short" }) : ""}
+              </span>
+            </div>
+          ))}
+          {!filtered.length && (
+            <div style={{ padding: 40, textAlign: "center", color: "var(--muted)" }}>Ничего не найдено. Сбросьте фильтры.</div>
+          )}
+        </div>
+      </section>
+    </main>
   );
 }

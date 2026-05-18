@@ -35,35 +35,35 @@ const InterviewSetup: React.FC<InterviewSetupProps> = ({ onStart }) => {
 
   return (
     <form className="interview-setup" onSubmit={handleSubmit}>
-      <h2 className="interview-setup__title">Interview Setup</h2>
+      <h2 className="interview-setup__title">Настройка интервью</h2>
 
       <div className="interview-setup__field">
-        <label className="interview-setup__label">Interview Mode</label>
+        <label className="interview-setup__label">Режим интервью</label>
         <select
           className="interview-setup__select"
           value={mode}
           onChange={(e) => setMode(e.target.value as InterviewConfig['mode'])}
         >
-          <option value="mock">Mock Interview</option>
-          <option value="real">Real Interview</option>
+          <option value="mock">Пробное интервью</option>
+          <option value="real">Реальное интервью</option>
         </select>
       </div>
 
       <div className="interview-setup__field">
-        <label className="interview-setup__label">Difficulty</label>
+        <label className="interview-setup__label">Сложность</label>
         <select
           className="interview-setup__select"
           value={difficulty}
           onChange={(e) => setDifficulty(e.target.value as InterviewConfig['difficulty'])}
         >
           <option value="junior">Junior</option>
-          <option value="mid">Mid-Level</option>
+          <option value="mid">Middle</option>
           <option value="senior">Senior</option>
         </select>
       </div>
 
       <div className="interview-setup__field">
-        <label className="interview-setup__label">Category</label>
+        <label className="interview-setup__label">Категория</label>
         <select
           className="interview-setup__select"
           value={category}
@@ -78,7 +78,7 @@ const InterviewSetup: React.FC<InterviewSetupProps> = ({ onStart }) => {
       </div>
 
       <div className="interview-setup__field">
-        <label className="interview-setup__label">Duration (minutes): {duration}</label>
+        <label className="interview-setup__label">Длительность (минуты): {duration}</label>
         <input
           type="range"
           className="interview-setup__range"
@@ -97,12 +97,12 @@ const InterviewSetup: React.FC<InterviewSetupProps> = ({ onStart }) => {
             checked={useVideo}
             onChange={(e) => setUseVideo(e.target.checked)}
           />
-          Enable Video Recording
+          Включить запись видео
         </label>
       </div>
 
       <button type="submit" className="interview-setup__submit">
-        Start Interview
+        Начать интервью
       </button>
     </form>
   );

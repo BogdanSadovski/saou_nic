@@ -6,7 +6,7 @@ import {
   useSubscriptionStore,
   type Tier,
 } from "@/app/store";
-import { useToast } from "@/shared/ui";
+import { BynSign, useToast } from "@/shared/ui";
 
 /**
  * Mock external checkout — looks intentionally different from the rest
@@ -103,7 +103,7 @@ export default function CheckoutPage() {
     await applyPayment({
       tier,
       amount,
-      currency: "USD",
+      currency: "BYN",
       cardLast4: last4,
       paidAt: now.toISOString(),
       expiresAt: expires.toISOString(),
@@ -139,7 +139,9 @@ export default function CheckoutPage() {
 
         <div className="checkout-amount-row">
           <span className="muted">К оплате</span>
-          <strong className="checkout-amount">${amount}/mo</strong>
+          <strong className="checkout-amount">
+            {amount.toLocaleString("ru-RU")} <BynSign size={18} />/мес
+          </strong>
         </div>
 
         <form className="checkout-form" onSubmit={handleSubmit} noValidate>
@@ -218,7 +220,11 @@ export default function CheckoutPage() {
               disabled={submitting}
               type="submit"
             >
-              {submitting ? "Обрабатываем платёж..." : `Оплатить $${amount}`}
+              {submitting ? (
+                "Обрабатываем платёж..."
+              ) : (
+                <>Оплатить {amount.toLocaleString("ru-RU")} <BynSign size={14} /></>
+              )}
             </button>
           </div>
 

@@ -15,7 +15,7 @@ const OAuthButtons: React.FC<OAuthButtonsProps> = ({
 
   return (
     <div className="oauth-buttons">
-      <p className="oauth-buttons__label">Or continue with</p>
+      <p className="oauth-buttons__label">Или войти через</p>
       <div className="oauth-buttons__list">
         {providers.map((provider) => (
           <button

@@ -13,10 +13,10 @@ interface ScoreBreakdownProps {
 }
 
 const defaultScores: ScoreItem[] = [
-  { category: 'Technical Skills', score: 85, weight: 40 },
-  { category: 'Communication', score: 78, weight: 25 },
-  { category: 'Problem Solving', score: 90, weight: 25 },
-  { category: 'Culture Fit', score: 72, weight: 10 },
+  { category: 'Технические навыки', score: 85, weight: 40 },
+  { category: 'Коммуникация', score: 78, weight: 25 },
+  { category: 'Решение задач', score: 90, weight: 25 },
+  { category: 'Соответствие культуре', score: 72, weight: 10 },
 ];
 
 const ScoreBreakdown: React.FC<ScoreBreakdownProps> = ({
@@ -31,10 +31,10 @@ const ScoreBreakdown: React.FC<ScoreBreakdownProps> = ({
 
   return (
     <div className="score-breakdown">
-      <h3 className="score-breakdown__title">Score Breakdown</h3>
+      <h3 className="score-breakdown__title">Разбивка баллов</h3>
 
       <div className="score-breakdown__total">
-        <span className="score-breakdown__total-label">Total Score</span>
+        <span className="score-breakdown__total-label">Всего баллов</span>
         <span className="score-breakdown__total-value">
           {totalScore}/{maxScore}
         </span>
@@ -62,7 +62,7 @@ const ScoreBreakdown: React.FC<ScoreBreakdownProps> = ({
       </div>
 
       <div className="score-breakdown__weighted">
-        Weighted Score: {weightedTotal.toFixed(1)}
+        Взвешенный балл: {weightedTotal.toFixed(1)}
       </div>
     </div>
   );

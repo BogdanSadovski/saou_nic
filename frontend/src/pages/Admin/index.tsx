@@ -8,15 +8,8 @@ import type {
   AdminSubscription,
   AdminUser,
 } from "@/shared/api/admin";
-import { useTranslation } from "@/shared/i18n";
-import {
-  EmptyState,
-  FloatingInput,
-  GlassButton,
-  GlassCard,
-  Skeleton,
-  useToast,
-} from "@/shared/ui";
+import { formatBYN } from "@/shared/lib/currency";
+import { useToast } from "@/shared/ui";
 
 import { AdminCharts } from "./charts";
 
@@ -34,27 +27,22 @@ const STATUS_OPTIONS: Array<{ value: string; label: string }> = [
 const formatDate = (raw?: string) => {
   if (!raw) return "—";
   const d = new Date(raw);
-  return Number.isNaN(d.getTime()) ? "—" : d.toLocaleString();
+  return Number.isNaN(d.getTime()) ? "—" : d.toLocaleDateString("ru-RU");
 };
 
 const formatCurrency = (value: number) =>
-  value > 0
-    ? value.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 })
-    : "—";
+  value > 0 ? formatBYN(Math.round(value)) : "—";
 
-// Mirror of admin-service tierMonthlyPriceUSD — used to label
-// subscription amounts on the admin tab when the backend doesn't
-// echo back an explicit Amount field.
-const tierMonthlyPriceUSD = (tier: string): number => {
+const tierMonthlyPriceBYN = (tier: string): number => {
   switch (tier) {
     case "starter":
     case "basic":
-      return 9;
+      return 29;
     case "pro":
-      return 19;
+      return 65;
     case "team":
     case "enterprise":
-      return 49;
+      return 159;
     default:
       return 0;
   }
@@ -66,7 +54,6 @@ const userDisplayName = (u: AdminUser) => {
 };
 
 export default function AdminPage() {
-  const t = useTranslation();
   const navigate = useNavigate();
   const { pushToast } = useToast();
 
@@ -182,8 +169,6 @@ export default function AdminPage() {
     }
   }, [tab, subscriptions.length, auditLogs.length, loadSubscriptions, loadAuditLogs]);
 
-  // Apply local search/filter on top of the server filter so the user
-  // sees instant feedback while typing without an extra round-trip.
   const filteredUsers = useMemo(() => {
     const q = query.trim().toLowerCase();
     return users.filter((u) => {
@@ -230,10 +215,14 @@ export default function AdminPage() {
   };
 
   return (
-    <section className="page admin-page">
-      <div className="section-header">
-        <h1>{t.adminAnalytics}</h1>
-        <GlassButton
+    <>
+      <span className="eyebrow">Админ · консоль</span>
+      <header className="row-between" style={{ alignItems: "end", marginTop: 8 }}>
+        <h1 className="expr-headline" style={{ fontSize: 72 }}>
+          <span className="ital">Админ</span>.
+        </h1>
+        <button
+          className="btn btn--ghost btn--sm"
           onClick={() => {
             void loadStats();
             void loadUsers();
@@ -241,197 +230,142 @@ export default function AdminPage() {
             if (tab === "audit") void loadAuditLogs();
           }}
           type="button"
-          variant="ghost"
         >
           Обновить
-        </GlassButton>
-      </div>
+        </button>
+      </header>
 
-      {/* KPI strip — five tiles, responsive auto-fit so the panel
-          gracefully drops to 3→2→1 columns as the viewport shrinks. */}
-      <div className="admin-kpi-grid">
-        <GlassCard className="stat-card">
-          <p className="muted">Всего пользователей</p>
-          {statsLoading ? <Skeleton width={80} height={32} /> : <h2>{stats?.total_users ?? "—"}</h2>}
-        </GlassCard>
-        <GlassCard className="stat-card">
-          <p className="muted">Активные</p>
-          {statsLoading ? <Skeleton width={80} height={32} /> : <h2>{stats?.active_users ?? "—"}</h2>}
-        </GlassCard>
-        <GlassCard className="stat-card">
-          <p className="muted">Новые за сегодня</p>
-          {statsLoading ? <Skeleton width={80} height={32} /> : <h2>{stats?.new_users_today ?? "—"}</h2>}
-        </GlassCard>
-        <GlassCard className="stat-card">
-          <p className="muted">Активные подписки</p>
-          {statsLoading ? (
-            <Skeleton width={80} height={32} />
-          ) : (
-            <h2>{stats?.active_subscriptions ?? "—"}</h2>
-          )}
-        </GlassCard>
-        <GlassCard className="stat-card">
-          <p className="muted">Доход за месяц</p>
-          {statsLoading ? (
-            <Skeleton width={120} height={32} />
-          ) : (
-            <h2>{formatCurrency(stats?.revenue_this_month ?? 0)}</h2>
-          )}
-        </GlassCard>
+      {/* KPI strip */}
+      <div className="sysbar reveal" style={{ marginTop: 20 }}>
+        <span>
+          <span className="dot"></span>
+          <span className="k">всего</span>
+          <span className="v">{statsLoading ? "…" : (stats?.total_users ?? "—")}</span>
+        </span>
+        <span>
+          <span className="k">активных</span>
+          <span className="v">{statsLoading ? "…" : (stats?.active_users ?? "—")}</span>
+        </span>
+        <span>
+          <span className="k">новых сегодня</span>
+          <span className="v">{statsLoading ? "…" : (stats?.new_users_today ?? "—")}</span>
+        </span>
+        <span>
+          <span className="k">подписок</span>
+          <span className="v">{statsLoading ? "…" : (stats?.active_subscriptions ?? "—")}</span>
+        </span>
+        <span>
+          <span className="k">доход (мес)</span>
+          <span className="v">{statsLoading ? "…" : formatCurrency(stats?.revenue_this_month ?? 0)}</span>
+        </span>
       </div>
 
       {statsError ? (
-        <EmptyState
-          icon="🔒"
-          title="Нет доступа к админ-метрикам"
-          hint={statsError}
-          action={
-            <GlassButton onClick={() => void loadStats()} type="button" variant="primary">
-              Повторить
-            </GlassButton>
-          }
-        />
+        <section className="profile-card" style={{ marginTop: 24 }}>
+          <h3>Нет доступа к админ-метрикам</h3>
+          <p className="muted">{statsError}</p>
+          <button className="btn btn--primary btn--sm" onClick={() => void loadStats()} type="button" style={{ marginTop: 12 }}>
+            Повторить
+          </button>
+        </section>
       ) : (
-        <GlassCard>
-          <h3>Распределение и тарифы</h3>
-          {statsLoading ? <Skeleton variant="card" height={220} /> : stats ? <AdminCharts stats={stats} /> : null}
-        </GlassCard>
+        <section style={{ marginTop: 24 }}>
+          <header className="dash-section-head" style={{ marginBottom: 16 }}>
+            <h2 style={{ fontSize: 24 }}>Аналитика платформы</h2>
+          </header>
+          {!statsLoading && stats ? <AdminCharts stats={stats} /> : null}
+        </section>
       )}
 
-      {/* Section nav: clickable cards with icon, label, count, hint.
-          Replaces the flat segmented control so the user sees what each
-          tab contains at a glance and the layout collapses naturally to
-          a stack on mobile. */}
-      <nav className="admin-nav" role="tablist" aria-label="Разделы админки">
-        <button
-          aria-selected={tab === "users"}
-          className={`admin-nav-card${tab === "users" ? " is-active" : ""}`}
-          onClick={() => setTab("users")}
-          role="tab"
-          type="button"
-        >
-          <span className="admin-nav-icon" aria-hidden="true">👤</span>
-          <span className="admin-nav-body">
-            <span className="admin-nav-label">Пользователи</span>
-            <span className="admin-nav-meta">
-              {stats ? `${stats.total_users} всего · ${stats.active_users} активных` : "—"}
-            </span>
-          </span>
+      {/* Tab nav */}
+      <div className="segmented" role="tablist" aria-label="Разделы" style={{ marginTop: 28 }}>
+        <button className={tab === "users" ? "is-active" : ""} onClick={() => setTab("users")} type="button">
+          Пользователи
         </button>
-
-        <button
-          aria-selected={tab === "subscriptions"}
-          className={`admin-nav-card${tab === "subscriptions" ? " is-active" : ""}`}
-          onClick={() => setTab("subscriptions")}
-          role="tab"
-          type="button"
-        >
-          <span className="admin-nav-icon" aria-hidden="true">💳</span>
-          <span className="admin-nav-body">
-            <span className="admin-nav-label">Подписки</span>
-            <span className="admin-nav-meta">
-              {stats
-                ? `${stats.active_subscriptions} активных · ${formatCurrency(stats.revenue_this_month)}`
-                : "—"}
-            </span>
-          </span>
+        <button className={tab === "subscriptions" ? "is-active" : ""} onClick={() => setTab("subscriptions")} type="button">
+          Подписки
         </button>
-
-        <button
-          aria-selected={tab === "audit"}
-          className={`admin-nav-card${tab === "audit" ? " is-active" : ""}`}
-          onClick={() => setTab("audit")}
-          role="tab"
-          type="button"
-        >
-          <span className="admin-nav-icon" aria-hidden="true">📜</span>
-          <span className="admin-nav-body">
-            <span className="admin-nav-label">Журнал</span>
-            <span className="admin-nav-meta">События и аудит-лог</span>
-          </span>
+        <button className={tab === "audit" ? "is-active" : ""} onClick={() => setTab("audit")} type="button">
+          Журнал
         </button>
-      </nav>
+      </div>
 
       {tab === "users" && (
-        <GlassCard>
-          <div className="filters two-col">
-            <FloatingInput
-              label="Поиск (email/имя/username)"
-              onChange={(e) => setQuery(e.target.value)}
-              value={query}
-            />
-            <label className="status-filter">
-              <span>Статус</span>
-              <select onChange={(e) => setStatusFilter(e.target.value)} value={statusFilter}>
+        <section className="profile-card" style={{ marginTop: 18 }}>
+          <header className="dash-section-head">
+            <h2 style={{ fontSize: 24 }}>Пользователи</h2>
+            <span className="eyebrow">{usersTotal} всего</span>
+          </header>
+
+          <div className="admin-filters">
+            <div className="field">
+              <label>Поиск</label>
+              <input
+                className="input"
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="email · имя · username"
+                value={query}
+              />
+            </div>
+            <div className="field">
+              <label>Статус</label>
+              <div className="segmented">
                 {STATUS_OPTIONS.map((opt) => (
-                  <option key={opt.value} value={opt.value}>
+                  <button
+                    key={opt.value || "all"}
+                    className={statusFilter === opt.value ? "is-active" : ""}
+                    onClick={() => setStatusFilter(opt.value)}
+                    type="button"
+                  >
                     {opt.label}
-                  </option>
+                  </button>
                 ))}
-              </select>
-            </label>
+              </div>
+            </div>
           </div>
 
-          {usersLoading ? (
-            <Skeleton count={5} />
-          ) : filteredUsers.length === 0 ? (
-            <EmptyState
-              icon="🧑‍💻"
-              title={usersTotal === 0 ? "Пока нет пользователей" : "Ничего не найдено"}
-              hint={
-                usersTotal === 0
-                  ? "Когда появятся регистрации — они подтянутся в эту таблицу автоматически."
-                  : "Попробуйте сбросить фильтры."
-              }
-              action={
-                usersTotal !== 0 ? (
-                  <GlassButton
-                    onClick={() => {
-                      setQuery("");
-                      setStatusFilter("");
-                    }}
-                    type="button"
-                    variant="ghost"
+          <div className="admin-table">
+            <div className="admin-row head">
+              <span>#</span>
+              <span>Пользователь</span>
+              <span>Статус</span>
+              <span>Создан</span>
+              <span>Роль</span>
+              <span style={{ textAlign: "right" }}>Действия</span>
+            </div>
+
+            {usersLoading ? (
+              <div className="muted" style={{ padding: 20 }}>Загружаем…</div>
+            ) : filteredUsers.length === 0 ? (
+              <div className="muted" style={{ padding: 20 }}>
+                {usersTotal === 0 ? "Пока нет пользователей" : "Ничего не найдено"}
+              </div>
+            ) : (
+              filteredUsers.map((u, i) => (
+                <div className="admin-row" key={u.id}>
+                  <span className="num">{String(i + 1).padStart(2, "0")}</span>
+                  <div>
+                    <strong>{userDisplayName(u)}</strong>
+                    <span className="sub">{u.email ?? "—"}</span>
+                  </div>
+                  <span>
+                    <span className={`status ${u.status ?? "active"}`}>{u.status ?? "active"}</span>
+                  </span>
+                  <span className="date-mono">{formatDate(u.created_at)}</span>
+                  <select
+                    className="admin-select"
+                    disabled={pendingId === u.id}
+                    onChange={(e) => void handleRoleChange(u, e.target.value)}
+                    value={u.role ?? "user"}
                   >
-                    Сбросить фильтры
-                  </GlassButton>
-                ) : null
-              }
-            />
-          ) : (
-            <div className="admin-cards-list">
-              {filteredUsers.map((u) => (
-                <div className="admin-row-card" key={u.id}>
-                  <div className="admin-row-main">
-                    <strong className="admin-row-title">{userDisplayName(u)}</strong>
-                    <span className="muted admin-row-sub">{u.email ?? "—"}</span>
-                  </div>
-                  <div className="admin-row-meta">
-                    <span className={`report-status report-status-${u.status ?? "active"}`}>
-                      {u.status ?? "active"}
-                    </span>
-                    <span className="muted">создан {formatDate(u.created_at)}</span>
-                  </div>
-                  <div className="admin-row-controls">
-                    <label className="admin-inline-field">
-                      <span className="muted">Роль</span>
-                      <select
-                        disabled={pendingId === u.id}
-                        onChange={(e) => void handleRoleChange(u, e.target.value)}
-                        value={u.role ?? "user"}
-                      >
-                        {ROLE_OPTIONS.map((r) => (
-                          <option key={r} value={r}>
-                            {r}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                  </div>
-                  <div className="admin-row-actions">
+                    {ROLE_OPTIONS.map((r) => (
+                      <option key={r} value={r}>{r}</option>
+                    ))}
+                  </select>
+                  <div className="admin-actions">
                     {u.status === "suspended" || u.status === "banned" ? (
                       <button
-                        className="practice-secondary-btn"
+                        className="btn btn--ghost btn--sm"
                         disabled={pendingId === u.id}
                         onClick={() => void performAction(u, "activate")}
                         type="button"
@@ -440,7 +374,7 @@ export default function AdminPage() {
                       </button>
                     ) : (
                       <button
-                        className="practice-secondary-btn"
+                        className="btn btn--ghost btn--sm"
                         disabled={pendingId === u.id}
                         onClick={() => void performAction(u, "suspend")}
                         type="button"
@@ -449,7 +383,7 @@ export default function AdminPage() {
                       </button>
                     )}
                     <button
-                      className="practice-secondary-btn admin-action-danger"
+                      className="btn btn--ghost btn--sm"
                       disabled={pendingId === u.id}
                       onClick={() => void performAction(u, "ban")}
                       type="button"
@@ -458,88 +392,98 @@ export default function AdminPage() {
                     </button>
                   </div>
                 </div>
-              ))}
-            </div>
-          )}
-        </GlassCard>
+              ))
+            )}
+          </div>
+        </section>
       )}
 
       {tab === "subscriptions" && (
-        <GlassCard>
-          <h3>Подписки</h3>
-          {subsLoading ? (
-            <Skeleton count={5} />
-          ) : subscriptions.length === 0 ? (
-            <EmptyState
-              icon="💳"
-              title="Подписок пока нет"
-              hint="Все активные тарифы пользователей появятся здесь."
-            />
-          ) : (
-            <div className="admin-cards-list">
-              {subscriptions.map((s) => (
-                <div className="admin-row-card" key={s.id}>
-                  <div className="admin-row-main">
-                    <strong className="admin-row-title">{s.tier}</strong>
-                    <span className="muted admin-row-sub">user: {s.user_id}</span>
-                  </div>
-                  <div className="admin-row-meta">
-                    <span className={`report-status report-status-${s.status}`}>{s.status}</span>
-                    <span className="muted">
-                      {s.amount && s.amount > 0
-                        ? formatCurrency(s.amount)
-                        : formatCurrency(tierMonthlyPriceUSD(s.tier))}
-                    </span>
-                  </div>
-                  <div className="admin-row-meta">
-                    <span className="muted">старт: {formatDate(s.start_date)}</span>
-                    <span className="muted">до: {formatDate(s.end_date)}</span>
-                  </div>
-                </div>
-              ))}
+        <section className="profile-card" style={{ marginTop: 18 }}>
+          <header className="dash-section-head">
+            <h2 style={{ fontSize: 24 }}>Подписки</h2>
+          </header>
+
+          <div className="admin-table">
+            <div className="admin-row head" style={{ gridTemplateColumns: "40px 1.4fr 1fr 1fr 1fr 1fr" }}>
+              <span>#</span>
+              <span>Тариф · юзер</span>
+              <span>Статус</span>
+              <span>Сумма</span>
+              <span>Старт</span>
+              <span>До</span>
             </div>
-          )}
-        </GlassCard>
+            {subsLoading ? (
+              <div className="muted" style={{ padding: 20 }}>Загружаем…</div>
+            ) : subscriptions.length === 0 ? (
+              <div className="muted" style={{ padding: 20 }}>Подписок пока нет</div>
+            ) : (
+              subscriptions.map((s, i) => (
+                <div className="admin-row" key={s.id} style={{ gridTemplateColumns: "40px 1.4fr 1fr 1fr 1fr 1fr" }}>
+                  <span className="num">{String(i + 1).padStart(2, "0")}</span>
+                  <div>
+                    <strong>{s.tier}</strong>
+                    <span className="sub">{s.user_id}</span>
+                  </div>
+                  <span>
+                    <span className={`status ${s.status ?? "active"}`}>{s.status ?? "—"}</span>
+                  </span>
+                  <span className="date-mono">
+                    {s.amount && s.amount > 0
+                      ? formatCurrency(s.amount)
+                      : formatCurrency(tierMonthlyPriceBYN(s.tier))}
+                  </span>
+                  <span className="date-mono">{formatDate(s.start_date)}</span>
+                  <span className="date-mono">{formatDate(s.end_date)}</span>
+                </div>
+              ))
+            )}
+          </div>
+        </section>
       )}
 
       {tab === "audit" && (
-        <GlassCard>
-          <h3>Журнал действий</h3>
-          {auditLoading ? (
-            <Skeleton count={6} />
-          ) : auditLogs.length === 0 ? (
-            <EmptyState
-              icon="📜"
-              title="Журнал пуст"
-              hint="Любые админ-действия будут логироваться здесь автоматически."
-            />
-          ) : (
-            <div className="admin-cards-list">
-              {auditLogs.map((log) => (
-                <div className="admin-row-card" key={log.id}>
-                  <div className="admin-row-main">
-                    <strong className="admin-row-title">{log.action ?? "—"}</strong>
-                    <span className="muted admin-row-sub">
+        <section className="profile-card" style={{ marginTop: 18 }}>
+          <header className="dash-section-head">
+            <h2 style={{ fontSize: 24 }}>Журнал действий</h2>
+          </header>
+
+          <div className="admin-table">
+            <div className="admin-row head" style={{ gridTemplateColumns: "40px 1.4fr 1fr 1fr 1fr 1fr" }}>
+              <span>#</span>
+              <span>Действие · ресурс</span>
+              <span>Статус</span>
+              <span>Когда</span>
+              <span>Админ</span>
+              <span>IP</span>
+            </div>
+            {auditLoading ? (
+              <div className="muted" style={{ padding: 20 }}>Загружаем…</div>
+            ) : auditLogs.length === 0 ? (
+              <div className="muted" style={{ padding: 20 }}>Журнал пуст</div>
+            ) : (
+              auditLogs.map((log, i) => (
+                <div className="admin-row" key={log.id} style={{ gridTemplateColumns: "40px 1.4fr 1fr 1fr 1fr 1fr" }}>
+                  <span className="num">{String(i + 1).padStart(2, "0")}</span>
+                  <div>
+                    <strong>{log.action ?? "—"}</strong>
+                    <span className="sub">
                       {log.resource ?? "—"}
                       {log.resource_id ? ` · ${log.resource_id}` : ""}
                     </span>
                   </div>
-                  <div className="admin-row-meta">
-                    <span className={`report-status report-status-${log.status ?? "active"}`}>
-                      {log.status ?? "—"}
-                    </span>
-                    <span className="muted">{formatDate(log.created_at)}</span>
-                  </div>
-                  <div className="admin-row-meta">
-                    <span className="muted">админ: {log.admin_id ?? "—"}</span>
-                    <span className="muted">IP: {log.ip_address ?? "—"}</span>
-                  </div>
+                  <span>
+                    <span className={`status ${log.status ?? "active"}`}>{log.status ?? "—"}</span>
+                  </span>
+                  <span className="date-mono">{formatDate(log.created_at)}</span>
+                  <span className="date-mono">{log.admin_id ?? "—"}</span>
+                  <span className="date-mono">{log.ip_address ?? "—"}</span>
                 </div>
-              ))}
-            </div>
-          )}
-        </GlassCard>
+              ))
+            )}
+          </div>
+        </section>
       )}
-    </section>
+    </>
   );
 }

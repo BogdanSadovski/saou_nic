@@ -115,6 +115,14 @@ for svc in "${SERVICES[@]}"; do
   fi
   log ">>> $svc -> $db"
   for mig in "${migrations[@]}"; do
+    # Skip ClickHouse-targeted SQL files. The analytics-service stores
+    # events in ClickHouse (separate engine) and metadata in Postgres;
+    # we only run Postgres migrations here. Detect by ClickHouse
+    # keywords that PostgreSQL doesn't understand.
+    if grep -qE 'ENGINE\s*=\s*(MergeTree|ReplicatedMergeTree|SummingMergeTree|AggregatingMergeTree|ReplacingMergeTree)|LowCardinality\(' "$mig"; then
+      log "  (clickhouse, skipped) $(basename "$mig")"
+      continue
+    fi
     if apply_migration "$db" "$mig"; then
       log "  ok: $(basename "$mig")"
     else

@@ -601,7 +601,7 @@ func (h *Handler) parseUUIDVar(w http.ResponseWriter, r *http.Request, key strin
 func normalizeInterviewMode(mode string) string {
 	normalized := strings.ToLower(strings.TrimSpace(mode))
 	switch normalized {
-	case "practice", "theory":
+	case "practice", "theory", "softskills":
 		return normalized
 	default:
 		return "practice"
@@ -672,6 +672,14 @@ func (h *Handler) requestInterviewQuestionFromAI(session *InterviewModuleSession
 	}
 	if normalizedMode == "" {
 		normalizedMode = "practice"
+	}
+
+	// Soft-skills sessions short-circuit the LLM cascade and pull from
+	// the dedicated ML micro-service. AI is not used for question
+	// generation here — the question bank is owned by softskills-service,
+	// and scoring of the previous answer goes through the regressor too.
+	if normalizedMode == "softskills" {
+		return h.buildSoftSkillsNextQuestion(session, lastAnswer)
 	}
 
 	// Free LLMs answer in 10–15s for the strict JSON schema, and a
@@ -2892,6 +2900,40 @@ func (h *Handler) AddInterviewModuleMessage(w http.ResponseWriter, r *http.Reque
 		next = h.buildTechnicalFallbackQuestion(session, cleanContent)
 		h.fallbackRate.Add(1)
 	}
+
+	// Hard-cap "drilling": after 2 follow-ups on the same topic, force
+	// a rotation. Without this the LLM happily spends 5+ turns
+	// circling around one concept ("давайте докрутим", "поясните
+	// глубже", "а если ещё подробнее"), which the user explicitly
+	// flagged as broken UX. Soft-skills sessions skip this — they use
+	// the ML bank which already rotates every turn.
+	mode := strings.ToLower(strings.TrimSpace(session.InterviewMode))
+	if next != nil && mode != "softskills" && session.TopicStats != nil {
+		current := strings.TrimSpace(next.Topic)
+		if current == "" {
+			current = session.CurrentTopic
+		}
+		hits := session.TopicStats[current]
+		if hits >= 2 {
+			h.moduleMu.Lock()
+			session.TopicCursor++
+			newTopic := h.nextTopic(session.Role, session.TopicCursor)
+			h.moduleMu.Unlock()
+			if newTopic != "" && newTopic != current {
+				h.logger.WithFields(logrus.Fields{
+					"session_id": session.SessionID,
+					"old_topic":  current,
+					"new_topic":  newTopic,
+					"hits":       hits,
+				}).Info("force topic rotation after 2 follow-ups")
+				next.Topic = newTopic
+				// Prepend an explicit topic-switch marker so the LLM's
+				// answer text (which still references the old topic)
+				// can't simply continue grilling.
+				next.Question = "Сменим тему. Новый вопрос по " + newTopic + ": " + next.Question
+			}
+		}
+	}
 	aiCallDuration := time.Since(aiCallStart)
 	// Push ExpiresAt forward by exactly the AI-think time. This
 	// mirrors the client-side timer pause while aiTyping is true —
@@ -3522,6 +3564,18 @@ func (h *Handler) requestNextQuestion(ctx context.Context, session *InterviewMod
 	normalizedMode := strings.ToLower(strings.TrimSpace(session.InterviewMode))
 	if normalizedMode == "" {
 		normalizedMode = "practice"
+	}
+
+	// Soft-skills sessions short-circuit the entire LLM pipeline. Every
+	// follow-up question comes from the ML question bank, and the
+	// previous answer's verdict comes from the regressor. We MUST exit
+	// before `applyAnswerSignalToResponse` runs — that helper rewrites
+	// the question text into LLM-style follow-ups ("давайте докрутим
+	// решение", "сменим угол... по теме debugging" etc), which is
+	// exactly what was leaking through into the soft-skills chat.
+	if normalizedMode == "softskills" {
+		_ = ctx
+		return h.buildSoftSkillsNextQuestion(session, lastAnswer)
 	}
 
 	if normalizedMode != "theory" {
@@ -4361,10 +4415,23 @@ func (h *Handler) applyAnswerSignalToResponse(out *nextQuestionResponse, session
 		out.Topic = session.CurrentTopic
 	}
 
-	if strings.ToLower(strings.TrimSpace(session.InterviewMode)) != "theory" {
+	// Practice-mode post-processing — only fires for actual practice
+	// sessions, never for theory or soft-skills (which use plain chat).
+	if strings.ToLower(strings.TrimSpace(session.InterviewMode)) == "practice" {
 		out.Topic = "live_coding"
 		if !h.isPracticeTaskQuestion(out.Question) {
-			out.Question = h.buildPracticeTaskQuestion(session, out.Topic)
+			// Try one more LLM call for a proper coding task; if STILL
+			// theory-style, drop in a known-good fallback so the
+			// candidate never sees an open "расскажите про..." question
+			// in a coding interview.
+			retried := h.buildPracticeTaskQuestion(session, out.Topic)
+			if h.isPracticeTaskQuestion(retried) {
+				out.Question = retried
+			} else {
+				out.Question = h.practiceFallbackTask(session)
+				h.logger.WithField("session_id", session.SessionID).
+					Warn("practice mode: LLM produced theory-style question — substituted bank task")
+			}
 		}
 		feedback := "Принято. Проверьте аккуратность обработки edge cases и оценку сложности."
 		errors := ""
@@ -5084,6 +5151,24 @@ func (h *Handler) buildIntroQuestion(session *InterviewModuleSession) *nextQuest
 	level := strings.TrimSpace(session.Level)
 	mode := strings.ToLower(strings.TrimSpace(session.InterviewMode))
 
+	// Soft-skills sessions skip the LLM entirely — first question comes
+	// straight from the dedicated ML service question bank. Same as
+	// every subsequent turn in this mode.
+	if mode == "softskills" {
+		out, err := h.buildSoftSkillsNextQuestion(session, "")
+		if err != nil || out == nil || strings.TrimSpace(out.Question) == "" {
+			h.logger.WithError(err).Warn("buildIntroQuestion: softskills bridge failed")
+			return &nextQuestionResponse{
+				Question:        "🤖 Сервис soft-skills недоступен — убедитесь, что контейнер `softskills-service` запущен.",
+				Topic:           "soft_skills",
+				DifficultyDelta: 0,
+				PressureLevel:   1,
+				ShouldEnd:       false,
+			}
+		}
+		return out
+	}
+
 	if mode != "theory" {
 		question := h.buildPracticeTaskQuestion(session, "live_coding")
 
@@ -5167,12 +5252,18 @@ func (h *Handler) buildPracticeTaskQuestion(session *InterviewModuleSession, top
 	out, err := h.requestInterviewQuestionFromAI(session, strings.TrimSpace(topic), "", mode)
 	if err == nil && out != nil && strings.TrimSpace(out.Question) != "" {
 		candidate := h.sanitizeModelText(out.Question)
-		if !h.isWeakPracticeTask(candidate) {
+		// Require BOTH: not a weak prompt-leak AND a real coding task.
+		// Without the second check the LLM sometimes returns open
+		// theory-style questions ("Какой подход вы бы использовали")
+		// which the user explicitly flagged as wrong for practice mode.
+		if !h.isWeakPracticeTask(candidate) && h.isPracticeTaskQuestion(candidate) {
 			return candidate
 		}
 	}
-	return "🤖 AI-сервис ещё не подключён. Получите бесплатный ключ на openrouter.ai/keys " +
-		"и выполните `make set-llm-key KEY=sk-or-v1-...`. Затем нажмите «следующая задача» — задание сгенерируется AI."
+	// Fallback to deterministic, role-aware coding tasks. Better than
+	// the "AI offline" placeholder because the candidate can actually
+	// keep practising even if the cascade is degraded.
+	return h.practiceFallbackTask(session)
 }
 
 // isWeakPracticeTask rejects only OBVIOUSLY bad practice prompts —
@@ -5368,16 +5459,53 @@ func (h *Handler) isPracticeTaskQuestion(question string) bool {
 		return false
 	}
 
+	// Reject obvious theory-style openings even if they happen to
+	// contain a "coding-ish" word. These are the patterns the user
+	// flagged as wrong for practice mode.
+	theoryStarts := []string{
+		"какой подход",
+		"какие подходы",
+		"расскажите как",
+		"расскажите о",
+		"расскажите про",
+		"опишите как",
+		"опишите подход",
+		"опишите архитектуру",
+		"объясните как",
+		"объясните принцип",
+		"какие trade-off",
+		"какие компромис",
+		"в чём разница",
+		"в чем разница",
+		"что такое",
+		"что вы знаете",
+		"как бы вы спроектировали",
+		"как бы вы организовали",
+	}
+	for _, bad := range theoryStarts {
+		if strings.HasPrefix(v, bad) || strings.Contains(v, ". "+bad) {
+			return false
+		}
+	}
+
 	markers := []string{
-		"напиши",
+		"напиши", "напишите",
 		"реализ",
-		"функц",
-		"класс",
-		"алгорит",
-		"live coding",
-		"код",
-		"решение",
-		"edge case",
+		"допиши", "допишите",
+		"sql-запрос", "sql запрос",
+		"bash-скрипт", "bash скрипт",
+		"shell-скрипт",
+		"regex", "регулярк",
+		"curl",
+		"middleware",
+		"endpoint",
+		"handler",
+		"функцию", "функция", "функции",
+		"метод",
+		"класс solut", "класс с метод",
+		"алгоритм",
+		"сигнатур",
+		"verify", "проверьте код",
 	}
 	for _, marker := range markers {
 		if strings.Contains(v, marker) {
@@ -5385,6 +5513,57 @@ func (h *Handler) isPracticeTaskQuestion(question string) bool {
 		}
 	}
 	return false
+}
+
+// practiceFallbackTask returns a known-good coding task when the LLM
+// keeps producing theory-style questions. Picked by role.
+func (h *Handler) practiceFallbackTask(session *InterviewModuleSession) string {
+	role := strings.ToLower(strings.TrimSpace(session.Role))
+	tasks := map[string][]string{
+		"backend": {
+			"Напишите функцию на Go, которая принимает []int и возвращает k-й по величине элемент за O(n log n). Учтите случай k > len.",
+			"Реализуйте HTTP middleware на Go для rate-limiting (token bucket, 10 RPS на IP).",
+			"Напишите SQL-запрос: верните top-3 пользователей по сумме заказов за последние 30 дней.",
+			"Реализуйте функцию retryWithBackoff(fn, attempts, baseMs) на Go с экспоненциальным backoff.",
+		},
+		"frontend": {
+			"Реализуйте функцию debounce(fn, delay) на JavaScript/TypeScript. Учтите вызов через метод-bind.",
+			"Напишите React-хук useFetch(url) с обработкой loading/error/data + cancellation.",
+			"Реализуйте throttle(fn, limit) — не больше одного вызова в limit миллисекунд.",
+			"Напишите функцию deepEqual(a, b) с учётом массивов, объектов и циклических ссылок.",
+		},
+		"data": {
+			"Напишите SQL-запрос: для каждого пользователя верните сессию с максимальной длительностью.",
+			"Реализуйте на Python функцию агрегации событий по 5-минутным окнам с подсчётом count и median.",
+			"Напишите PySpark-snippet для дедупликации по (user_id, event_id), оставив последнюю запись по timestamp.",
+			"SQL: найдите gap'ы в последовательности transaction_id (пропущенные значения).",
+		},
+		"ml": {
+			"Реализуйте функцию train_test_split(X, y, test_size, stratify=True) на Python без sklearn.",
+			"Напишите PyTorch-Dataset для CSV с lazy-loading и transform-pipeline.",
+			"Реализуйте sliding window нормализацию (z-score) по последним N точкам временного ряда.",
+		},
+		"devops": {
+			"Напишите bash-скрипт, который для всех *.log в директории старше 7 дней — сжимает их в .gz и удаляет оригинал.",
+			"Напишите Dockerfile для Go-сервиса с multi-stage build (builder → distroless final).",
+			"Напишите kubectl-команду + jq, чтобы вывести все pod'ы, рестартанутые > 3 раз за час.",
+		},
+		"mobile": {
+			"Реализуйте debounced search-input на Swift/Kotlin с отменой предыдущего запроса.",
+			"Напишите функцию pagination loader с cursor-based подгрузкой при достижении конца списка.",
+		},
+		"fullstack": {
+			"Напишите Express middleware для JWT-валидации с проверкой expiry + extract claims в req.user.",
+			"Реализуйте функцию loadMore() для infinite scroll с дедупликацией и кешем по cursor.",
+		},
+	}
+	bank := tasks[role]
+	if len(bank) == 0 {
+		bank = tasks["backend"]
+	}
+	// Deterministic but rotating: index based on questions already asked.
+	idx := h.countAIMessages(session.Messages) % len(bank)
+	return bank[idx]
 }
 
 func (h *Handler) composePracticeTurn(feedback string, errors string, hint string, task string) string {

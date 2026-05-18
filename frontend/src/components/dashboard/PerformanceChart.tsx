@@ -23,7 +23,7 @@ const defaultData: DataPoint[] = [
 
 const PerformanceChart: React.FC<PerformanceChartProps> = ({
   data = defaultData,
-  title = 'Performance Overview',
+  title = 'Обзор результатов',
   chartType = 'bar',
 }) => {
   const maxValue = Math.max(...data.map((d) => d.value));

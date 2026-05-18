@@ -43,12 +43,12 @@ const RepoList: React.FC<RepoListProps> = ({
   isLoading = false,
 }) => {
   if (isLoading) {
-    return <div className="repo-list repo-list--loading">Loading repositories...</div>;
+    return <div className="repo-list repo-list--loading">Загрузка репозиториев...</div>;
   }
 
   return (
     <div className="repo-list">
-      <h3 className="repo-list__title">Repositories</h3>
+      <h3 className="repo-list__title">Репозитории</h3>
       <ul className="repo-list__list">
         {repositories.map((repo) => (
           <li
@@ -75,7 +75,7 @@ const RepoList: React.FC<RepoListProps> = ({
                 {'\u{1F500}'} {repo.forks}
               </span>
               <span className="repo-list__stat">
-                Updated {repo.updatedAt}
+                Обновлён {repo.updatedAt}
               </span>
             </div>
           </li>

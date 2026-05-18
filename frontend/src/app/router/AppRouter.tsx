@@ -7,7 +7,8 @@ import { AppShell } from "./AppShell";
 
 const HomePage = lazy(() => import("@/pages/Home/index"));
 const AuthPage = lazy(() => import("@/pages/Auth/index"));
-const DashboardPage = lazy(() => import("@/pages/Dashboard/index"));
+const WorkspaceLayout = lazy(() => import("@/pages/Workspace/WorkspaceLayout"));
+const WorkspaceOverview = lazy(() => import("@/pages/Workspace/Overview"));
 const CareerCenterPage = lazy(() => import("@/pages/CareerCenter/index"));
 const InterviewSetupPage = lazy(() => import("@/pages/InterviewSetup/index"));
 const InterviewSessionPage = lazy(() => import("@/pages/InterviewSession/index"));
@@ -27,22 +28,29 @@ export function AppRouter() {
         <Route element={<AppShell />}>
           <Route index element={<HomePage />} />
           <Route path="auth" element={<AuthPage />} />
+          {/* Workspace — persistent rail with content swap via Outlet */}
           <Route
-            path="dashboard"
+            path="workspace"
             element={
               <ProtectedRoute>
-                <DashboardPage />
+                <WorkspaceLayout />
               </ProtectedRoute>
             }
-          />
-          <Route
-            path="career-center"
-            element={
-              <ProtectedRoute>
-                <CareerCenterPage />
-              </ProtectedRoute>
-            }
-          />
+          >
+            <Route index element={<WorkspaceOverview />} />
+            <Route path="career" element={<CareerCenterPage />} />
+            <Route path="profile" element={<ProfilePage />} />
+            <Route path="resume" element={<ResumePage />} />
+            <Route path="admin" element={<AdminPage />} />
+          </Route>
+
+          {/* Legacy top-level redirects → workspace */}
+          <Route path="dashboard" element={<Navigate replace to="/workspace" />} />
+          <Route path="career-center" element={<Navigate replace to="/workspace/career" />} />
+          <Route path="profile" element={<Navigate replace to="/workspace/profile" />} />
+          <Route path="resume" element={<Navigate replace to="/workspace/resume" />} />
+          <Route path="admin" element={<Navigate replace to="/workspace/admin" />} />
+
           <Route
             path="interview"
             element={
@@ -67,36 +75,12 @@ export function AppRouter() {
               </ProtectedRoute>
             }
           />
-          <Route
-            path="profile"
-            element={
-              <ProtectedRoute>
-                <ProfilePage />
-              </ProtectedRoute>
-            }
-          />
           <Route path="public-profile" element={<PublicProfilePage />} />
           <Route
             path="reports"
             element={
               <ProtectedRoute>
                 <ReportsPage />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="resume"
-            element={
-              <ProtectedRoute>
-                <ResumePage />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="admin"
-            element={
-              <ProtectedRoute>
-                <AdminPage />
               </ProtectedRoute>
             }
           />

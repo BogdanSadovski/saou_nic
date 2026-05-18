@@ -71,6 +71,32 @@ type ResumeHistoryResponse = {
   total: number;
 };
 
+export type HHVacancy = {
+  id: string;
+  name: string;
+  url: string;
+  employer: string;
+  area: string;
+  experience: string;
+  schedule: string;
+  employment: string;
+  salary_from?: number | null;
+  salary_to?: number | null;
+  salary_currency?: string;
+  salary_gross?: boolean;
+  snippet?: string;
+  published_at: string;
+  relevance_score?: number;
+};
+
+export type HHVacanciesResponse = {
+  query: string;
+  area: string;
+  total: number;
+  items: HHVacancy[];
+  cached_at: string;
+};
+
 type WrappedResponse<T> = {
   data?: T;
   success?: boolean;
@@ -149,6 +175,39 @@ export const resumeApi = {
         } catch {
           throw new Error("История резюме временно недоступна (404). Обновите api-gateway.");
         }
+      }
+      throw error;
+    }
+  },
+
+  /**
+   * Fetch matching vacancies from HH.ru for a given resume report.
+   * Backend builds the query from the AI-recommended role + extracted
+   * skills, then proxies HH.ru's public search API.
+   *
+   * area defaults to 16 (Беларусь); pass "113" for Russia, "1" for
+   * Moscow, or "world" to remove the filter entirely.
+   */
+  async getMatchingVacancies(reportID: string, area = "16"): Promise<HHVacanciesResponse> {
+    const params = area ? `?area=${encodeURIComponent(area)}` : "";
+    try {
+      const response = await apiClient.get<WrappedResponse<HHVacanciesResponse> | HHVacanciesResponse>(
+        `/resume/vacancies/${reportID}${params}`,
+      );
+      const data = (response.data as WrappedResponse<HHVacanciesResponse>)?.data
+        ?? (response.data as HHVacanciesResponse);
+      if (!data) throw new Error("HH.ru: пустой ответ");
+      return data;
+    } catch (error) {
+      const status = (error as { response?: { status?: number } })?.response?.status;
+      if (status === 404) {
+        const fallback = await apiClient.get<WrappedResponse<HHVacanciesResponse> | HHVacanciesResponse>(
+          `/v1/resume/vacancies/${reportID}${params}`,
+        );
+        const data = (fallback.data as WrappedResponse<HHVacanciesResponse>)?.data
+          ?? (fallback.data as HHVacanciesResponse);
+        if (!data) throw new Error("HH.ru: пустой ответ");
+        return data;
       }
       throw error;
     }

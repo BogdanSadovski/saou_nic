@@ -40,14 +40,14 @@ const ResumePreview: React.FC<ResumePreviewProps> = ({
 
       {resume.summary && (
         <section className="resume-preview__section">
-          <h3>Summary</h3>
+          <h3>Краткое описание</h3>
           <p>{resume.summary}</p>
         </section>
       )}
 
       {variant === 'detailed' && resume.experience && (
         <section className="resume-preview__section">
-          <h3>Experience</h3>
+          <h3>Опыт работы</h3>
           {resume.experience.map((exp, idx) => (
             <div key={idx} className="resume-preview__experience">
               <h4>{exp.title}</h4>
@@ -61,7 +61,7 @@ const ResumePreview: React.FC<ResumePreviewProps> = ({
 
       {variant === 'detailed' && resume.education && (
         <section className="resume-preview__section">
-          <h3>Education</h3>
+          <h3>Образование</h3>
           {resume.education.map((edu, idx) => (
             <div key={idx} className="resume-preview__education">
               <h4>{edu.degree}</h4>
@@ -75,7 +75,7 @@ const ResumePreview: React.FC<ResumePreviewProps> = ({
 
       {resume.skills && (
         <section className="resume-preview__section">
-          <h3>Skills</h3>
+          <h3>Навыки</h3>
           <div className="resume-preview__skills">
             {resume.skills.map((skill) => (
               <span key={skill} className="resume-preview__skill-tag">

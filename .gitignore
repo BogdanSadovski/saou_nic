@@ -116,3 +116,9 @@ allure-report/
 # ==========================================
 .pyright/
 
+.claude/
+services/*/bin/
+# untracked artefacts from this branch
+services/softskills-service/data/dataset_augmented.json
+services/softskills-service/weights/
+frontend/tsconfig.tsbuildinfo

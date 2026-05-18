@@ -26,13 +26,13 @@ const RegisterForm: React.FC<RegisterFormProps> = ({
 
   return (
     <form className="register-form" onSubmit={handleSubmit}>
-      <h2 className="register-form__title">Create Account</h2>
+      <h2 className="register-form__title">Создать аккаунт</h2>
 
       {error && <div className="register-form__error">{error}</div>}
 
       <div className="register-form__field">
         <label htmlFor="name" className="register-form__label">
-          Full Name
+          Полное имя
         </label>
         <input
           id="name"
@@ -40,7 +40,7 @@ const RegisterForm: React.FC<RegisterFormProps> = ({
           className="register-form__input"
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder="John Doe"
+          placeholder="Иван Иванов"
           required
         />
       </div>
@@ -62,7 +62,7 @@ const RegisterForm: React.FC<RegisterFormProps> = ({
 
       <div className="register-form__field">
         <label htmlFor="password" className="register-form__label">
-          Password
+          Пароль
         </label>
         <input
           id="password"
@@ -77,7 +77,7 @@ const RegisterForm: React.FC<RegisterFormProps> = ({
 
       <div className="register-form__field">
         <label htmlFor="confirmPassword" className="register-form__label">
-          Confirm Password
+          Подтвердите пароль
         </label>
         <input
           id="confirmPassword"
@@ -91,7 +91,7 @@ const RegisterForm: React.FC<RegisterFormProps> = ({
       </div>
 
       <button type="submit" className="register-form__submit" disabled={isLoading}>
-        {isLoading ? 'Creating account...' : 'Create Account'}
+        {isLoading ? 'Создаём аккаунт...' : 'Создать аккаунт'}
       </button>
     </form>
   );

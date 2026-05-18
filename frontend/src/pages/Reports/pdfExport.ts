@@ -3,18 +3,18 @@ import type { UserInterviewAnalyticsReport } from "@/shared/api/reports";
 /**
  * PDF export for the user interview report.
  *
+ * Design: matches the in-app RealSync editorial aesthetic — warm
+ * paper background, Bricolage Grotesque + Instrument Serif italic
+ * display, JetBrains Mono labels, lime accent, ink-on-paper editorial
+ * panels with hard borders and crosshair markers. Print-friendly
+ * (white-paper background, no gradients, page-break hints).
+ *
  * Implementation notes:
- *   - Uses a hidden same-origin iframe rather than window.open() with
- *     noopener/noreferrer. The previous popup approach lost its
- *     opener relationship and `popup.print()` raced with the document
- *     load — Chrome printed a blank page roughly every other time.
- *   - Waits for `iframe.onload` AND a paint frame before triggering
- *     print, so styles are applied and the layout has settled.
- *   - All dynamic strings flow through escapeHtml() to prevent the
- *     XSS vector noted in the earlier audit.
- *   - Visual design matches the in-app Liquid Glass aesthetic but is
- *     print-friendly: white background, subtle violet accents,
- *     gradient KPI tiles, page-break hints between sections.
+ *   - Hidden same-origin iframe (not window.open) so the print pipeline
+ *     stays in the same security context.
+ *   - Waits for iframe.onload + 2 paint frames so styles + Google
+ *     Fonts settle before triggering print.
+ *   - All dynamic strings flow through escapeHtml() to prevent XSS.
  */
 
 const escapeHtml = (input: unknown): string => {
@@ -40,32 +40,90 @@ const fmtDate = (value?: string | null): string => {
   });
 };
 
+const fmtDateShort = (value?: string | null): string => {
+  if (!value) return "—";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString("ru-RU", { day: "2-digit", month: "short", year: "numeric" });
+};
+
 const fmtNum = (value: number): string =>
   Number.isFinite(value) ? Math.round(value).toString() : "0";
+
+const statusLabel = (status: string): string => {
+  const map: Record<string, string> = {
+    finished: "завершено",
+    completed: "завершено",
+    active: "активно",
+    in_progress: "в процессе",
+    expired: "истекло",
+    cancelled: "отменено",
+  };
+  return map[status.toLowerCase()] ?? status;
+};
+
+const modeLabel = (mode: string): string => {
+  const map: Record<string, string> = {
+    theory: "теория",
+    practice: "практика",
+    mixed: "смешанный",
+  };
+  return map[mode.toLowerCase()] ?? mode;
+};
 
 const buildReportHtml = (report: UserInterviewAnalyticsReport): string => {
   const generatedAt = fmtDate(report.generated_at);
   const inProgress = report.totals.in_progress_interviews + report.totals.expired_interviews;
+  const today = fmtDateShort(new Date().toISOString());
 
-  const list = (items: string[], emptyMsg: string): string => {
-    if (!items.length) return `<li class="empty">${escapeHtml(emptyMsg)}</li>`;
-    return items.map((x) => `<li>${escapeHtml(x)}</li>`).join("");
+  const numberedList = (items: string[], emptyMsg: string): string => {
+    if (!items.length) {
+      return `<p class="empty">${escapeHtml(emptyMsg)}</p>`;
+    }
+    return `<ol class="num-list">${items
+      .map(
+        (x, i) => `
+          <li>
+            <span class="num-list-i">${String(i + 1).padStart(2, "0")}</span>
+            <span class="num-list-text">${escapeHtml(x)}</span>
+          </li>`,
+      )
+      .join("")}</ol>`;
+  };
+
+  const bulletedList = (items: string[], emptyMsg: string, tone: "lime" | "coral"): string => {
+    if (!items.length) {
+      return `<p class="empty">${escapeHtml(emptyMsg)}</p>`;
+    }
+    return `<ul class="bullet-list bullet-${tone}">${items
+      .map((x) => `<li><span class="bullet-mark">·</span><span>${escapeHtml(x)}</span></li>`)
+      .join("")}</ul>`;
   };
 
   const recentRows = report.recent_interviews
     .slice(0, 12)
-    .map((item) => {
-      const score = typeof item.overall_score === "number" ? Math.round(item.overall_score) : "—";
+    .map((item, i) => {
+      const score =
+        typeof item.overall_score === "number" ? Math.round(item.overall_score) : null;
+      const statusKey = (item.status || "").toLowerCase();
       return `
         <tr>
-          <td><strong>${escapeHtml(item.role)}</strong><div class="muted">${escapeHtml(
-            item.vacancy_title ?? "",
-          )}</div></td>
-          <td>${escapeHtml(item.interview_mode)}</td>
-          <td><span class="status status-${escapeHtml(item.status)}">${escapeHtml(item.status)}</span></td>
-          <td class="num">${score}</td>
-          <td class="num">${fmtNum(item.messages_total)}</td>
-          <td class="muted">${fmtDate(item.started_at)}</td>
+          <td class="num-cell">${String(i + 1).padStart(2, "0")}</td>
+          <td>
+            <strong class="row-title">${escapeHtml(item.role)}</strong>
+            ${
+              item.vacancy_title
+                ? `<div class="row-sub">${escapeHtml(item.vacancy_title)}</div>`
+                : ""
+            }
+          </td>
+          <td><span class="chip chip-mode">${escapeHtml(modeLabel(item.interview_mode))}</span></td>
+          <td><span class="chip chip-status chip-${escapeHtml(statusKey)}">${escapeHtml(
+            statusLabel(item.status),
+          )}</span></td>
+          <td class="cell-score">${score !== null ? `${score}` : "—"}</td>
+          <td class="cell-mono">${fmtNum(item.messages_total)}</td>
+          <td class="cell-date">${fmtDateShort(item.started_at)}</td>
         </tr>`;
     })
     .join("");
@@ -88,29 +146,36 @@ const buildReportHtml = (report: UserInterviewAnalyticsReport): string => {
 <head>
 <meta charset="utf-8" />
 <title>RealSync · Отчёт по интервью</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..700&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500;600&family=Geist:wght@300..700&display=swap" rel="stylesheet">
 <style>
-  /* Reset */
   *, *::before, *::after { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; }
 
   :root {
-    --accent: #6d3cdb;
-    --accent-2: #d955ff;
-    --accent-3: #4dd2ff;
-    --text-0: #0e0a1f;
-    --text-muted: #5a516e;
-    --line: rgba(14, 10, 31, 0.12);
-    --line-soft: rgba(14, 10, 31, 0.06);
-    --bg: #ffffff;
-    --bg-tint: #faf8ff;
-    --success: #2bb673;
-    --warning: #e0a800;
-    --danger: #d23b3b;
+    --bg: #faf7f0;            /* warm paper */
+    --paper: #ffffff;
+    --paper-2: #f3efe6;
+    --ink: #1a1814;
+    --ink-2: #3a3530;
+    --muted: #807870;
+    --muted-2: #a8a098;
+    --line: rgba(26, 24, 20, 0.14);
+    --line-soft: rgba(26, 24, 20, 0.06);
+    --accent: #b8e457;        /* lime */
+    --accent-ink: #4a6018;
+    --signal: #d96340;        /* coral for errors / warnings */
+
+    --f-display: 'Bricolage Grotesque', 'Geist', -apple-system, BlinkMacSystemFont, sans-serif;
+    --f-accent: 'Instrument Serif', Georgia, serif;
+    --f-sans: 'Geist', -apple-system, BlinkMacSystemFont, 'Inter', sans-serif;
+    --f-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
   }
 
   body {
-    font-family: 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Arial, sans-serif;
-    color: var(--text-0);
+    font-family: var(--f-sans);
+    color: var(--ink);
     background: var(--bg);
     font-size: 12px;
     line-height: 1.55;
@@ -118,283 +183,572 @@ const buildReportHtml = (report: UserInterviewAnalyticsReport): string => {
     print-color-adjust: exact;
   }
 
-  .page { padding: 32px 36px 40px; max-width: 800px; margin: 0 auto; }
+  .sheet {
+    max-width: 820px;
+    margin: 0 auto;
+    padding: 36px 40px 48px;
+    position: relative;
+  }
 
-  /* Header */
-  .header {
+  /* ── Topline ────────────────────────────────────── */
+  .topline {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    border-bottom: 1px solid var(--line);
+    border-bottom: 1px solid var(--ink);
     padding-bottom: 14px;
-    margin-bottom: 22px;
-  }
-  .brand { display: flex; align-items: center; gap: 10px; }
-  .brand-mark {
-    width: 32px; height: 32px; border-radius: 8px;
-    background: linear-gradient(135deg, var(--accent), var(--accent-2));
-    display: flex; align-items: center; justify-content: center;
-    color: #fff; font-weight: 700; font-size: 14px;
-    box-shadow: 0 4px 12px rgba(109, 60, 219, 0.3);
-  }
-  .brand-name { font-weight: 700; font-size: 15px; letter-spacing: -0.01em; }
-  .brand-name .accent { color: var(--accent); }
-  .header-meta { color: var(--text-muted); font-size: 11px; text-align: right; }
-
-  /* Hero */
-  .hero { margin-bottom: 24px; }
-  .eyebrow {
+    margin-bottom: 28px;
+    font-family: var(--f-mono);
+    font-size: 11px;
     text-transform: uppercase;
-    letter-spacing: 0.16em;
-    font-size: 10px;
-    font-weight: 700;
-    color: var(--accent);
-    margin-bottom: 8px;
+    letter-spacing: 0.1em;
+    color: var(--muted);
   }
-  h1 {
-    font-size: 28px;
-    font-weight: 700;
-    margin: 0 0 6px;
-    letter-spacing: -0.02em;
-    background: linear-gradient(120deg, var(--text-0), var(--accent));
-    -webkit-background-clip: text;
-    background-clip: text;
-    -webkit-text-fill-color: transparent;
+  .topline strong { color: var(--ink); font-weight: 500; }
+  .topline em { color: var(--accent-ink); font-style: normal; }
+  .topline .brand {
+    font-family: var(--f-display);
+    font-weight: 600;
+    text-transform: none;
+    letter-spacing: -0.01em;
+    font-size: 18px;
+    color: var(--ink);
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
   }
-  .subtitle { color: var(--text-muted); margin: 0; font-size: 12px; }
+  .topline .brand-dot {
+    width: 9px; height: 9px; border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 0 2px rgba(184, 228, 87, 0.25);
+  }
+  .topline .brand em { font-family: var(--f-accent); font-style: italic; font-weight: 400; color: var(--muted-2); margin-left: 0; }
 
-  /* KPI grid */
+  /* ── Sysbar (mono chips) ────────────────────────── */
+  .sysbar {
+    display: inline-flex;
+    align-items: stretch;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--paper);
+    padding: 3px;
+    margin: 0 0 28px;
+    font-family: var(--f-mono);
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    overflow: hidden;
+  }
+  .sysbar > span {
+    padding: 6px 14px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border-right: 1px solid var(--line);
+  }
+  .sysbar > span:last-child { border-right: none; }
+  .sysbar .k { color: var(--muted); }
+  .sysbar .v { color: var(--ink); font-weight: 500; }
+  .sysbar .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+
+  /* ── Hero ───────────────────────────────────────── */
+  .hero { margin-bottom: 28px; }
+  .eyebrow {
+    font-family: var(--f-mono);
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--muted);
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 14px;
+  }
+  .eyebrow::before {
+    content: "";
+    width: 6px; height: 6px; border-radius: 50%; background: var(--accent);
+  }
+  h1.headline {
+    font-family: var(--f-display);
+    font-weight: 600;
+    font-size: 52px;
+    line-height: 0.95;
+    letter-spacing: -0.025em;
+    margin: 0 0 12px;
+    color: var(--ink);
+  }
+  h1.headline em {
+    font-family: var(--f-accent);
+    font-style: italic;
+    font-weight: 400;
+    letter-spacing: -0.01em;
+    color: var(--ink);
+  }
+  h1.headline .light { font-weight: 300; color: var(--muted-2); }
+  .subtitle {
+    color: var(--muted);
+    margin: 0;
+    font-size: 13px;
+    max-width: 60ch;
+    line-height: 1.5;
+  }
+
+  /* ── Verdict pill row ───────────────────────────── */
+  .verdict-row {
+    display: flex;
+    gap: 8px;
+    margin-top: 14px;
+    flex-wrap: wrap;
+  }
+  .verdict-tag {
+    font-family: var(--f-mono);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 4px 10px;
+    border-radius: 999px;
+    border: 1px solid var(--line);
+    background: var(--paper);
+  }
+  .verdict-tag.lime { background: rgba(184, 228, 87, 0.25); border-color: rgba(184, 228, 87, 0.6); color: var(--accent-ink); }
+  .verdict-tag.coral { background: rgba(217, 99, 64, 0.15); border-color: rgba(217, 99, 64, 0.45); color: #823a20; }
+  .verdict-tag.ink { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+
+  /* ── Section heads ──────────────────────────────── */
+  .section { margin: 36px 0 0; }
+  .section-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    border-bottom: 1px solid var(--line);
+    padding-bottom: 10px;
+    margin-bottom: 18px;
+  }
+  .section-head h2 {
+    font-family: var(--f-display);
+    font-size: 24px;
+    font-weight: 500;
+    letter-spacing: -0.015em;
+    margin: 0;
+    color: var(--ink);
+  }
+  .section-head h2 em { font-family: var(--f-accent); font-style: italic; font-weight: 400; }
+  .section-slug {
+    font-family: var(--f-mono);
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  /* ── KPI brutal panels ──────────────────────────── */
   .kpis {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
-    gap: 10px;
-    margin: 20px 0 26px;
+    gap: 14px;
+    margin-top: 22px;
   }
   .kpi {
-    border: 1px solid var(--line);
-    border-radius: 14px;
-    padding: 12px 14px;
-    background: linear-gradient(135deg, var(--bg-tint), #fff);
+    border: 2px solid var(--ink);
+    background: var(--paper);
+    padding: 16px 18px;
+    position: relative;
+    box-shadow: 5px 5px 0 var(--ink);
     page-break-inside: avoid;
   }
+  .kpi.is-accent { background: var(--accent); }
   .kpi-label {
+    font-family: var(--f-mono);
     font-size: 10px;
+    letter-spacing: 0.12em;
     text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: var(--text-muted);
-    margin-bottom: 4px;
+    color: var(--muted);
+    margin-bottom: 6px;
   }
+  .kpi.is-accent .kpi-label { color: var(--accent-ink); }
   .kpi-value {
-    font-size: 22px;
-    font-weight: 700;
-    letter-spacing: -0.01em;
-    background: linear-gradient(120deg, var(--text-0), var(--accent));
-    -webkit-background-clip: text;
-    background-clip: text;
-    -webkit-text-fill-color: transparent;
+    font-family: var(--f-display);
+    font-size: 36px;
+    font-weight: 500;
+    letter-spacing: -0.02em;
+    line-height: 1;
+    color: var(--ink);
   }
-  .kpi.is-accent .kpi-value {
-    background: linear-gradient(120deg, var(--accent), var(--accent-2));
-    -webkit-background-clip: text;
-    background-clip: text;
-    -webkit-text-fill-color: transparent;
+  .kpi-value .sub {
+    font-family: var(--f-mono);
+    font-size: 14px;
+    font-weight: 400;
+    color: var(--muted);
+    letter-spacing: 0;
   }
 
-  h2 {
-    font-size: 16px;
-    margin: 22px 0 10px;
-    font-weight: 700;
-    letter-spacing: -0.01em;
-    display: flex;
-    align-items: center;
+  /* ── Two-column section ─────────────────────────── */
+  .two-col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 28px;
+    align-items: start;
+  }
+  .col-head {
+    font-family: var(--f-mono);
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 10px;
+  }
+  .col-head.lime { color: var(--accent-ink); }
+  .col-head.coral { color: #823a20; }
+
+  /* ── Lists ──────────────────────────────────────── */
+  .bullet-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 8px; }
+  .bullet-list li {
+    display: grid;
+    grid-template-columns: 14px 1fr;
     gap: 8px;
+    font-size: 12.5px;
+    color: var(--ink-2);
+    line-height: 1.5;
   }
-  h2::before {
-    content: "";
-    display: block;
-    width: 4px; height: 16px;
-    background: linear-gradient(180deg, var(--accent), var(--accent-2));
-    border-radius: 2px;
+  .bullet-mark {
+    font-family: var(--f-mono);
+    color: var(--accent-ink);
+    font-weight: 600;
+    line-height: 1.2;
+  }
+  .bullet-coral .bullet-mark { color: var(--signal); }
+  .empty {
+    color: var(--muted-2);
+    font-style: italic;
+    font-size: 12px;
+    margin: 0;
   }
 
-  ul.bullets { margin: 0; padding: 0 0 0 18px; }
-  ul.bullets li { margin: 4px 0; font-size: 12px; }
-  ul.bullets li.empty { color: var(--text-muted); list-style: none; margin-left: -16px; font-style: italic; }
+  .num-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 0; }
+  .num-list li {
+    display: grid;
+    grid-template-columns: 36px 1fr;
+    gap: 16px;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--line-soft);
+    align-items: start;
+  }
+  .num-list li:last-child { border-bottom: none; }
+  .num-list-i {
+    font-family: var(--f-mono);
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 0.08em;
+    padding-top: 2px;
+  }
+  .num-list-text { font-size: 13px; color: var(--ink-2); line-height: 1.55; }
 
-  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
-
-  /* Bars */
+  /* ── Bars (role distribution) ───────────────────── */
+  .bars { display: grid; gap: 10px; margin-top: 12px; }
   .bar-row {
     display: grid;
-    grid-template-columns: 110px 1fr 36px;
-    gap: 8px;
+    grid-template-columns: 140px 1fr 50px;
+    gap: 12px;
     align-items: center;
-    margin: 6px 0;
-    font-size: 11px;
+    font-size: 12px;
   }
-  .bar-label { color: var(--text-muted); }
+  .bar-label { color: var(--ink-2); font-weight: 500; }
   .bar {
-    height: 8px;
+    height: 6px;
     border-radius: 999px;
-    background: var(--line-soft);
+    background: var(--paper-2);
     overflow: hidden;
+    border: 1px solid var(--line);
   }
   .bar-fill {
     height: 100%;
-    background: linear-gradient(90deg, var(--accent), var(--accent-2));
-    border-radius: inherit;
+    background: var(--ink);
+    position: relative;
+    border-radius: 999px;
   }
-  .bar-value { text-align: right; font-weight: 600; color: var(--text-0); }
+  .bar-fill::after {
+    content: "";
+    position: absolute;
+    right: -3px; top: -2px; bottom: -2px;
+    width: 6px;
+    background: var(--accent);
+    border-radius: 50%;
+  }
+  .bar-value {
+    font-family: var(--f-mono);
+    font-size: 12px;
+    text-align: right;
+    color: var(--ink);
+    font-weight: 500;
+  }
 
-  /* Table */
-  table {
+  /* ── Table ──────────────────────────────────────── */
+  .report-table {
     width: 100%;
     border-collapse: separate;
     border-spacing: 0;
-    margin-top: 10px;
-    font-size: 11px;
+    margin-top: 14px;
+    font-size: 12px;
   }
-  th, td {
+  .report-table th, .report-table td {
     text-align: left;
     padding: 10px 12px;
-    border-bottom: 1px solid var(--line);
+    border-bottom: 1px solid var(--line-soft);
+    vertical-align: top;
   }
-  th {
-    background: var(--bg-tint);
-    color: var(--text-muted);
-    font-weight: 600;
+  .report-table thead th {
+    font-family: var(--f-mono);
     font-size: 10px;
     text-transform: uppercase;
-    letter-spacing: 0.06em;
+    letter-spacing: 0.1em;
+    color: var(--muted);
+    border-bottom: 1px solid var(--ink);
+    padding: 8px 12px;
+    font-weight: 500;
   }
-  th:first-child { border-top-left-radius: 10px; }
-  th:last-child { border-top-right-radius: 10px; }
-  td.num { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
-  .muted { color: var(--text-muted); font-size: 10px; }
-  tr td .muted { display: block; margin-top: 2px; }
-
-  .status {
-    display: inline-block;
-    padding: 2px 8px;
-    border-radius: 999px;
-    font-size: 10px;
+  .num-cell {
+    font-family: var(--f-mono);
+    font-size: 11px;
+    color: var(--muted);
+    width: 36px;
+  }
+  .row-title { font-weight: 500; font-size: 13px; color: var(--ink); }
+  .row-sub {
+    font-size: 11px;
+    color: var(--muted);
+    margin-top: 2px;
+    line-height: 1.4;
+  }
+  .cell-score {
+    font-family: var(--f-mono);
+    font-size: 14px;
     font-weight: 600;
-    border: 1px solid var(--line);
+    color: var(--ink);
+    text-align: right;
   }
-  .status-finished { background: rgba(43, 182, 115, 0.12); color: var(--success); border-color: rgba(43, 182, 115, 0.35); }
-  .status-active { background: rgba(109, 60, 219, 0.12); color: var(--accent); border-color: rgba(109, 60, 219, 0.35); }
-  .status-expired { background: rgba(224, 168, 0, 0.12); color: var(--warning); border-color: rgba(224, 168, 0, 0.35); }
+  .cell-mono {
+    font-family: var(--f-mono);
+    font-size: 11px;
+    color: var(--muted);
+    text-align: right;
+  }
+  .cell-date {
+    font-family: var(--f-mono);
+    font-size: 11px;
+    color: var(--muted);
+  }
 
-  .footer {
-    margin-top: 32px;
-    padding-top: 14px;
-    border-top: 1px solid var(--line);
-    color: var(--text-muted);
+  /* Chips inside table */
+  .chip {
+    display: inline-block;
+    padding: 3px 8px;
+    font-family: var(--f-mono);
     font-size: 10px;
+    letter-spacing: 0.06em;
+    border-radius: 999px;
+    border: 1px solid var(--line);
+    background: var(--paper-2);
+    color: var(--ink-2);
+  }
+  .chip-finished, .chip-completed {
+    background: rgba(184, 228, 87, 0.3);
+    border-color: rgba(184, 228, 87, 0.6);
+    color: var(--accent-ink);
+  }
+  .chip-active, .chip-in_progress {
+    background: var(--ink);
+    color: var(--bg);
+    border-color: var(--ink);
+  }
+  .chip-expired, .chip-cancelled {
+    background: rgba(217, 99, 64, 0.15);
+    border-color: rgba(217, 99, 64, 0.45);
+    color: #823a20;
+  }
+
+  /* ── Footer ─────────────────────────────────────── */
+  .footer {
+    margin-top: 48px;
+    padding-top: 16px;
+    border-top: 1px solid var(--ink);
     display: flex;
     justify-content: space-between;
     align-items: center;
+    font-family: var(--f-mono);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--muted);
+  }
+  .footer .wire {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .footer .wire::before {
+    content: "";
+    width: 24px;
+    height: 1px;
+    background: currentColor;
   }
 
-  /* Print */
+  /* ── Print ──────────────────────────────────────── */
   @page { size: A4; margin: 14mm; }
   @media print {
-    .page { padding: 0; }
-    .kpi { break-inside: avoid; }
-    h2, .two-col, table { break-inside: avoid; }
-    tr { break-inside: avoid; }
+    body { background: var(--bg); }
+    .sheet { padding: 0; }
+    .kpi, .section, .num-list li, .report-table tr { break-inside: avoid; }
+    .kpi { box-shadow: 4px 4px 0 var(--ink); }
   }
 </style>
 </head>
 <body>
-  <div class="page">
-    <div class="header">
-      <div class="brand">
-        <div class="brand-mark">RS</div>
-        <div class="brand-name">RealSync · <span class="accent">Interview Report</span></div>
-      </div>
-      <div class="header-meta">
-        Сформировано: ${escapeHtml(generatedAt)}<br />
-        ID: ${escapeHtml(report.user_id)}
-      </div>
+  <div class="sheet">
+    <!-- Topline -->
+    <div class="topline">
+      <span class="brand">
+        <span class="brand-dot"></span>
+        Real<em>Sync</em>
+      </span>
+      <span>
+        <strong>${escapeHtml(today)}</strong> · ID <em>${escapeHtml(
+    (report.user_id || "—").slice(0, 12),
+  )}</em>
+      </span>
     </div>
 
+    <!-- Sysbar metadata -->
+    <div class="sysbar">
+      <span><span class="dot"></span><span class="k">отчёт</span><span class="v">interview.v2</span></span>
+      <span><span class="k">сгенерирован</span><span class="v">${escapeHtml(generatedAt)}</span></span>
+      <span><span class="k">сессий</span><span class="v">${fmtNum(report.totals.total_interviews)}</span></span>
+      <span><span class="k">формат</span><span class="v">analytics.print</span></span>
+    </div>
+
+    <!-- Hero -->
     <div class="hero">
-      <div class="eyebrow">Аналитика</div>
-      <h1>Отчёт по интервью</h1>
-      <p class="subtitle">Сводка прогресса, сильных сторон и зон роста за выбранный период.</p>
-    </div>
-
-    <div class="kpis">
-      <div class="kpi is-accent">
-        <div class="kpi-label">Всего интервью</div>
-        <div class="kpi-value">${fmtNum(report.totals.total_interviews)}</div>
-      </div>
-      <div class="kpi">
-        <div class="kpi-label">Завершено</div>
-        <div class="kpi-value">${fmtNum(report.totals.completed_interviews)}</div>
-      </div>
-      <div class="kpi">
-        <div class="kpi-label">Не завершено</div>
-        <div class="kpi-value">${fmtNum(inProgress)}</div>
-      </div>
-      <div class="kpi is-accent">
-        <div class="kpi-label">Завершаемость</div>
-        <div class="kpi-value">${fmtNum(report.totals.completion_rate)}%</div>
-      </div>
-      <div class="kpi">
-        <div class="kpi-label">Средний балл</div>
-        <div class="kpi-value">${fmtNum(report.performance.average_score)}</div>
-      </div>
-      <div class="kpi">
-        <div class="kpi-label">Лучший балл</div>
-        <div class="kpi-value">${fmtNum(report.performance.best_score)}</div>
+      <span class="eyebrow">Аналитика интервью</span>
+      <h1 class="headline">
+        Отчёт <em>по интервью</em>
+        <span class="light">— ${fmtNum(report.totals.total_interviews)} сессий</span>
+      </h1>
+      <p class="subtitle">
+        Сводка прогресса, сильных сторон и зон роста за период.
+        Все цифры взяты из реальных сессий, отчёт сгенерирован автоматически.
+      </p>
+      <div class="verdict-row">
+        <span class="verdict-tag ink">${fmtNum(report.totals.completion_rate)}% завершаемость</span>
+        <span class="verdict-tag lime">средний балл ${fmtNum(report.performance.average_score)}</span>
+        <span class="verdict-tag">лучший ${fmtNum(report.performance.best_score)}</span>
       </div>
     </div>
 
-    <div class="two-col">
-      <section>
-        <h2>Сильные стороны</h2>
-        <ul class="bullets">${list(report.top_strengths, "Пока нет данных")}</ul>
-      </section>
-      <section>
-        <h2>Зоны роста</h2>
-        <ul class="bullets">${list(report.top_weaknesses, "Пока нет данных")}</ul>
-      </section>
+    <!-- KPI grid -->
+    <div class="section">
+      <header class="section-head">
+        <h2>Ключевые показатели</h2>
+        <span class="section-slug">// kpis.summary</span>
+      </header>
+      <div class="kpis">
+        <div class="kpi is-accent">
+          <div class="kpi-label">Всего интервью</div>
+          <div class="kpi-value">${fmtNum(report.totals.total_interviews)}</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-label">Завершено</div>
+          <div class="kpi-value">${fmtNum(report.totals.completed_interviews)}</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-label">Не завершено</div>
+          <div class="kpi-value">${fmtNum(inProgress)}</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-label">Завершаемость</div>
+          <div class="kpi-value">${fmtNum(report.totals.completion_rate)}<span class="sub">%</span></div>
+        </div>
+        <div class="kpi is-accent">
+          <div class="kpi-label">Средний балл</div>
+          <div class="kpi-value">${fmtNum(report.performance.average_score)}<span class="sub">/100</span></div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-label">Лучший балл</div>
+          <div class="kpi-value">${fmtNum(report.performance.best_score)}<span class="sub">/100</span></div>
+        </div>
+      </div>
     </div>
 
-    <h2>Рекомендации к подготовке</h2>
-    <ul class="bullets">${list(report.top_recommendations, "Появятся после первых интервью")}</ul>
+    <!-- Strengths + Weaknesses -->
+    <div class="section">
+      <header class="section-head">
+        <h2><em>Сильные</em> стороны и зоны роста</h2>
+        <span class="section-slug">// quality.breakdown</span>
+      </header>
+      <div class="two-col">
+        <section>
+          <div class="col-head lime">Сильные стороны</div>
+          ${bulletedList(report.top_strengths, "Пока нет данных", "lime")}
+        </section>
+        <section>
+          <div class="col-head coral">Зоны роста</div>
+          ${bulletedList(report.top_weaknesses, "Пока нет данных", "coral")}
+        </section>
+      </div>
+    </div>
+
+    <!-- Recommendations -->
+    <div class="section">
+      <header class="section-head">
+        <h2>Рекомендации <em>к подготовке</em></h2>
+        <span class="section-slug">// next.actions</span>
+      </header>
+      ${numberedList(
+        report.top_recommendations,
+        "Появятся после первых интервью.",
+      )}
+    </div>
 
     ${
       roleRows
-        ? `<h2>Распределение по ролям</h2><div class="bars">${roleRows}</div>`
+        ? `<div class="section">
+            <header class="section-head">
+              <h2>Распределение по ролям</h2>
+              <span class="section-slug">// roles.distribution</span>
+            </header>
+            <div class="bars">${roleRows}</div>
+          </div>`
         : ""
     }
 
     ${
       recentRows
-        ? `
-      <h2>Последние интервью</h2>
-      <table>
-        <thead>
-          <tr>
-            <th>Роль</th>
-            <th>Режим</th>
-            <th>Статус</th>
-            <th class="num">Оценка</th>
-            <th class="num">Сообщений</th>
-            <th>Дата</th>
-          </tr>
-        </thead>
-        <tbody>${recentRows}</tbody>
-      </table>`
+        ? `<div class="section">
+            <header class="section-head">
+              <h2><em>Последние</em> интервью</h2>
+              <span class="section-slug">// sessions.log</span>
+            </header>
+            <table class="report-table">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Сессия</th>
+                  <th>Режим</th>
+                  <th>Статус</th>
+                  <th style="text-align:right;">Балл</th>
+                  <th style="text-align:right;">Сообщ.</th>
+                  <th>Дата</th>
+                </tr>
+              </thead>
+              <tbody>${recentRows}</tbody>
+            </table>
+          </div>`
         : ""
     }
 
+    <!-- Footer -->
     <div class="footer">
-      <span>RealSync Interview Platform</span>
-      <span>Отчёт сформирован автоматически · realsync.ai</span>
+      <span class="wire">RealSync Interview Platform</span>
+      <span>realsync.ai · автоматический отчёт</span>
     </div>
   </div>
 </body>
@@ -404,8 +758,6 @@ const buildReportHtml = (report: UserInterviewAnalyticsReport): string => {
 /**
  * Renders the report into a hidden iframe and triggers the system
  * print dialog. The user picks "Save as PDF" to download.
- *
- * Returns a promise that resolves once print has been requested.
  */
 export async function renderAndPrintReport(report: UserInterviewAnalyticsReport): Promise<void> {
   const html = buildReportHtml(report);
@@ -429,10 +781,16 @@ export async function renderAndPrintReport(report: UserInterviewAnalyticsReport)
 
   await new Promise<void>((resolve) => {
     iframe.onload = () => {
-      // Wait one paint frame so styles + fonts have settled before
-      // Chrome captures the frame for printing. Without this the
-      // dialog occasionally shows a blank page.
-      requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+      // Wait two paint frames so styles + Google Fonts settle before
+      // Chromium captures the frame for printing. Without this the
+      // dialog occasionally shows a blank page or fallback fonts.
+      requestAnimationFrame(() =>
+        requestAnimationFrame(() => {
+          // Give web fonts a small extra window to load — without it
+          // the first print sometimes renders system fallbacks.
+          window.setTimeout(() => resolve(), 400);
+        }),
+      );
     };
 
     const doc = iframe.contentDocument;

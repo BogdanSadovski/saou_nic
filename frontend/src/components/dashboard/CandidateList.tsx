@@ -32,7 +32,7 @@ const CandidateList: React.FC<CandidateListProps> = ({
 
   return (
     <div className="candidate-list">
-      <h3 className="candidate-list__title">Candidates</h3>
+      <h3 className="candidate-list__title">Кандидаты</h3>
       <ul className="candidate-list__list">
         {filtered.map((candidate) => (
           <li

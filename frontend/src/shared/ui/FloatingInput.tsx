@@ -7,13 +7,18 @@ type FloatingInputProps = InputHTMLAttributes<HTMLInputElement> & {
   label: string;
 };
 
-export function FloatingInput({ label, className, ...props }: FloatingInputProps) {
-  const id = useId();
+/**
+ * Legacy shim. Renders a RealSync `.field` with stacked label above
+ * an `.input` — replaces the prior floating-label design.
+ */
+export function FloatingInput({ label, className, id: idProp, ...props }: FloatingInputProps) {
+  const generatedId = useId();
+  const id = idProp ?? generatedId;
 
   return (
-    <div className={cn("floating-input", className)}>
-      <input id={id} placeholder=" " {...props} />
+    <div className={cn("field", className)}>
       <label htmlFor={id}>{label}</label>
+      <input id={id} className="input" {...props} />
     </div>
   );
 }

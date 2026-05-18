@@ -25,12 +25,54 @@ class Settings(BaseSettings):
     port: int = 8001
     log_level: str = "INFO"
 
-    # LLM Configuration
-    llm_api_key: str = Field(..., description="OpenAI API key")
+    # LLM Configuration — primary provider (Tier 1)
+    llm_api_key: str = Field(..., description="Primary LLM API key (Tier 1)")
     llm_model: str = "gpt-4o-mini"
     llm_temperature: float = 0.7
     llm_max_tokens: int = 2048
     llm_base_url: Optional[str] = None
+
+    # Secondary provider (Tier 2) — used when Tier 1 returns 429/5xx
+    # (currently typically OpenRouter free Llama).
+    llm_secondary_api_key: Optional[str] = None
+    llm_secondary_base_url: Optional[str] = None
+    llm_secondary_model: Optional[str] = None
+
+    # Tertiary provider (Tier 3) — pool with round-robin. Designed for
+    # 5× OpenRouter accounts/keys pointing at the same free DeepSeek
+    # model, but works with any provider. Provide a comma-separated
+    # list of keys via ``LLM_TERTIARY_API_KEYS`` (plural). The single
+    # ``LLM_TERTIARY_API_KEY`` is still accepted as a 1-key fallback.
+    # base_url defaults to OpenRouter, model defaults to free DeepSeek.
+    llm_tertiary_api_key: Optional[str] = None
+    llm_tertiary_api_keys: Optional[str] = None   # comma-separated
+    llm_tertiary_base_url: Optional[str] = None
+    llm_tertiary_model: Optional[str] = None
+
+    # Quaternary provider (Tier 4) — last-resort safety net. Use any
+    # OpenAI-compatible free endpoint (Together AI free, Cerebras free,
+    # Mistral free, HuggingFace router, etc.). Also supports a key pool
+    # via ``LLM_QUATERNARY_API_KEYS``.
+    llm_quaternary_api_key: Optional[str] = None
+    llm_quaternary_api_keys: Optional[str] = None
+    llm_quaternary_base_url: Optional[str] = None
+    llm_quaternary_model: Optional[str] = None
+
+    def tertiary_keys(self) -> list[str]:
+        """Return the list of Tier 3 API keys (plural form takes priority)."""
+        if self.llm_tertiary_api_keys:
+            return [k.strip() for k in self.llm_tertiary_api_keys.split(",") if k.strip()]
+        if self.llm_tertiary_api_key:
+            return [self.llm_tertiary_api_key]
+        return []
+
+    def quaternary_keys(self) -> list[str]:
+        """Return the list of Tier 4 API keys (plural form takes priority)."""
+        if self.llm_quaternary_api_keys:
+            return [k.strip() for k in self.llm_quaternary_api_keys.split(",") if k.strip()]
+        if self.llm_quaternary_api_key:
+            return [self.llm_quaternary_api_key]
+        return []
 
     # Embeddings
     embedding_model: str = "text-embedding-3-small"

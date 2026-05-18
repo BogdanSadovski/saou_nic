@@ -15,8 +15,8 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
   if (!isAuthenticated) {
     return (
       <div className="protected-route">
-        <p>You must be logged in to access this page.</p>
-        <a href={redirectPath}>Go to Login</a>
+        <p>Для доступа к этой странице нужно войти в систему.</p>
+        <a href={redirectPath}>Перейти ко входу</a>
       </div>
     );
   }

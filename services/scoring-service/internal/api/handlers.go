@@ -247,7 +247,17 @@ func (h *Handler) generateInterviewReport(w http.ResponseWriter, r *http.Request
 			continue
 		}
 		content := strings.TrimSpace(msg.Content)
-		if utf8.RuneCountInString(content) < 12 {
+		// Filter "real" answers. We previously hard-required >=12 chars,
+		// which silently dropped short-but-legitimate replies (e.g. a
+		// concise correct answer like "Использовать B-tree индекс"). If
+		// the AI already produced a verdict for this message we trust
+		// the verdict regardless of length; otherwise a 6-char floor
+		// catches the obvious "ok"/"hi"/"."-style non-answers.
+		runes := utf8.RuneCountInString(content)
+		if msg.Verdict == "" && runes < 6 {
+			continue
+		}
+		if runes == 0 {
 			continue
 		}
 
@@ -297,9 +307,17 @@ func (h *Handler) generateInterviewReport(w http.ResponseWriter, r *http.Request
 		penalty += float64(verdictCounts["wrong"]) * 5
 		penalty += float64(verdictCounts["off_topic"]) * 3
 		completeness = clampScore(correctness - penalty/n)
-		// Relevance from off_topic ratio.
-		offRatio := float64(verdictCounts["off_topic"]) / n
-		relevance = clampScore(85 - offRatio*60)
+		// Relevance: share of answers that actually engaged with the
+		// question (anything except skipped / off_topic). Previously the
+		// formula only penalised off_topic and started from 85, which
+		// produced a misleading 85% relevance for sessions where every
+		// answer was marked "skipped" — overall would round to ~21
+		// even though the candidate effectively answered nothing.
+		nonRelevant := float64(verdictCounts["off_topic"] + verdictCounts["skipped"])
+		if n > 0 {
+			ratio := math.Max(0, n-nonRelevant) / n
+			relevance = clampScore(ratio * 100)
+		}
 
 		// Adaptive narrative from verdict mix.
 		if verdictCounts["correct"] >= verdictCounts["wrong"]+verdictCounts["off_topic"]+verdictCounts["skipped"] {

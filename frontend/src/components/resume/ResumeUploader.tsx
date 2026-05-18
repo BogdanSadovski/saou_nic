@@ -18,7 +18,7 @@ const ResumeUploader: React.FC<ResumeUploaderProps> = ({
   const handleFile = useCallback(
     (file: File) => {
       if (file.size > maxSizeMB * 1024 * 1024) {
-        setError(`File size must be under ${maxSizeMB}MB`);
+        setError(`Размер файла не должен превышать ${maxSizeMB} МБ`);
         return;
       }
       setFileName(file.name);
@@ -55,10 +55,10 @@ const ResumeUploader: React.FC<ResumeUploaderProps> = ({
         onDrop={handleDrop}
       >
         <p className="resume-uploader__text">
-          Drag & drop your resume here, or
+          Перетащите резюме сюда или
         </p>
         <label className="resume-uploader__button">
-          Browse Files
+          Выбрать файл
           <input
             type="file"
             accept={acceptedTypes.join(',')}
@@ -67,7 +67,7 @@ const ResumeUploader: React.FC<ResumeUploaderProps> = ({
           />
         </label>
         <p className="resume-uploader__hint">
-          PDF, DOCX, DOC, TXT (max {maxSizeMB}MB)
+          PDF, DOCX, DOC, TXT (макс. {maxSizeMB} МБ)
         </p>
       </div>
 
@@ -77,7 +77,7 @@ const ResumeUploader: React.FC<ResumeUploaderProps> = ({
           <button
             className="resume-uploader__remove"
             onClick={() => setFileName(null)}
-            aria-label="Remove file"
+            aria-label="Удалить файл"
           >
             ✕
           </button>

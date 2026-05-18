@@ -1,4 +1,5 @@
 export { BackendStatusBanner } from "./BackendStatusBanner";
+export { BynSign } from "./BynSign";
 export { ChatBubble } from "./ChatBubble";
 export { EmptyState } from "./EmptyState";
 export { Icon } from "./Icon";

@@ -23,10 +23,10 @@ const AnswerRecorder: React.FC<AnswerRecorderProps> = ({ onSave, isRecording = f
       <div className="answer-recorder__video">
         {recording ? (
           <div className="answer-recorder__recording-indicator">
-            <span className="answer-recorder__rec-dot" /> Recording...
+            <span className="answer-recorder__rec-dot" /> Запись...
           </div>
         ) : (
-          <p className="answer-recorder__placeholder">Camera preview</p>
+          <p className="answer-recorder__placeholder">Превью камеры</p>
         )}
       </div>
 
@@ -35,13 +35,13 @@ const AnswerRecorder: React.FC<AnswerRecorderProps> = ({ onSave, isRecording = f
           className={`answer-recorder__btn ${recording ? 'answer-recorder__btn--stop' : 'answer-recorder__btn--start'}`}
           onClick={handleToggleRecording}
         >
-          {recording ? 'Stop Recording' : 'Start Recording'}
+          {recording ? 'Остановить запись' : 'Начать запись'}
         </button>
       </div>
 
       <textarea
         className="answer-recorder__text"
-        placeholder="Type your answer here (optional)..."
+        placeholder="Введите ответ (опционально)..."
         value={answer}
         onChange={(e) => setAnswer(e.target.value)}
         rows={4}
@@ -52,7 +52,7 @@ const AnswerRecorder: React.FC<AnswerRecorderProps> = ({ onSave, isRecording = f
         onClick={handleSave}
         disabled={!answer.trim()}
       >
-        Save Answer
+        Сохранить ответ
       </button>
     </div>
   );

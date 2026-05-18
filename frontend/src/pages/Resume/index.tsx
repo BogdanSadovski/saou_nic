@@ -3,15 +3,13 @@ import { useNavigate } from "react-router-dom";
 
 import { VACANCY_OPTIONS } from "@/features/interview-module/vacancies";
 import { resumeApi } from "@/shared/api/resume";
-import { useTranslation } from "@/shared/i18n";
+import type { HHVacanciesResponse, ResumeImportResponse } from "@/shared/api/resume";
 import { ResumeUploader } from "@/features/upload-resume/ResumeUploader";
-import type { ResumeImportResponse } from "@/shared/api/resume";
-import { GlassButton, GlassCard } from "@/shared/ui";
+import { Counter, RsIcon as Icon, Track } from "@/shared/ui/realsync";
 
 const matchVacancyByRole = (role: string) => {
   const normalized = role.trim().toLowerCase();
   if (!normalized) return VACANCY_OPTIONS[0];
-
   const roleMap: Array<{ keys: string[]; category: string }> = [
     { keys: ["backend", "go", "java", "server"], category: "Backend" },
     { keys: ["frontend", "react", "ui", "web"], category: "Frontend" },
@@ -22,193 +20,83 @@ const matchVacancyByRole = (role: string) => {
     { keys: ["devops", "sre", "platform"], category: "DevOps" },
     { keys: ["security", "cyber"], category: "Security" },
   ];
-
   const mapped = roleMap.find((item) => item.keys.some((key) => normalized.includes(key)))?.category;
-  if (!mapped) {
-    return VACANCY_OPTIONS[0];
-  }
-
+  if (!mapped) return VACANCY_OPTIONS[0];
   return VACANCY_OPTIONS.find((item) => item.category === mapped) || VACANCY_OPTIONS[0];
-};
-
-const matchVacancyByLanguage = (language: string) => {
-  const normalized = language.trim().toLowerCase();
-  if (!normalized) {
-    return VACANCY_OPTIONS[0];
-  }
-
-  const byPrimarySkill = VACANCY_OPTIONS.find((item) =>
-    item.primarySkills.some((skill) => skill.trim().toLowerCase().includes(normalized)),
-  );
-  if (byPrimarySkill) {
-    return byPrimarySkill;
-  }
-
-  if (["typescript", "javascript"].includes(normalized)) {
-    return VACANCY_OPTIONS.find((item) => item.category === "Frontend") || VACANCY_OPTIONS[0];
-  }
-  if (["go", "java", "rust", "c#", "c++"].includes(normalized)) {
-    return VACANCY_OPTIONS.find((item) => item.category === "Backend") || VACANCY_OPTIONS[0];
-  }
-  if (["python"].includes(normalized)) {
-    return (
-      VACANCY_OPTIONS.find((item) => item.category === "ML") ||
-      VACANCY_OPTIONS.find((item) => item.category === "Data") ||
-      VACANCY_OPTIONS[0]
-    );
-  }
-  if (["kotlin", "swift"].includes(normalized)) {
-    return VACANCY_OPTIONS.find((item) => item.category === "Mobile") || VACANCY_OPTIONS[0];
-  }
-
-  return VACANCY_OPTIONS[0];
 };
 
 export default function ResumePage() {
   const navigate = useNavigate();
   const [result, setResult] = useState<ResumeImportResponse | null>(null);
   const [history, setHistory] = useState<ResumeImportResponse[]>([]);
-  const [historyLoading, setHistoryLoading] = useState(false);
-  const t = useTranslation();
+  const [activeIdx, setActiveIdx] = useState(0);
+  const [vacancies, setVacancies] = useState<HHVacanciesResponse | null>(null);
+  const [vacanciesLoading, setVacanciesLoading] = useState(false);
+  const [vacanciesError, setVacanciesError] = useState<string | null>(null);
+  const [vacancyArea, setVacancyArea] = useState<string>("16"); // 16=Belarus by default
 
   useEffect(() => {
     let cancelled = false;
-    const loadHistory = async () => {
-      setHistoryLoading(true);
+    (async () => {
       try {
         const items = await resumeApi.getHistory();
         if (!cancelled) {
           setHistory(items);
-          if (!result && items.length > 0) {
-            setResult(items[0]);
+          if (items.length > 0) {
+            setResult(items[0]!);
+            setActiveIdx(0);
           }
         }
       } catch {
-        if (!cancelled) {
-          setHistory([]);
-        }
-      } finally {
-        if (!cancelled) {
-          setHistoryLoading(false);
-        }
+        if (!cancelled) setHistory([]);
       }
-    };
-
-    void loadHistory();
+    })();
     return () => {
       cancelled = true;
     };
   }, []);
 
-  const bestTrack = useMemo(() => {
-    if (!result) return null;
-    const fromTrack = result.ai_insights.interview_tracks?.[0];
-    if (fromTrack) return fromTrack;
-
-    const bestRole = [...(result.ai_insights.recommended_positions || [])]
-      .sort((a, b) => b.fit_score - a.fit_score)[0];
-    if (!bestRole) return null;
-
-    return {
-      role: bestRole.role,
-      mode: "practice",
-      level: "Middle",
-      duration_minutes: 30,
-      focus_areas: [],
-      primary_skills: [],
-      rationale: bestRole.rationale,
-    };
-  }, [result]);
-
-  const maxSkillValue = useMemo(() => {
-    const values = result?.charts.skills_distribution.map((item) => item.value) || [];
-    return Math.max(...values, 1);
-  }, [result]);
-
-  const suggestedLanguages = useMemo(() => {
-    if (!result) return [];
-
-    const fromInsights = (result.ai_insights.language_insights || [])
-      .filter((item) => item.language.trim())
-      .map((item) => ({ language: item.language.trim(), confidence: item.confidence }));
-    if (fromInsights.length > 0) {
-      return fromInsights.slice(0, 5);
+  // Load matching HH.ru vacancies whenever the active resume report
+  // or the selected region changes.
+  useEffect(() => {
+    if (!result?.report_id) {
+      setVacancies(null);
+      return;
     }
-
-    return (result.charts.language_distribution || [])
-      .filter((item) => item.label.trim())
-      .map((item, index) => ({ language: item.label.trim(), confidence: Math.max(50, 76 - index * 7) }))
-      .slice(0, 5);
-  }, [result]);
-
-  const advancedAnalytics = useMemo(() => {
-    if (!result) {
-      return null;
-    }
-
-    const scoreFromRoles = Math.max(
-      35,
-      Math.round(
-        (result.ai_insights.recommended_positions || [])
-          .slice(0, 3)
-          .reduce((acc, item) => acc + item.fit_score, 0) /
-          Math.max((result.ai_insights.recommended_positions || []).slice(0, 3).length, 1),
-      ),
-    );
-
-    const structureScore = Math.min(100, 25 + result.stats.education_entries * 12 + result.stats.experience_entries * 10);
-    const impactScore = Math.min(100, 20 + result.stats.word_count / 35 + (result.ai_insights.strong_points?.length || 0) * 7);
-    const technicalDepthScore = Math.min(100, 30 + result.stats.skills_count * 6 + result.stats.language_count * 8);
-    const focusScore = Math.min(
-      100,
-      20 +
-        (result.ai_insights.interview_tracks?.[0]?.primary_skills?.length || 0) * 9 +
-        (result.ai_insights.action_plan?.length || 0) * 5,
-    );
-
-    const overallReadiness = Math.round(
-      structureScore * 0.24 + impactScore * 0.21 + technicalDepthScore * 0.3 + focusScore * 0.1 + scoreFromRoles * 0.15,
-    );
-
-    const level =
-      overallReadiness >= 78
-        ? "Middle+/Senior"
-        : overallReadiness >= 62
-          ? "Middle"
-          : "Junior+/Middle-";
-
-    const marketPotential = (result.ai_insights.recommended_positions || []).slice(0, 4).map((item) => {
-      const demandBoost =
-        /backend|data|ml|devops|security/i.test(item.role)
-          ? 7
-          : /frontend|fullstack|mobile/i.test(item.role)
-            ? 4
-            : 2;
-      const marketScore = Math.min(100, item.fit_score + demandBoost);
-      return {
-        role: item.role,
-        fitScore: item.fit_score,
-        marketScore,
-      };
-    });
-
-    return {
-      overallReadiness,
-      level,
-      // Round each metric so the UI never renders raw floats like
-      // 37.77142857142857 — looks like a debug print to the user.
-      scoreBreakdown: [
-        { label: "Структура резюме", value: Math.round(structureScore) },
-        { label: "Сила impact-формулировок", value: Math.round(impactScore) },
-        { label: "Техническая глубина", value: Math.round(technicalDepthScore) },
-        { label: "Фокус на интервью", value: Math.round(focusScore) },
-      ],
-      marketPotential,
+    let cancelled = false;
+    setVacanciesLoading(true);
+    setVacanciesError(null);
+    (async () => {
+      try {
+        const data = await resumeApi.getMatchingVacancies(result.report_id, vacancyArea);
+        if (!cancelled) setVacancies(data);
+      } catch (e) {
+        if (!cancelled) {
+          const msg = e instanceof Error ? e.message : "Не удалось загрузить вакансии";
+          setVacanciesError(msg);
+          setVacancies(null);
+        }
+      } finally {
+        if (!cancelled) setVacanciesLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
     };
-  }, [result]);
+  }, [result?.report_id, vacancyArea]);
+
+  const formatSalary = (v: { salary_from?: number | null; salary_to?: number | null; salary_currency?: string }) => {
+    if (!v.salary_from && !v.salary_to) return null;
+    const cur = (v.salary_currency || "").toUpperCase();
+    const sign = cur === "RUR" || cur === "RUB" ? "₽" : cur === "BYR" || cur === "BYN" ? "Br" : cur === "USD" ? "$" : cur === "EUR" ? "€" : cur;
+    const fmt = (n: number) => n.toLocaleString("ru-RU");
+    if (v.salary_from && v.salary_to) return `${fmt(v.salary_from)} – ${fmt(v.salary_to)} ${sign}`;
+    if (v.salary_from) return `от ${fmt(v.salary_from)} ${sign}`;
+    return `до ${fmt(v.salary_to!)} ${sign}`;
+  };
 
   const goToInterviewTrack = (role: string, mode: string, level: string, durationMinutes: number) => {
-    const vacancy = matchVacancyByRole(role);
+    const vacancy = matchVacancyByRole(role)!;
     const params = new URLSearchParams({
       vacancyId: vacancy.id,
       role: vacancy.category,
@@ -219,284 +107,393 @@ export default function ResumePage() {
     navigate(`/interview?${params.toString()}`);
   };
 
-  const goToInterviewByLanguage = (language: string) => {
-    const vacancy = matchVacancyByLanguage(language);
-    const params = new URLSearchParams({
-      vacancyId: vacancy.id,
-      role: vacancy.category,
-      mode: "practice",
-      level: "Middle",
-      duration: "30",
-      preferredSkill: language,
-    });
-    navigate(`/interview?${params.toString()}`);
-  };
+  const overallReadiness = useMemo(() => {
+    if (!result) return 82;
+    const fromRoles = (result.ai_insights.recommended_positions || []).slice(0, 3);
+    if (!fromRoles.length) return 82;
+    return Math.round(fromRoles.reduce((acc, item) => acc + item.fit_score, 0) / fromRoles.length);
+  }, [result]);
+
+  const scores = useMemo(() => {
+    if (!result) {
+      return [
+        { l: "Структура резюме", v: 82 },
+        { l: "Impact-формулировки", v: 68 },
+        { l: "Техническая глубина", v: 91 },
+        { l: "Фокус на интервью", v: 74 },
+      ];
+    }
+    const structure = Math.min(100, 25 + result.stats.education_entries * 12 + result.stats.experience_entries * 10);
+    const impact = Math.min(100, 20 + result.stats.word_count / 35 + (result.ai_insights.strong_points?.length || 0) * 7);
+    const depth = Math.min(100, 30 + result.stats.skills_count * 6 + result.stats.language_count * 8);
+    const focus = Math.min(
+      100,
+      20 + (result.ai_insights.interview_tracks?.[0]?.primary_skills?.length || 0) * 9 + (result.ai_insights.action_plan?.length || 0) * 5,
+    );
+    return [
+      { l: "Структура резюме", v: Math.round(structure) },
+      { l: "Impact-формулировки", v: Math.round(impact) },
+      { l: "Техническая глубина", v: Math.round(depth) },
+      { l: "Фокус на интервью", v: Math.round(focus) },
+    ];
+  }, [result]);
+
+  const langs = useMemo(() => {
+    // Allowlist of actual programming languages. The LLM occasionally
+    // returns spoken languages ("русский", "английский") in
+    // language_insights — those must not appear here.
+    const PROG_LANGS = new Set([
+      "go", "golang", "python", "py", "typescript", "ts", "javascript", "js",
+      "java", "kotlin", "swift", "rust", "ruby", "rb", "php", "scala", "c",
+      "c++", "cpp", "c#", "csharp", "objective-c", "objc", "dart", "elixir",
+      "erlang", "haskell", "clojure", "f#", "fsharp", "ocaml", "r", "matlab",
+      "julia", "lua", "perl", "bash", "shell", "sh", "zsh", "powershell",
+      "sql", "plsql", "html", "css", "scss", "sass", "less", "solidity",
+      "vyper", "groovy", "nim", "crystal", "vlang", "zig", "v", "raku",
+      "fortran", "cobol", "ada", "lisp", "scheme", "racket", "prolog",
+      "assembly", "asm", "wasm", "webassembly", "verilog", "vhdl",
+    ]);
+    const isProg = (raw: string) => {
+      const k = raw.trim().toLowerCase().replace(/[\s_.]/g, "");
+      return PROG_LANGS.has(k) || PROG_LANGS.has(k.replace(/script$/, ""));
+    };
+
+    if (!result) {
+      return [
+        { name: "Go", conf: 92 },
+        { name: "TypeScript", conf: 68 },
+        { name: "Python", conf: 54 },
+      ];
+    }
+    const fromInsights = (result.ai_insights.language_insights || [])
+      .filter((item) => item.language.trim() && isProg(item.language))
+      .map((item) => ({ name: item.language.trim(), conf: item.confidence }))
+      .slice(0, 5);
+    if (fromInsights.length) return fromInsights;
+    return (result.charts.language_distribution || [])
+      .filter((item) => item.label.trim() && isProg(item.label))
+      .map((item, i) => ({ name: item.label.trim(), conf: Math.max(50, 76 - i * 7) }))
+      .slice(0, 5);
+  }, [result]);
+
+  const skills = useMemo(() => {
+    const placeholder = [
+      { name: "System design", v: 88 },
+      { name: "PostgreSQL", v: 84 },
+      { name: "Distributed", v: 72 },
+      { name: "gRPC / HTTP", v: 80 },
+      { name: "Observability", v: 65 },
+      { name: "CI/CD", v: 58 },
+    ];
+    if (!result) return placeholder;
+
+    const items = (result.charts.skills_distribution || []).filter(
+      (i) => i.label.trim() && i.value > 0,
+    );
+    // Need at least 3 distinct skills to render a meaningful coverage view.
+    // A single skill always gets normalised to 100% which looks broken.
+    if (items.length < 3) return placeholder;
+
+    const sorted = [...items].sort((a, b) => b.value - a.value).slice(0, 8);
+    const max = Math.max(...sorted.map((i) => i.value));
+    const min = Math.min(...sorted.map((i) => i.value));
+
+    // Backend reports raw mention counts (e.g. SQL=8, Docker=1, Go=1).
+    // Using them as percentages directly produces an unreadable chart
+    // with one tiny "8%" bar and a bunch of "1%" slivers. Instead, map
+    // each skill to a 55–95% bar so the leader visibly dominates and
+    // lesser skills still look like real coverage, not background noise.
+    if (max === min) {
+      return sorted.map((s) => ({ name: s.label, v: 75 }));
+    }
+    const span = max - min;
+    return sorted.map((s) => ({
+      name: s.label,
+      v: 55 + Math.round(((s.value - min) / span) * 40),
+    }));
+  }, [result]);
+
+  const plan = useMemo(() => {
+    if (result && result.ai_insights.action_plan?.length) {
+      return result.ai_insights.action_plan;
+    }
+    return [
+      "Конкретизировать impact: «снизил latency p99 с 850 → 220 мс» вместо «оптимизировал производительность»",
+      "Добавить системный дизайн кейс на 1 параграф — что строили, какие trade-offs",
+      "Сократить experience > 5 лет назад до 1 строки на роль",
+      "Вынести 3 ключевых навыка в header — для ATS и быстрого скана",
+    ];
+  }, [result]);
+
+  const summary = result?.ai_insights.summary ||
+    "Сильный backend-профиль с фокусом на Go и распределённые системы. В резюме чувствуется production-опыт, но impact-формулировки можно усилить — добавить числа и сравнения.";
 
   return (
-    <section className="page two-col">
-      <div className="resume-left-column">
-        <ResumeUploader
-          onAnalyzed={(payload) => {
-            setResult(payload);
-            setHistory((prev) => [payload, ...prev.filter((item) => item.report_id !== payload.report_id)].slice(0, 25));
-          }}
-        />
-        <GlassCard>
-          <h3>История импортов</h3>
-          {historyLoading ? <p className="muted">Загружаем историю...</p> : null}
-          {!historyLoading && history.length === 0 ? <p className="muted">История пока пустая.</p> : null}
-          <div className="resume-history-list">
-            {history.map((item) => (
-              <button
-                className={`resume-history-item ${result?.report_id === item.report_id ? "is-active" : ""}`}
-                key={item.report_id}
-                onClick={async () => {
-                  try {
-                    const report = await resumeApi.getReport(item.report_id);
-                    setResult(report);
-                  } catch {
-                    setResult(item);
-                  }
-                }}
-                type="button"
-              >
-                <strong>{item.file_name}</strong>
-                <span className="muted">{new Date(item.created_at).toLocaleString("ru-RU")}</span>
-              </button>
-            ))}
-          </div>
-        </GlassCard>
-      </div>
-      <GlassCard>
-        <h3>Аналитика резюме</h3>
-        {result ? (
-          <div className="resume-report">
-            <div className="github-track-cta">
-              <div>
-                <strong>{result.file_name}</strong>
-                <p className="muted">
-                  Формат: {result.detected_format.toUpperCase()} | Страниц (оценка): {result.stats.estimated_pages}
-                </p>
-              </div>
-              {bestTrack ? (
-                <GlassButton
-                  onClick={() =>
-                    goToInterviewTrack(bestTrack.role, bestTrack.mode, bestTrack.level, bestTrack.duration_minutes)
-                  }
+    <>
+      <span className="eyebrow">Лаборатория резюме</span>
+      <header className="row-between" style={{ alignItems: "end", marginTop: 8 }}>
+        <h1 className="expr-headline" style={{ fontSize: 72 }}>
+          <span className="bold">Анализ</span> <span className="ital">резюме</span>.
+        </h1>
+        <button className="btn btn--ghost" type="button"><Icon name="download" size={14} /> Экспорт PDF-отчёта</button>
+      </header>
+
+      <div className="resume-grid">
+        <aside>
+          <ResumeUploader
+            onAnalyzed={(payload) => {
+              setResult(payload);
+              setHistory((prev) => [payload, ...prev.filter((item) => item.report_id !== payload.report_id)].slice(0, 25));
+              setActiveIdx(0);
+            }}
+          />
+
+          <div style={{ marginTop: 28 }}>
+            <span className="eyebrow">История</span>
+            <div className="resume-history" style={{ marginTop: 12 }}>
+              {history.map((h, i) => (
+                <button
+                  key={h.report_id}
+                  className={`resume-history-item ${activeIdx === i ? "is-active" : ""}`}
+                  onClick={async () => {
+                    setActiveIdx(i);
+                    try {
+                      const r = await resumeApi.getReport(h.report_id);
+                      setResult(r);
+                    } catch {
+                      setResult(h);
+                    }
+                  }}
                   type="button"
-                  variant="primary"
                 >
-                  Перейти к интервью
-                </GlassButton>
-              ) : null}
-            </div>
-
-            <p className="muted">{result.ai_insights.summary}</p>
-
-            {advancedAnalytics ? (
-              <div className="resume-advanced-analytics">
-                <h4>Подробная оценка профиля</h4>
-                <div className="resume-readiness-hero">
-                  <div>
-                    <span className="muted">Интегральная готовность к интервью</span>
-                    <strong>{advancedAnalytics.overallReadiness}%</strong>
-                    <p className="muted">Ориентировочный уровень: {advancedAnalytics.level}</p>
-                  </div>
-                </div>
-
-                <div className="resume-score-breakdown">
-                  {advancedAnalytics.scoreBreakdown.map((item) => (
-                    <div className="resume-score-item" key={item.label}>
-                      <div className="github-position-head">
-                        <span>{item.label}</span>
-                        <strong>{item.value}%</strong>
-                      </div>
-                      <div className="github-fit-track">
-                        <div className="github-fit-fill" style={{ width: `${item.value}%` }} />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
-                <div className="resume-market-grid">
-                  <h5>Рыночный потенциал направлений</h5>
-                  {advancedAnalytics.marketPotential.map((item) => (
-                    <div className="resume-market-item" key={`market-${item.role}`}>
-                      <div className="github-position-head">
-                        <strong>{item.role}</strong>
-                        <span>{item.marketScore}%</span>
-                      </div>
-                      <p className="muted">Fit: {item.fitScore}% | С учетом спроса: {item.marketScore}%</p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ) : null}
-
-            {result.processing_stages?.length ? (
-              <div className="resume-processing-stages">
-                <h4>Этапы обработки</h4>
-                <div className="resume-stage-list">
-                  {result.processing_stages.map((stageItem) => (
-                    <div className="resume-stage-item" key={`${result.report_id}-${stageItem.code}`}>
-                      <span>{stageItem.title}</span>
-                      <strong>{stageItem.duration_ms} ms</strong>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ) : null}
-
-            <div className="github-stats-grid">
-              <div className="github-stat-item">
-                <span className="muted">Слов</span>
-                <strong>{result.stats.word_count}</strong>
-              </div>
-              <div className="github-stat-item">
-                <span className="muted">Навыков</span>
-                <strong>{result.stats.skills_count}</strong>
-              </div>
-              <div className="github-stat-item">
-                <span className="muted">Языков</span>
-                <strong>{result.stats.language_count}</strong>
-              </div>
-              <div className="github-stat-item">
-                <span className="muted">Опытов</span>
-                <strong>{result.stats.experience_entries}</strong>
-              </div>
-            </div>
-
-            <div className="github-language-suggestions">
-              <h4>Рекомендуемые языки для интервью</h4>
-              <p className="muted">Выберите язык, чтобы перейти сразу к релевантному интервью-треку.</p>
-              <div className="github-language-suggestion-grid">
-                {suggestedLanguages.map((item) => (
-                  <div className="github-language-suggestion-item" key={`resume-lang-${item.language}`}>
-                    <div className="github-position-head">
-                      <strong>{item.language}</strong>
-                      <span>{item.confidence}%</span>
-                    </div>
-                    <GlassButton
-                      onClick={() => goToInterviewByLanguage(item.language)}
-                      type="button"
-                      variant="ghost"
-                    >
-                      Интервью по {item.language}
-                    </GlassButton>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="github-role-fit-chart">
-              <h4>Покрытие навыков резюме</h4>
-              {(result.charts.skills_distribution || []).slice(0, 8).map((item) => (
-                <div className="github-fit-row" key={`skill-${item.label}`}>
-                  <span>{item.label}</span>
-                  <div className="github-fit-track">
-                    <div className="github-fit-fill" style={{ width: `${Math.round((item.value / maxSkillValue) * 100)}%` }} />
-                  </div>
-                  <strong>{item.value}</strong>
-                </div>
+                  <strong>{h.file_name}</strong>
+                  <span className="muted">{new Date(h.created_at).toLocaleString("ru-RU")}</span>
+                </button>
               ))}
-            </div>
-
-            <div className="github-language-insights">
-              <h4>AI-анализ по языкам</h4>
-              {(result.ai_insights.language_insights || []).map((insight) => (
-                <div className="github-language-item" key={`resume-insight-${insight.language}`}>
-                  <div className="github-position-head">
-                    <strong>{insight.language}</strong>
-                    <span>{insight.confidence}%</span>
-                  </div>
-                  <p className="muted">{insight.evidence}</p>
-                  <div className="github-badges">
-                    {insight.interview_topics.map((topic) => (
-                      <span className="github-badge" key={`${insight.language}-${topic}`}>{topic}</span>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            <div className="github-positions">
-              <h4>Рекомендуемые позиции</h4>
-              {(result.ai_insights.recommended_positions || []).map((position) => (
-                <div className="github-position-item" key={`resume-role-${position.role}-${position.fit_score}`}>
-                  <div className="github-position-head">
-                    <strong>{position.role}</strong>
-                    <span>{position.fit_score}%</span>
-                  </div>
-                  <p className="muted">{position.rationale}</p>
-                  <GlassButton
-                    onClick={() => goToInterviewTrack(position.role, "practice", "Middle", 30)}
-                    type="button"
-                    variant="ghost"
-                  >
-                    Интервью по этому направлению
-                  </GlassButton>
-                </div>
-              ))}
-            </div>
-
-            <div className="github-track-grid">
-              <h4>Рекомендуемые интервью-треки</h4>
-              {(result.ai_insights.interview_tracks || []).map((track, index) => (
-                <div className="github-track-item" key={`resume-track-${track.role}-${index}`}>
-                  <div className="github-position-head">
-                    <strong>{track.role}</strong>
-                    <span>{track.mode === "theory" ? "Теория" : "Практика"}</span>
-                  </div>
-                  <p className="muted">{track.rationale}</p>
-                  <p className="muted">Уровень: {track.level} | Длительность: {track.duration_minutes} мин</p>
-                  <div className="github-badges">
-                    {track.primary_skills.map((skill) => (
-                      <span className="github-badge" key={`${track.role}-${skill}`}>{skill}</span>
-                    ))}
-                  </div>
-                  <GlassButton
-                    onClick={() => goToInterviewTrack(track.role, track.mode, track.level, track.duration_minutes)}
-                    type="button"
-                    variant={index === 0 ? "primary" : "ghost"}
-                  >
-                    Выбрать этот трек
-                  </GlassButton>
-                </div>
-              ))}
-            </div>
-
-            <div className="github-action-plan">
-              <h4>План улучшения резюме</h4>
-              <ol>
-                {(result.ai_insights.action_plan || []).map((item, index) => (
-                  <li key={`resume-plan-${index}-${item}`}>{item}</li>
-                ))}
-              </ol>
-            </div>
-
-            <div className="github-risk-columns">
-              <div>
-                <h4>Сильные качества</h4>
-                <ul className="simple-list">
-                  {(result.ai_insights.strong_points || []).map((item) => (
-                    <li key={`resume-strong-${item}`}>{item}</li>
-                  ))}
-                </ul>
-              </div>
-              <div>
-                <h4>Что подтянуть</h4>
-                <ul className="simple-list">
-                  {(result.ai_insights.improvement_points || []).map((item) => (
-                    <li key={`resume-improve-${item}`}>{item}</li>
-                  ))}
-                </ul>
-              </div>
+              {history.length === 0 ? <p className="muted">История пока пустая.</p> : null}
             </div>
           </div>
-        ) : (
-          <p className="muted">{t.uploadResumeGenerate}</p>
-        )}
-      </GlassCard>
-    </section>
+        </aside>
+
+        <section className="resume-report">
+          <div className="resume-header">
+            <div>
+              <strong style={{ fontSize: 18 }}>{result?.file_name || "Загрузите резюме"}</strong>
+              <div className="mono" style={{ fontSize: 12, color: "var(--muted)", marginTop: 4 }}>
+                {result
+                  ? `${(result.detected_format || "PDF").toUpperCase()} · ${result.stats.estimated_pages} стр · ${result.stats.word_count} слов`
+                  : "Документ будет проанализирован после загрузки"}
+              </div>
+            </div>
+            <button className="btn btn--accent" onClick={() => navigate("/interview")} type="button">Перейти к интервью <Icon name="arrow" /></button>
+          </div>
+
+          <p style={{ fontSize: 16, color: "var(--ink-2)", lineHeight: 1.55, maxWidth: "64ch" }}>{summary}</p>
+
+          <div className="resume-readiness scanline reveal">
+            <div className="readiness-num mono"><Counter target={overallReadiness} />%</div>
+            <div className="readiness-meta">
+              <span className="label">Интегральная готовность к интервью</span>
+              <strong>{overallReadiness >= 78 ? "Middle+ / Senior" : overallReadiness >= 62 ? "Middle" : "Junior+/Middle-"}</strong>
+              <p>Профиль выдерживает Middle-интервью с большим запасом; для Senior нужно добрать distributed consensus и leadership-сторителлинг.</p>
+            </div>
+          </div>
+
+          <section>
+            <header className="dash-section-head"><h2 style={{ fontSize: 28 }}>Оценка по факторам</h2></header>
+            <div className="scores-grid">
+              {scores.map((s) => (
+                <div className="score-item" key={s.l}>
+                  <div className="score-head">
+                    <span>{s.l}</span>
+                    <strong className="mono">{s.v}%</strong>
+                  </div>
+                  <Track value={s.v} />
+                </div>
+              ))}
+            </div>
+          </section>
+
+          <section>
+            <header className="dash-section-head">
+              <h2 style={{ fontSize: 28 }}>Языки программирования</h2>
+              <span className="eyebrow">по релевантности</span>
+            </header>
+            {langs.length === 0 ? (
+              <p className="muted" style={{ fontSize: 14 }}>
+                В резюме не найдено упоминаний языков программирования.
+              </p>
+            ) : (
+              <div className="lang-grid">
+                {langs.map((l) => (
+                  <div className="lang-item" key={l.name} onClick={() => navigate("/interview")}>
+                    <strong>{l.name}</strong>
+                    <span className="conf mono">уверенность {l.conf}%</span>
+                    <span className="muted" style={{ fontSize: 12, marginTop: 4 }}>Интервью по {l.name} →</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+
+          <section>
+            <header className="dash-section-head"><h2 style={{ fontSize: 28 }}>Покрытие навыков</h2></header>
+            <div className="skill-bars">
+              {skills.map((s) => (
+                <div className="skill-row" key={s.name}>
+                  <span className="name">{s.name}</span>
+                  <Track value={s.v} />
+                  <span className="val">{s.v}%</span>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          <section>
+            <header className="dash-section-head"><h2 style={{ fontSize: 28 }}>План улучшения</h2></header>
+            <ol style={{ display: "grid", gap: 14 }}>
+              {plan.map((p, i) => (
+                <li key={i} style={{ display: "grid", gridTemplateColumns: "32px 1fr", gap: 16, padding: "14px 0", borderBottom: "1px solid var(--line)" }}>
+                  <span className="mono" style={{ color: "var(--muted)", fontSize: 12 }}>{String(i + 1).padStart(2, "0")}</span>
+                  <span style={{ color: "var(--ink-2)", fontSize: 14 }}>{p}</span>
+                </li>
+              ))}
+            </ol>
+          </section>
+
+          <section>
+            <header className="dash-section-head" style={{ gap: 16, flexWrap: "wrap" }}>
+              <h2 style={{ fontSize: 28 }}>Подходящие вакансии <span className="mono" style={{ fontSize: 12, color: "var(--muted)", letterSpacing: "0.06em" }}>· hh.ru</span></h2>
+              <div className="row" style={{ gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                {vacancies?.query ? (
+                  <span className="mono" style={{ fontSize: 11, color: "var(--muted)" }}>
+                    запрос: «{vacancies.query}»
+                  </span>
+                ) : null}
+                <div className="segmented" style={{ fontSize: 11 }}>
+                  {[
+                    { v: "16", label: "Беларусь" },
+                    { v: "113", label: "Россия" },
+                    { v: "1", label: "Москва" },
+                    { v: "world", label: "Все" },
+                  ].map((opt) => (
+                    <button
+                      key={opt.v}
+                      type="button"
+                      className={vacancyArea === opt.v ? "is-active" : ""}
+                      onClick={() => setVacancyArea(opt.v)}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </header>
+
+            {vacanciesLoading ? (
+              <p className="muted" style={{ fontSize: 14 }}>Подбираем вакансии по навыкам из резюме…</p>
+            ) : vacanciesError ? (
+              <p className="mono" style={{
+                fontSize: 12, padding: "10px 12px", borderRadius: "var(--r-1)",
+                background: "oklch(0.93 0.08 25)", color: "oklch(0.30 0.14 25)",
+                border: "1px solid oklch(0.80 0.14 25)",
+              }}>
+                {vacanciesError}
+              </p>
+            ) : !vacancies || vacancies.items.length === 0 ? (
+              <p className="muted" style={{ fontSize: 14 }}>
+                По текущему резюме и региону вакансий не найдено. Попробуйте другой регион.
+              </p>
+            ) : (
+              <>
+                <div className="row-between mono" style={{ fontSize: 11, color: "var(--muted)", marginBottom: 10, letterSpacing: "0.06em" }}>
+                  <span>Найдено в общей выдаче: {vacancies.total.toLocaleString("ru-RU")}</span>
+                  <span>Показываем топ-{vacancies.items.length}</span>
+                </div>
+                <div style={{ display: "grid", gap: 10 }}>
+                  {vacancies.items.map((v) => {
+                    const salary = formatSalary(v);
+                    return (
+                      <a
+                        key={v.id}
+                        href={v.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns: "1fr auto",
+                          gap: 14,
+                          padding: "14px 16px",
+                          border: "1px solid var(--line)",
+                          borderRadius: "var(--r-2)",
+                          background: "var(--paper)",
+                          textDecoration: "none",
+                          color: "var(--ink)",
+                          transition: "border-color 180ms ease, transform 180ms ease",
+                        }}
+                        onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.borderColor = "var(--ink)"; }}
+                        onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.borderColor = "var(--line)"; }}
+                      >
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
+                            <strong style={{ fontSize: 15, lineHeight: 1.3 }}>{v.name}</strong>
+                            {v.relevance_score ? (
+                              <span className="mono" style={{ fontSize: 10, color: "var(--accent-ink, var(--ink))" }}>
+                                {Math.round(v.relevance_score * 100)}% match
+                              </span>
+                            ) : null}
+                          </div>
+                          <div className="muted" style={{ fontSize: 13, marginTop: 4 }}>
+                            {[v.employer, v.area].filter(Boolean).join(" · ")}
+                          </div>
+                          {v.snippet ? (
+                            <div className="muted" style={{ fontSize: 12, marginTop: 6, lineHeight: 1.5, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}
+                              dangerouslySetInnerHTML={{ __html: v.snippet }}
+                            />
+                          ) : null}
+                          <div className="row mono" style={{ marginTop: 8, gap: 6, flexWrap: "wrap", fontSize: 10 }}>
+                            {v.experience ? <span className="tag">{v.experience}</span> : null}
+                            {v.schedule ? <span className="tag">{v.schedule}</span> : null}
+                            {v.employment ? <span className="tag">{v.employment}</span> : null}
+                          </div>
+                        </div>
+                        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", justifyContent: "space-between", gap: 8 }}>
+                          {salary ? (
+                            <strong className="mono" style={{ fontSize: 13, whiteSpace: "nowrap", color: "var(--accent-ink, var(--ink))" }}>
+                              {salary}
+                            </strong>
+                          ) : (
+                            <span className="mono muted" style={{ fontSize: 10 }}>з/п не указана</span>
+                          )}
+                          <span className="mono" style={{ fontSize: 11, color: "var(--ink)" }}>Открыть ↗</span>
+                        </div>
+                      </a>
+                    );
+                  })}
+                </div>
+                <div className="mono" style={{ fontSize: 10, color: "var(--muted)", marginTop: 10, letterSpacing: "0.04em" }}>
+                  Данные обновляются раз в час через публичный API hh.ru
+                </div>
+              </>
+            )}
+          </section>
+
+          {result?.ai_insights.interview_tracks?.length ? (
+            <section>
+              <header className="dash-section-head"><h2 style={{ fontSize: 28 }}>Рекомендуемые треки</h2></header>
+              <div className="lang-grid">
+                {result.ai_insights.interview_tracks.map((track, i) => (
+                  <div className="lang-item" key={`track-${i}`} onClick={() => goToInterviewTrack(track.role, track.mode, track.level, track.duration_minutes)}>
+                    <strong>{track.role}</strong>
+                    <span className="conf mono">{track.mode === "theory" ? "Теория" : "Практика"} · {track.level}</span>
+                    <span className="muted" style={{ fontSize: 12, marginTop: 4 }}>{track.duration_minutes} мин →</span>
+                  </div>
+                ))}
+              </div>
+            </section>
+          ) : null}
+        </section>
+      </div>
+    </>
   );
 }

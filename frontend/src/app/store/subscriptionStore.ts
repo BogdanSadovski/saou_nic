@@ -23,10 +23,11 @@ export type Tier = "free" | "starter" | "pro" | "team";
 
 export type PaidIntent = {
   tier: Exclude<Tier, "free">;
-  /** Amount in USD whole units. Backend stats price subscriptions in
-   *  USD too — see admin-service tierMonthlyPriceUSD. */
+  /** Amount in BYN whole units. UI displays as "Br" — see
+   *  shared/lib/currency formatBYN. Backend historical amounts may
+   *  still be denominated in USD; the type is tolerant for that. */
   amount: number;
-  currency: "USD";
+  currency: "BYN" | "USD";
   cardLast4: string;
   paidAt: string;
   expiresAt: string;
@@ -97,7 +98,7 @@ const fromBackend = (sub: BackendSubscription | null): Subscription => {
     intent: {
       tier,
       amount: sub.amount ?? knownPrice,
-      currency: "USD",
+      currency: "BYN",
       cardLast4: "••••",
       paidAt: sub.start_date ?? sub.created_at ?? new Date().toISOString(),
       expiresAt: sub.end_date ?? new Date(Date.now() + 30 * 86_400_000).toISOString(),
@@ -153,8 +154,8 @@ export const TIER_CATALOG: Array<{
 }> = [
   {
     tier: "starter",
-    title: "Starter",
-    price: 9, // USD/mo — keep in sync with admin-service tierMonthlyPriceUSD
+    title: "Стартовый",
+    price: 29, // BYN/мес — отображается через formatBYN ("Br")
     perks: [
       "До 5 интервью в месяц",
       "Базовые AI-вопросы",
@@ -163,8 +164,8 @@ export const TIER_CATALOG: Array<{
   },
   {
     tier: "pro",
-    title: "Pro",
-    price: 19,
+    title: "Профи",
+    price: 65,
     highlight: true,
     perks: [
       "До 30 интервью в месяц",
@@ -175,8 +176,8 @@ export const TIER_CATALOG: Array<{
   },
   {
     tier: "team",
-    title: "Team",
-    price: 49,
+    title: "Команда",
+    price: 159,
     perks: [
       "Без лимита интервью",
       "Все режимы (theory + practice)",
@@ -187,6 +188,6 @@ export const TIER_CATALOG: Array<{
 ];
 
 export const getTierTitle = (tier: Tier): string => {
-  if (tier === "free") return "Free";
+  if (tier === "free") return "Бесплатный";
   return TIER_CATALOG.find((t) => t.tier === tier)?.title ?? tier;
 };

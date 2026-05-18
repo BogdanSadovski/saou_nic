@@ -28,18 +28,18 @@ const ResumeAnalysis: React.FC<ResumeAnalysisProps> = ({
   isLoading = false,
 }) => {
   if (isLoading) {
-    return <div className="resume-analysis resume-analysis--loading">Analyzing resume...</div>;
+    return <div className="resume-analysis resume-analysis--loading">Анализируем резюме...</div>;
   }
 
   return (
     <div className="resume-analysis">
       <div className="resume-analysis__overall">
         <div className="resume-analysis__score-circle">{overallScore}%</div>
-        <h3>Overall Score</h3>
+        <h3>Общий балл</h3>
       </div>
 
       <div className="resume-analysis__breakdown">
-        <h4>Category Breakdown</h4>
+        <h4>Разбивка по категориям</h4>
         {scores.map((item) => (
           <div key={item.category} className="resume-analysis__category">
             <div className="resume-analysis__category-header">
@@ -61,7 +61,7 @@ const ResumeAnalysis: React.FC<ResumeAnalysisProps> = ({
 
       {suggestions.length > 0 && (
         <div className="resume-analysis__suggestions">
-          <h4>Suggestions</h4>
+          <h4>Рекомендации</h4>
           <ul>
             {suggestions.map((s, idx) => (
               <li key={idx}>{s}</li>

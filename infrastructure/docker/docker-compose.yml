@@ -14,6 +14,8 @@ volumes:
   kafka-data: null
   zookeeper-data: null
   minio-data: null
+  softskills_weights: null
+  softskills_hf_cache: null
 services:
   zookeeper:
     image: confluentinc/cp-zookeeper:7.5.0
@@ -370,6 +372,25 @@ services:
       LLM_API_KEY: ${LLM_API_KEY}
       LLM_MODEL: ${LLM_MODEL}
       LLM_BASE_URL: ${LLM_BASE_URL:-}
+      # Tier 2 — secondary provider (e.g. OpenRouter free Llama).
+      LLM_SECONDARY_API_KEY: ${LLM_SECONDARY_API_KEY:-}
+      LLM_SECONDARY_BASE_URL: ${LLM_SECONDARY_BASE_URL:-}
+      LLM_SECONDARY_MODEL: ${LLM_SECONDARY_MODEL:-}
+      # Tier 3 — DeepSeek via OpenRouter (key pool with round-robin).
+      # Designed for 5× OpenRouter keys on the same free DeepSeek model.
+      # Defaults to https://openrouter.ai/api/v1 + deepseek/deepseek-chat-v3-0324:free
+      # so only LLM_TERTIARY_API_KEYS (comma-separated) is required.
+      # The singular LLM_TERTIARY_API_KEY still works for one-key setups.
+      LLM_TERTIARY_API_KEY: ${LLM_TERTIARY_API_KEY:-}
+      LLM_TERTIARY_API_KEYS: ${LLM_TERTIARY_API_KEYS:-}
+      LLM_TERTIARY_BASE_URL: ${LLM_TERTIARY_BASE_URL:-}
+      LLM_TERTIARY_MODEL: ${LLM_TERTIARY_MODEL:-}
+      # Tier 4 — last-resort free endpoint (Together AI / Cerebras /
+      # Mistral / HuggingFace router etc.). Also supports key pool.
+      LLM_QUATERNARY_API_KEY: ${LLM_QUATERNARY_API_KEY:-}
+      LLM_QUATERNARY_API_KEYS: ${LLM_QUATERNARY_API_KEYS:-}
+      LLM_QUATERNARY_BASE_URL: ${LLM_QUATERNARY_BASE_URL:-}
+      LLM_QUATERNARY_MODEL: ${LLM_QUATERNARY_MODEL:-}
       REDIS_URL: redis://:${REDIS_PASSWORD:-redis_secret}@redis:6379/4
       KAFKA_BROKERS: kafka:9092
       RABBITMQ_URL: amqp://${RABBITMQ_DEFAULT_USER:-rabbitmq_user}:${RABBITMQ_DEFAULT_PASS:-rabbitmq_pass}@rabbitmq:5672
@@ -393,6 +414,39 @@ services:
       timeout: 5s
       retries: 3
       start_period: 30s
+    restart: unless-stopped
+  softskills-service:
+    build:
+      context: ../../services/softskills-service
+      dockerfile: Dockerfile
+    environment:
+      SERVICE_NAME: softskills-service
+      PORT: 8090
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      SOFTSKILLS_EMBEDDING_MODEL: cointegrated/rubert-tiny2
+    ports:
+    - 3012:8090
+    volumes:
+    # Persist trained weights + scaler across container rebuilds so we
+    # don't retrain on every `up`. First boot writes them; subsequent
+    # boots find them and skip training.
+    - softskills_weights:/app/weights
+    - softskills_hf_cache:/cache
+    networks:
+    - backend-network
+    - frontend-network
+    healthcheck:
+      test:
+      - CMD
+      - python
+      - -c
+      - import urllib.request; urllib.request.urlopen('http://localhost:8090/health', timeout=3)
+      interval: 30s
+      timeout: 5s
+      retries: 4
+      # Training can take 3-5 minutes on cold start; give it a wide
+      # window before the orchestrator considers the service unhealthy.
+      start_period: 360s
     restart: unless-stopped
   scoring-service:
     build:

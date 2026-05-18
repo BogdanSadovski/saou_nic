@@ -6,11 +6,11 @@ interface FooterProps {
 }
 
 const Footer: React.FC<FooterProps> = ({
-  copyright = `© ${new Date().getFullYear()} Interview Prep Platform`,
+  copyright = `© ${new Date().getFullYear()} Платформа подготовки к интервью`,
   links = [
-    { label: 'Privacy Policy', href: '/privacy' },
-    { label: 'Terms of Service', href: '/terms' },
-    { label: 'Contact', href: '/contact' },
+    { label: 'Политика конфиденциальности', href: '/privacy' },
+    { label: 'Условия использования', href: '/terms' },
+    { label: 'Контакты', href: '/contact' },
   ],
 }) => {
   return (

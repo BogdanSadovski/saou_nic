@@ -267,6 +267,21 @@ func main() {
 		}
 		return "/api/v1/resume/history/" + id
 	}))
+	// HH.ru matching vacancies for a given resume report.
+	mux.Handle("/api/resume/vacancies/", rewriteAndProxy(interviewProxy, func(path string) string {
+		id := strings.TrimPrefix(path, "/api/resume/vacancies/")
+		if id == "" {
+			return "/api/v1/resume/vacancies"
+		}
+		return "/api/v1/resume/vacancies/" + id
+	}))
+	mux.Handle("/api/v1/resume/vacancies/", rewriteAndProxy(interviewProxy, func(path string) string {
+		id := strings.TrimPrefix(path, "/api/v1/resume/vacancies/")
+		if id == "" {
+			return "/api/v1/resume/vacancies"
+		}
+		return "/api/v1/resume/vacancies/" + id
+	}))
 
 	mux.Handle("/api/github/", rewriteAndProxy(githubProxy, func(path string) string {
 		return singleJoiningSlash("/api/v1", stripPrefix("/api/github")(path))
@@ -283,6 +298,12 @@ func main() {
 
 	mux.Handle("/api/scoring/", rewriteAndProxy(scoringProxy, func(path string) string {
 		return singleJoiningSlash("/api/v1/scoring", stripPrefix("/api/scoring")(path))
+	}))
+
+	// Soft-skills ML scorer — separate Python+PyTorch service on :8090.
+	softSkillsProxy := makeProxy(mustURL(getEnv("SOFTSKILLS_SERVICE_URL", "http://softskills-service:8090")))
+	mux.Handle("/api/softskills/", rewriteAndProxy(softSkillsProxy, func(path string) string {
+		return singleJoiningSlash("/api/v1", stripPrefix("/api/softskills")(path))
 	}))
 
 	server := &http.Server{

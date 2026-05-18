@@ -5,13 +5,13 @@ interface HeaderProps {
   onMenuToggle?: () => void;
 }
 
-const Header: React.FC<HeaderProps> = ({ title = 'Dashboard', onMenuToggle }) => {
+const Header: React.FC<HeaderProps> = ({ title = 'Панель', onMenuToggle }) => {
   return (
     <header className="header">
       <button
         className="header__menu-toggle"
         onClick={onMenuToggle}
-        aria-label="Toggle menu"
+        aria-label="Переключить меню"
       >
         <span className="header__menu-icon" />
       </button>

@@ -1,10 +1,10 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 import { useUserStore } from "@/app/store";
 import { resumeApi } from "@/shared/api";
 import type { ResumeImportResponse } from "@/shared/api/resume";
 import { useTranslation } from "@/shared/i18n";
-import { GlassButton, GlassCard, Loader, useToast } from "@/shared/ui";
+import { useToast } from "@/shared/ui";
 
 type ResumeUploaderProps = {
   onAnalyzed: (payload: ResumeImportResponse) => void;
@@ -15,13 +15,14 @@ const MAX_FILE_SIZE = 10 * 1024 * 1024;
 
 export function ResumeUploader({ onAnalyzed }: ResumeUploaderProps) {
   const user = useUserStore((state) => state.user);
-  const [filename, setFilename] = useState<string>("Файл не выбран");
+  const inputRef = useRef<HTMLInputElement | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [stage, setStage] = useState<string>("idle");
   const [progress, setProgress] = useState<number>(0);
   const { pushToast } = useToast();
   const t = useTranslation();
+  void t;
 
   const stageLabel =
     stage === "upload"
@@ -36,7 +37,7 @@ export function ResumeUploader({ onAnalyzed }: ResumeUploaderProps) {
 
   const analyze = async () => {
     if (!selectedFile) {
-      pushToast(t.selectFileFirst);
+      pushToast("Сначала выберите файл");
       return;
     }
 
@@ -85,41 +86,111 @@ export function ResumeUploader({ onAnalyzed }: ResumeUploaderProps) {
     }
   };
 
+  const onDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const file = e.dataTransfer.files?.[0];
+    if (file) setSelectedFile(file);
+  };
+
   return (
-    <GlassCard>
-      <h3>{t.uploadResumeTitle}</h3>
-      <p className="muted">Загрузите PDF, DOCX, TXT или RTF и получите AI-анализ резюме.</p>
-      <label className="resume-file-picker" htmlFor="resume-file">
+    <div>
+      <div
+        className="resume-upload"
+        onClick={() => inputRef.current?.click()}
+        onDragOver={(e) => e.preventDefault()}
+        onDrop={onDrop}
+        role="button"
+        tabIndex={0}
+      >
+        <div className="resume-upload-icon" aria-hidden="true">↑</div>
+        <h4>Загрузить резюме</h4>
+        <p className="muted" style={{ fontSize: 13, marginBottom: 14 }}>
+          PDF, DOCX до 10 МБ — перетащите файл сюда или
+        </p>
+        <button
+          className="btn btn--primary btn--sm"
+          onClick={(e) => {
+            e.stopPropagation();
+            inputRef.current?.click();
+          }}
+          type="button"
+        >
+          Выбрать файл
+        </button>
         <input
+          ref={inputRef}
           accept=".pdf,.docx,.txt,.rtf,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,application/rtf,text/rtf"
-          id="resume-file"
           onChange={(event) => {
             const file = event.target.files?.[0];
             setSelectedFile(file ?? null);
-            setFilename(file ? file.name : t.noFileSelected);
           }}
+          style={{ display: "none" }}
           type="file"
         />
-        <div className="resume-file-picker-row">
-          <span className="resume-file-picker-trigger">Выбрать файл</span>
-          <span className="resume-file-picker-name">{filename}</span>
-        </div>
-      </label>
-      <p className="muted resume-file-picker-hint">Максимум 10MB. Форматы: PDF, DOCX, TXT, RTF.</p>
-      <GlassButton onClick={analyze} type="button">
-        {isLoading ? <Loader /> : "Импортировать и проанализировать"}
-      </GlassButton>
-      {isLoading ? (
-        <div className="resume-upload-progress">
-          <div className="resume-upload-progress-head">
-            <span>{stageLabel}</span>
-            <strong>{progress}%</strong>
+        {selectedFile ? (
+          <div
+            className="mono"
+            style={{ fontSize: 12, color: "var(--ink)", marginTop: 14, wordBreak: "break-all" }}
+          >
+            {selectedFile.name}
           </div>
-          <div className="resume-upload-progress-track">
-            <div className="resume-upload-progress-fill" style={{ width: `${progress}%` }} />
-          </div>
+        ) : null}
+        <div
+          className="mono"
+          style={{
+            fontSize: 11,
+            color: "var(--muted)",
+            marginTop: 14,
+            letterSpacing: "0.08em",
+            textTransform: "uppercase",
+          }}
+        >
+          обработка ~ 8 сек · OCR · NLP · LLM
         </div>
-      ) : null}
-    </GlassCard>
+      </div>
+
+      <div style={{ marginTop: 16 }}>
+        <button
+          className="btn btn--accent"
+          disabled={!selectedFile || isLoading}
+          onClick={(e) => {
+            e.stopPropagation();
+            void analyze();
+          }}
+          style={{ width: "100%" }}
+          type="button"
+        >
+          {isLoading ? "Анализируем…" : "Импортировать и проанализировать"}
+        </button>
+        {isLoading ? (
+          <div style={{ marginTop: 12 }}>
+            <div
+              className="row-between mono"
+              style={{ fontSize: 11, color: "var(--muted)", marginBottom: 6 }}
+            >
+              <span>{stageLabel}</span>
+              <strong>{progress}%</strong>
+            </div>
+            <div
+              style={{
+                height: 4,
+                background: "var(--paper-2)",
+                borderRadius: 2,
+                overflow: "hidden",
+              }}
+            >
+              <div
+                style={{
+                  height: "100%",
+                  width: `${progress}%`,
+                  background: "var(--ink)",
+                  transition: "width 280ms var(--ease-out)",
+                }}
+              />
+            </div>
+          </div>
+        ) : null}
+      </div>
+    </div>
   );
 }

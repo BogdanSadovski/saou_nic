@@ -11,9 +11,13 @@ from openai import AsyncOpenAI, OpenAIError, RateLimitError
 logger = logging.getLogger(__name__)
 
 
-# Hard cap on a Retry-After hint so a malformed server response can't
-# stall the whole interview for minutes.
-_MAX_RETRY_AFTER_SECONDS = 20.0
+# How long we're willing to wait for a Retry-After hint before giving
+# up and letting the router try the next tier. With a 4-tier cascade
+# there's no point sleeping 55 minutes on Tier 1 — the next provider
+# can answer in 2-5 seconds. Anything beyond this cap signals
+# "exhausted for the day", and we surface the error so LLMRouter
+# moves on immediately.
+_MAX_RETRY_AFTER_SECONDS = 3.0
 
 
 def _extract_retry_after(exc: BaseException) -> float:
@@ -23,17 +27,27 @@ def _extract_retry_after(exc: BaseException) -> float:
         ... 'Please try again in 10.815s' ...
     inside the error message. We parse that string first because the
     `Retry-After` header isn't always exposed through the SDK's
-    `headers` attribute on async clients. Falls back to 5s.
+    `headers` attribute on async clients. Returns the *raw* requested
+    wait in seconds, or 0 if the message didn't contain one. The
+    caller decides whether to honour it (small wait → retry, big wait
+    → give up and fail through to next tier).
     """
     text = str(exc)
     # 'try again in 10.815s' / 'retry after 12 seconds'
     m = re.search(r"(?:try again in|retry after)\s+([0-9]+(?:\.[0-9]+)?)\s*s", text, re.IGNORECASE)
     if m:
         try:
-            return min(_MAX_RETRY_AFTER_SECONDS, float(m.group(1)))
+            return float(m.group(1))
         except ValueError:
             pass
-    return 5.0
+    # 'try again in 1m30s' style — convert minutes to seconds.
+    m = re.search(r"try again in\s+([0-9]+)m([0-9]+(?:\.[0-9]+)?)s", text, re.IGNORECASE)
+    if m:
+        try:
+            return float(m.group(1)) * 60 + float(m.group(2))
+        except ValueError:
+            pass
+    return 0.0
 
 
 class LLMClient:
@@ -94,7 +108,11 @@ class LLMClient:
         if response_format:
             kwargs["response_format"] = response_format
 
-        max_attempts = 3
+        # With a multi-tier router behind us we only retry briefly on
+        # rate-limit. If the provider asks us to wait more than
+        # _MAX_RETRY_AFTER_SECONDS, give up — the next tier will
+        # answer in 2-5 seconds, no point sleeping minutes.
+        max_attempts = 2
         last_exc: Optional[BaseException] = None
         for attempt in range(1, max_attempts + 1):
             try:
@@ -111,17 +129,25 @@ class LLMClient:
             except RateLimitError as exc:
                 last_exc = exc
                 wait = _extract_retry_after(exc)
+                # Daily quota exhausted (Retry-After in minutes/hours) →
+                # fail fast so the router can move to the next provider.
+                if wait > _MAX_RETRY_AFTER_SECONDS or wait == 0:
+                    logger.warning(
+                        "LLM %s rate-limit: Retry-After=%.1fs exceeds cap %.1fs — failing through to next tier",
+                        self._model, wait, _MAX_RETRY_AFTER_SECONDS,
+                    )
+                    raise RuntimeError(f"LLM API error: {exc}") from exc
                 if attempt < max_attempts:
                     logger.warning(
-                        "LLM rate-limit on attempt %d/%d, sleeping %.2fs",
-                        attempt, max_attempts, wait,
+                        "LLM %s rate-limit on attempt %d/%d, sleeping %.2fs",
+                        self._model, attempt, max_attempts, wait,
                     )
                     await asyncio.sleep(wait)
                     continue
-                logger.error("LLM rate-limit persisted after %d attempts", max_attempts)
+                logger.error("LLM %s rate-limit persisted after %d attempts", self._model, max_attempts)
                 raise RuntimeError(f"LLM API error: {exc}") from exc
             except OpenAIError as exc:
-                logger.error("LLM API error: %s", exc)
+                logger.error("LLM %s API error: %s", self._model, exc)
                 raise RuntimeError(f"LLM API error: {exc}") from exc
 
         # Defensive — should never hit because we either return or raise above.
@@ -178,3 +204,212 @@ class LLMClient:
     @property
     def model(self) -> str:
         return self._model
+
+
+class LLMPool:
+    """Round-robin pool of LLM clients that share a provider.
+
+    Used when you want to multiply the daily quota of a single
+    provider (e.g. 5 OpenRouter API keys pointing at the same free
+    DeepSeek model). Each call picks the next client in sequence; if
+    that client raises, the pool transparently tries the next one
+    until either someone succeeds or the whole pool is exhausted.
+
+    The pool exposes the same `generate` / `generate_json` / `model`
+    surface as :class:`LLMClient` so it slots into :class:`LLMRouter`
+    as a single tier — a tier can be either a `LLMClient` or a
+    `LLMPool`, the router doesn't care.
+
+    Note: round-robin is per-process. With multiple ai-service
+    replicas behind a load balancer each replica has its own pointer,
+    which is fine — it still spreads load roughly evenly.
+    """
+
+    def __init__(self, clients: list["LLMClient"]) -> None:
+        if not clients:
+            raise ValueError("LLMPool requires at least one LLMClient")
+        self._clients = clients
+        self._cursor = 0
+        self._lock = asyncio.Lock()
+
+    @property
+    def model(self) -> str:
+        return self._clients[0].model
+
+    @property
+    def size(self) -> int:
+        return len(self._clients)
+
+    async def _next_index(self) -> int:
+        async with self._lock:
+            i = self._cursor
+            self._cursor = (self._cursor + 1) % len(self._clients)
+            return i
+
+    async def generate(
+        self,
+        prompt: str,
+        system_prompt: Optional[str] = None,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+        response_format: Optional[dict[str, Any]] = None,
+    ) -> str:
+        start = await self._next_index()
+        last_exc: Optional[BaseException] = None
+        for offset in range(len(self._clients)):
+            idx = (start + offset) % len(self._clients)
+            client = self._clients[idx]
+            try:
+                return await client.generate(
+                    prompt=prompt,
+                    system_prompt=system_prompt,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    response_format=response_format,
+                )
+            except (RuntimeError, OpenAIError) as exc:
+                last_exc = exc
+                # 404 = the model itself doesn't exist. All keys in the
+                # pool point at the same model, so retrying the other
+                # N-1 slots will produce the identical 404. Fail fast
+                # so LLMRouter can move to the next tier in <1s.
+                if "404" in str(exc) or "No endpoints found" in str(exc) or "does not exist" in str(exc):
+                    logger.warning(
+                        "LLMPool (%s) model not found (404) — skipping remaining %d slots",
+                        client.model, len(self._clients) - 1,
+                    )
+                    raise RuntimeError(f"LLMPool model 404 ({client.model}): {exc}") from exc
+                logger.warning(
+                    "LLMPool slot %d/%d (%s) failed, trying next: %s",
+                    idx + 1, len(self._clients), client.model, exc,
+                )
+                continue
+        raise RuntimeError(f"LLMPool exhausted ({len(self._clients)} keys): {last_exc}")
+
+    async def generate_json(
+        self,
+        prompt: str,
+        system_prompt: Optional[str] = None,
+        schema: Optional[dict[str, Any]] = None,
+    ) -> dict[str, Any]:
+        start = await self._next_index()
+        last_exc: Optional[BaseException] = None
+        for offset in range(len(self._clients)):
+            idx = (start + offset) % len(self._clients)
+            client = self._clients[idx]
+            try:
+                return await client.generate_json(
+                    prompt=prompt,
+                    system_prompt=system_prompt,
+                    schema=schema,
+                )
+            except (RuntimeError, ValueError, OpenAIError) as exc:
+                last_exc = exc
+                if "404" in str(exc) or "No endpoints found" in str(exc) or "does not exist" in str(exc):
+                    logger.warning(
+                        "LLMPool (%s) model not found (404) — skipping remaining %d slots",
+                        client.model, len(self._clients) - 1,
+                    )
+                    raise RuntimeError(f"LLMPool model 404 ({client.model}): {exc}") from exc
+                logger.warning(
+                    "LLMPool slot %d/%d (%s) JSON failed, trying next: %s",
+                    idx + 1, len(self._clients), client.model, exc,
+                )
+                continue
+        raise RuntimeError(f"LLMPool exhausted ({len(self._clients)} keys): {last_exc}")
+
+
+class LLMRouter:
+    """Cascading wrapper over multiple OpenAI-compatible LLM clients.
+
+    Same public surface as :class:`LLMClient` (`generate`, `generate_json`,
+    `model`) so call sites that depend on the existing client need no
+    changes — only the DI container swaps in a router instead of a
+    single client.
+
+    The first client (Tier 1) is the primary provider. On
+    :class:`RuntimeError` (rate-limit exhausted, server 5xx, JSON
+    decode failure, etc.) the router moves to Tier 2, then Tier 3,
+    then Tier 4. Only the *last* tier's exception propagates — earlier
+    failures are logged as warnings so the caller still sees a useful
+    error if everything is down.
+
+    The cascade fires for every request independently; there is no
+    sticky failover, no circuit breaker. Free tiers recover quickly,
+    so always retrying from Tier 1 keeps quality high when Tier 1 is
+    healthy.
+    """
+
+    def __init__(self, tiers: "list[LLMClient | LLMPool]") -> None:
+        if not tiers:
+            raise ValueError("LLMRouter requires at least one tier")
+        self._clients = tiers
+
+    @property
+    def model(self) -> str:
+        # Report the primary model; downstream logs are still accurate
+        # because each client logs its own model on use.
+        return self._clients[0].model
+
+    async def generate(
+        self,
+        prompt: str,
+        system_prompt: Optional[str] = None,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+        response_format: Optional[dict[str, Any]] = None,
+    ) -> str:
+        last_exc: Optional[BaseException] = None
+        for idx, client in enumerate(self._clients, start=1):
+            try:
+                return await client.generate(
+                    prompt=prompt,
+                    system_prompt=system_prompt,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    response_format=response_format,
+                )
+            except (RuntimeError, OpenAIError) as exc:
+                last_exc = exc
+                if idx < len(self._clients):
+                    logger.warning(
+                        "LLM Tier %d (%s) failed, falling over to Tier %d: %s",
+                        idx, client.model, idx + 1, exc,
+                    )
+                    continue
+                logger.error(
+                    "LLM Tier %d (%s) failed — no more providers in cascade: %s",
+                    idx, client.model, exc,
+                )
+                raise
+        # Defensive — should be unreachable.
+        raise RuntimeError(f"LLM cascade exhausted: {last_exc}")
+
+    async def generate_json(
+        self,
+        prompt: str,
+        system_prompt: Optional[str] = None,
+        schema: Optional[dict[str, Any]] = None,
+    ) -> dict[str, Any]:
+        last_exc: Optional[BaseException] = None
+        for idx, client in enumerate(self._clients, start=1):
+            try:
+                return await client.generate_json(
+                    prompt=prompt,
+                    system_prompt=system_prompt,
+                    schema=schema,
+                )
+            except (RuntimeError, ValueError, OpenAIError) as exc:
+                last_exc = exc
+                if idx < len(self._clients):
+                    logger.warning(
+                        "LLM Tier %d (%s) JSON failed, falling over to Tier %d: %s",
+                        idx, client.model, idx + 1, exc,
+                    )
+                    continue
+                logger.error(
+                    "LLM Tier %d (%s) JSON failed — cascade exhausted: %s",
+                    idx, client.model, exc,
+                )
+                raise
+        raise RuntimeError(f"LLM cascade exhausted: {last_exc}")

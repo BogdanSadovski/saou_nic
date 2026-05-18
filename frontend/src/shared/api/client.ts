@@ -24,7 +24,13 @@ let refreshPromise: Promise<string | null> | null = null;
 
 export const apiClient = axios.create({
   baseURL: env.apiBaseUrl,
-  timeout: 15_000,
+  // 90s covers the worst case: ai-service cascade going through all
+  // 4 LLM tiers when the primary is rate-limited. A single tier
+  // typically replies in 2-5s, but Tier 1 → Tier 2 → Tier 3 → Tier 4
+  // cascading can stack 20-40s, especially with cold starts on
+  // OpenRouter / DeepSeek free endpoints. Better to wait than to
+  // abort an interview turn the user already saw being delivered.
+  timeout: 90_000,
 });
 
 const RETRIABLE_METHODS = new Set(["get", "head", "options"]);

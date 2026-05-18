@@ -2,14 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
 import { interviewModuleApi } from "@/features/interview-module/api";
+import { PracticeCodeWorkspace } from "@/features/interview-module/components";
 import { env } from "@/shared/config/env";
-import {
-  ChatWindow,
-  ConnectionStatus,
-  InterviewTopBar,
-  MessageComposer,
-  PracticeCodeWorkspace,
-} from "@/features/interview-module/components";
 import {
   useChatStore,
   useNetworkStore,
@@ -17,15 +11,12 @@ import {
   useTimerStore,
 } from "@/features/interview-module/stores";
 import type { InterviewLevel, InterviewMessage, InterviewMode, InterviewRole } from "@/features/interview-module/types";
+import { RsIcon as Icon } from "@/shared/ui/realsync";
 
 const formatMMSS = (seconds: number) => {
   const safe = Math.max(seconds, 0);
-  const mm = Math.floor(safe / 60)
-    .toString()
-    .padStart(2, "0");
-  const ss = Math.floor(safe % 60)
-    .toString()
-    .padStart(2, "0");
+  const mm = Math.floor(safe / 60).toString().padStart(2, "0");
+  const ss = Math.floor(safe % 60).toString().padStart(2, "0");
   return `${mm}:${ss}`;
 };
 
@@ -36,16 +27,13 @@ const toWSUrl = (path: string) => {
     return path;
   }
   const configured = env.apiWsUrl;
-  const configuredUrl = configured.startsWith("ws://") || configured.startsWith("wss://") ? new URL(configured) : null;
+  const configuredUrl =
+    configured.startsWith("ws://") || configured.startsWith("wss://") ? new URL(configured) : null;
   const protocol = configuredUrl?.protocol.replace(":", "") || (window.location.protocol === "https:" ? "wss" : "ws");
   const host = configuredUrl?.host || window.location.host;
-
   const token = localStorage.getItem("realsync_token");
   const normalizedPath = path.startsWith("/") ? path : `/${path}`;
-
-  if (!token) {
-    return `${protocol}://${host}${normalizedPath}`;
-  }
+  if (!token) return `${protocol}://${host}${normalizedPath}`;
   const sep = normalizedPath.includes("?") ? "&" : "?";
   return `${protocol}://${host}${normalizedPath}${sep}access_token=${encodeURIComponent(token)}`;
 };
@@ -63,12 +51,9 @@ export default function InterviewSessionPage() {
   const setSession = useSessionStore((state) => state.setSession);
 
   const messages = useChatStore((state) => state.messages);
-  const pendingUserMessage = useChatStore((state) => state.pendingUserMessage);
   const aiTyping = useChatStore((state) => state.aiTyping);
-  const streamBuffer = useChatStore((state) => state.streamBuffer);
   const setMessages = useChatStore((state) => state.setMessages);
   const addMessage = useChatStore((state) => state.addMessage);
-  const setPendingUserMessage = useChatStore((state) => state.setPendingUserMessage);
   const setAiTyping = useChatStore((state) => state.setAiTyping);
   const pushStreamChunk = useChatStore((state) => state.pushStreamChunk);
   const clearStreamBuffer = useChatStore((state) => state.clearStreamBuffer);
@@ -80,49 +65,49 @@ export default function InterviewSessionPage() {
   const configureTimer = useTimerStore((state) => state.configure);
 
   const wsConnected = useNetworkStore((state) => state.wsConnected);
-  const reconnectAttempts = useNetworkStore((state) => state.reconnectAttempts);
-  const lastError = useNetworkStore((state) => state.lastError);
   const setConnected = useNetworkStore((state) => state.setConnected);
   const setLastError = useNetworkStore((state) => state.setLastError);
   const registerReconnectAttempt = useNetworkStore((state) => state.registerReconnectAttempt);
 
   const socketRef = useRef<WebSocket | null>(null);
   const reconnectAttemptRef = useRef(0);
+  const chatRef = useRef<HTMLDivElement | null>(null);
   const [bootLoading, setBootLoading] = useState(true);
   const [bootError, setBootError] = useState<string | null>(null);
   const [timerReady, setTimerReady] = useState(false);
+  const [input, setInput] = useState("");
 
   const timerLabel = useMemo(() => formatMMSS(countdownSec), [countdownSec]);
+  const low = countdownSec < 5 * 60;
 
   const toRole = (value: string): InterviewRole => {
-    const normalized = value.toLowerCase();
-    if (normalized === "backend") return "Backend";
-    if (normalized === "frontend") return "Frontend";
-    if (normalized === "web") return "Web";
-    if (normalized === "devops") return "DevOps";
-    if (normalized === "ml") return "ML";
-    if (normalized === "mobile") return "Mobile";
-    if (normalized === "data") return "Data";
-    if (normalized === "game") return "Game";
-    if (normalized === "security") return "Security";
-    if (normalized === "systems") return "Systems";
-    if (normalized === "enterprise") return "Enterprise";
-    if (normalized === "fintech") return "Fintech";
-    if (normalized === "iot") return "IoT";
-    if (normalized === "management") return "Management";
+    const n = value.toLowerCase();
+    if (n === "backend") return "Backend";
+    if (n === "frontend") return "Frontend";
+    if (n === "web") return "Web";
+    if (n === "devops") return "DevOps";
+    if (n === "ml") return "ML";
+    if (n === "mobile") return "Mobile";
+    if (n === "data") return "Data";
+    if (n === "game") return "Game";
+    if (n === "security") return "Security";
+    if (n === "systems") return "Systems";
+    if (n === "enterprise") return "Enterprise";
+    if (n === "fintech") return "Fintech";
+    if (n === "iot") return "IoT";
+    if (n === "management") return "Management";
     return "Backend";
   };
-
   const toLevel = (value: string): InterviewLevel => {
-    const normalized = value.toLowerCase();
-    if (normalized === "junior") return "Junior";
-    if (normalized === "senior") return "Senior";
+    const n = value.toLowerCase();
+    if (n === "junior") return "Junior";
+    if (n === "senior") return "Senior";
     return "Middle";
   };
-
   const toInterviewMode = (value?: string): InterviewMode => {
-    const normalized = (value || "").toLowerCase();
-    if (normalized === "theory") return "theory";
+    const v = (value || "").toLowerCase();
+    if (v === "theory") return "theory";
+    if (v === "softskills") return "softskills";
     return "practice";
   };
 
@@ -131,7 +116,6 @@ export default function InterviewSessionPage() {
       navigate("/interview", { replace: true });
       return;
     }
-
     setBootLoading(true);
     setBootError(null);
     setTimerReady(false);
@@ -144,7 +128,6 @@ export default function InterviewSessionPage() {
           const remainingSec = Number.isFinite(endsAtMs)
             ? Math.max(0, Math.floor((endsAtMs - Date.now()) / 1000))
             : 0;
-
           setSession({
             sessionId,
             role: toRole(session.role),
@@ -159,7 +142,6 @@ export default function InterviewSessionPage() {
             startedAt: session.started_at,
             endsAt: session.expires_at,
           });
-
           configureTimer(remainingSec);
           setTimerReady(true);
           setStatus(session.status === "finished" ? "finished" : "active");
@@ -188,44 +170,19 @@ export default function InterviewSessionPage() {
           setBootLoading(false);
         });
     }
-  }, [
-    sessionId,
-    currentSession,
-    navigate,
-    setMessages,
-    setSession,
-    setStatus,
-    configureTimer,
-  ]);
+  }, [sessionId, currentSession, navigate, setMessages, setSession, setStatus, configureTimer]);
 
   useEffect(() => {
-    if (!timerReady || bootLoading) {
-      return;
-    }
-
-    // Freeze the countdown while the AI is "thinking". A free-tier
-    // cold-start LLM call can take 30–60 seconds; without this the
-    // candidate watches their 5-minute interview vanish on infra
-    // latency, not on their own thinking time.
-    //
-    // Detection covers two signals so neither WS race wins:
-    //   1. aiTyping — flipped by ai.typing.started / .stopped events
-    //   2. last message was from the candidate — covers the gap
-    //      between POST /messages and the typing.started broadcast.
+    if (!timerReady || bootLoading) return;
     const lastMsg = messages[messages.length - 1];
     const awaitingAI = aiTyping || (lastMsg !== undefined && lastMsg.sender === "user");
-    if (awaitingAI) {
-      return;
-    }
-
+    if (awaitingAI) return;
     const timer = window.setInterval(() => tick(), 1000);
     return () => window.clearInterval(timer);
   }, [tick, timerReady, bootLoading, aiTyping, messages]);
 
   useEffect(() => {
-    if (bootLoading || !timerReady || !autoFinishTriggered || !sessionId) {
-      return;
-    }
+    if (bootLoading || !timerReady || !autoFinishTriggered || !sessionId) return;
     void interviewModuleApi.finishSession(sessionId).finally(() => {
       setStatus("finished");
       navigate(`/interview/result/${sessionId}`);
@@ -233,10 +190,7 @@ export default function InterviewSessionPage() {
   }, [autoFinishTriggered, sessionId, navigate, setStatus, bootLoading, timerReady]);
 
   useEffect(() => {
-    if (!sessionId) {
-      return;
-    }
-
+    if (!sessionId) return;
     let cancelled = false;
     let reconnectTimer: number | null = null;
 
@@ -248,19 +202,14 @@ export default function InterviewSessionPage() {
         socketRef.current = socket;
 
         socket.onopen = () => {
-          if (cancelled) {
-            return;
-          }
+          if (cancelled) return;
           reconnectAttemptRef.current = 0;
           setConnected(true);
           setLastError(null);
         };
 
         socket.onmessage = (event) => {
-          if (cancelled) {
-            return;
-          }
-
+          if (cancelled) return;
           let payload: {
             type: string;
             payload:
@@ -276,7 +225,6 @@ export default function InterviewSessionPage() {
                   typing?: boolean;
                 };
           };
-
           try {
             payload = JSON.parse(event.data) as typeof payload;
           } catch {
@@ -288,127 +236,68 @@ export default function InterviewSessionPage() {
             setAiTyping(true);
             return;
           }
-
           if (payload.type === "ai.typing.stopped") {
             setAiTyping(false);
             return;
           }
-
           if (payload.type === "message.ai") {
             const msgPayload = payload.payload;
             const content = (msgPayload as { content?: string }).content || "";
             const topic = (msgPayload as { topic?: string }).topic;
             const difficulty = (msgPayload as { difficulty?: number }).difficulty;
-
-            // Console marker — confirms the message came from the
-            // real LLM, not a hardcoded fallback in interview-service.
-            // Both code paths (theory + practice) prefix their AI-down
-            // notice with "🤖 AI-", so a single check covers both.
-            const isLive = !content.startsWith("🤖 AI-");
-            // eslint-disable-next-line no-console
-            console.log(
-              `%c[AI ${isLive ? "✓ live LLM" : "✗ offline fallback"}]`,
-              isLive ? "color:#34c77a;font-weight:600" : "color:#e0a800;font-weight:600",
-              { topic, difficulty, length: content.length },
-              content.slice(0, 200) + (content.length > 200 ? "…" : ""),
-            );
-
             const mapped: InterviewMessage = {
               messageId: (msgPayload as { message_id?: string }).message_id || crypto.randomUUID(),
               sender: (msgPayload as { sender?: "ai" | "user" }).sender || "ai",
               content,
               topic,
               difficulty,
-              createdAt:
-                (msgPayload as { created_at?: string }).created_at || new Date().toISOString(),
+              createdAt: (msgPayload as { created_at?: string }).created_at || new Date().toISOString(),
             };
             clearStreamBuffer();
             addMessage(mapped);
             return;
           }
-
-          // Backend credits the session timer for AI-think time so a
-          // cold-start LLM call doesn't eat the candidate's window.
-          // We bump countdownSec by the same amount; elapsedSec stays
-          // unchanged so the candidate's "real" interview time is
-          // honest.
           if (payload.type === "session.timer.adjusted") {
             const adj = payload.payload as { added_seconds?: number };
             const added = Math.max(0, Math.round(adj.added_seconds ?? 0));
             if (added > 0) {
               useTimerStore.setState((s) => ({ countdownSec: s.countdownSec + added }));
-              // eslint-disable-next-line no-console
-              console.log(
-                "%c[timer ⏸ +%ds for AI thinking]",
-                "color:#a892ff;font-weight:600",
-                added,
-              );
             }
             return;
           }
-
           if (payload.type === "ai.message.chunk") {
             const chunk = (payload.payload as { chunk?: string }).chunk || "";
-            if (chunk) {
-              pushStreamChunk(chunk);
-            }
+            if (chunk) pushStreamChunk(chunk);
             return;
           }
-
-          // Per-turn correctness mark on the candidate's previous answer.
-          // Backend emits this right after the AI returns its next-question
-          // payload with last_answer_verdict. We flip the existing user
-          // bubble to show the ✅/⚠️/❌ badge in place.
           if (payload.type === "message.user.evaluated") {
-            const evalPayload = payload.payload as {
-              message_id?: string;
-              verdict?: string;
-              verdict_reason?: string;
-            };
+            const ev = payload.payload as { message_id?: string; verdict?: string; verdict_reason?: string };
             const allowed = ["correct", "partial", "wrong", "skipped", "off_topic"] as const;
-            type Verdict = (typeof allowed)[number];
             if (
-              evalPayload.message_id &&
-              evalPayload.verdict &&
-              (allowed as readonly string[]).includes(evalPayload.verdict)
+              ev.message_id &&
+              ev.verdict &&
+              (allowed as readonly string[]).includes(ev.verdict)
             ) {
-              // eslint-disable-next-line no-console
-              console.log(
-                `%c[AI verdict ▶ ${evalPayload.verdict}]`,
-                "color:#a892ff;font-weight:600",
-                evalPayload.verdict_reason || "(no reason given)",
-              );
-              applyVerdict(
-                evalPayload.message_id,
-                evalPayload.verdict as Verdict,
-                evalPayload.verdict_reason,
-              );
+              applyVerdict(ev.message_id, ev.verdict as (typeof allowed)[number], ev.verdict_reason);
             }
             return;
           }
-
           if (payload.type === "session.finished") {
             setStatus("finished");
             navigate(`/interview/result/${sessionId}`);
             return;
           }
-
-          void session;
         };
 
         socket.onclose = () => {
           setConnected(false);
-          if (cancelled) {
-            return;
-          }
-
+          if (cancelled) return;
           reconnectAttemptRef.current += 1;
           const attempt = reconnectAttemptRef.current;
           if (attempt > MAX_WS_RECONNECT_ATTEMPTS) {
             setLastError("Realtime канал недоступен. Продолжаем в HTTP режиме, обновите страницу позже.");
             return;
           }
-
           registerReconnectAttempt();
           const delay = Math.min(5000, 600 * attempt);
           reconnectTimer = window.setTimeout(() => {
@@ -425,16 +314,14 @@ export default function InterviewSessionPage() {
     };
 
     void connect();
-
     return () => {
       cancelled = true;
-      if (reconnectTimer) {
-        window.clearTimeout(reconnectTimer);
-      }
+      if (reconnectTimer) window.clearTimeout(reconnectTimer);
       socketRef.current?.close();
     };
   }, [
     addMessage,
+    applyVerdict,
     clearStreamBuffer,
     navigate,
     pushStreamChunk,
@@ -446,11 +333,12 @@ export default function InterviewSessionPage() {
     setStatus,
   ]);
 
-  const sendMessage = async (value: string) => {
-    if (!sessionId) {
-      return;
-    }
+  useEffect(() => {
+    chatRef.current?.scrollTo({ top: chatRef.current.scrollHeight, behavior: "smooth" });
+  }, [messages, aiTyping]);
 
+  const sendMessage = async (value: string) => {
+    if (!sessionId || !value.trim()) return;
     const local: InterviewMessage = {
       messageId: crypto.randomUUID(),
       sender: "user",
@@ -458,9 +346,8 @@ export default function InterviewSessionPage() {
       createdAt: new Date().toISOString(),
     };
     addMessage(local);
+    setInput("");
     await interviewModuleApi.sendMessage(sessionId, value);
-
-    // If realtime channel is reconnecting, poll once for the latest AI reply.
     if (!wsConnected) {
       for (let i = 0; i < 5; i++) {
         await new Promise((resolve) => window.setTimeout(resolve, 450));
@@ -475,71 +362,133 @@ export default function InterviewSessionPage() {
   };
 
   const exitInterview = async () => {
-    if (sessionId) {
-      await interviewModuleApi.finishSession(sessionId);
-    }
+    if (sessionId) await interviewModuleApi.finishSession(sessionId);
     setStatus("finished");
     navigate(`/interview/result/${sessionId}`);
   };
 
   if (bootLoading) {
     return (
-      <section className="interview-session-page">
-        <div className="interview-setup-card">
-          <h1>Загрузка интервью</h1>
-          <p>Проверяем доступ и восстанавливаем историю сессии.</p>
-        </div>
-      </section>
+      <main className="page">
+        <h1 className="expr-headline"><span className="ital">Загрузка</span> интервью</h1>
+        <p className="muted">Проверяем доступ и восстанавливаем историю сессии.</p>
+      </main>
     );
   }
 
   if (bootError) {
     return (
-      <section className="interview-session-page">
-        <div className="interview-setup-card">
-          <h1>Не удалось открыть сессию</h1>
-          <p>{bootError}</p>
-          <button className="interview-start-btn" onClick={() => navigate("/interview")} type="button">
-            Вернуться к настройке интервью
-          </button>
-        </div>
-      </section>
+      <main className="page">
+        <h1 className="expr-headline"><span className="ital">Не удалось</span> открыть сессию</h1>
+        <p className="muted">{bootError}</p>
+        <button className="btn btn--ghost" onClick={() => navigate("/interview")} type="button">
+          Вернуться к настройке интервью
+        </button>
+      </main>
     );
   }
 
+  const step = messages.filter((m) => m.sender === "ai").length;
+
   return (
-    <section className="interview-session-page">
-      <InterviewTopBar
-        interviewMode={interviewMode}
-        level={level}
-        onExit={() => void exitInterview()}
-        role={role}
-        timerLabel={timerLabel}
-        vacancyTitle={vacancyTitle}
-      />
-      <ConnectionStatus
-        connected={wsConnected}
-        lastError={lastError}
-        reconnectAttempts={reconnectAttempts}
-      />
+    <section className="session" data-screen-label="05 Interview Session">
+      <div className="session-top">
+        <div className="session-status"></div>
+        <div className="session-meta">
+          <strong>
+            {interviewMode === "softskills" ? "Софт-скиллы" : `${role} · ${vacancyTitle}`}
+          </strong>
+          <span className="tag tag--lime">{(interviewMode || "practice").toUpperCase()}</span>
+          {interviewMode !== "softskills" && (
+            <span className="tag">{level?.toUpperCase()}</span>
+          )}
+          <span className="mono" style={{ fontSize: 11, color: "var(--muted)" }}>
+            SESSION · #{sessionId.slice(0, 6)} · WS {wsConnected ? "connected" : "reconnecting"}
+          </span>
+        </div>
+        <div className={`session-timer ${low ? "is-low" : ""}`}>{timerLabel}</div>
+        <button className="btn btn--ghost btn--sm" onClick={() => void exitInterview()} type="button">
+          Завершить интервью
+        </button>
+      </div>
+
+      <div className="sysbar">
+        <span><span className="dot"></span><span className="k">mode</span><span className="v">{interviewMode}</span></span>
+        {interviewMode !== "softskills" && (
+          <>
+            <span><span className="k">role</span><span className="v">{role}</span></span>
+            <span><span className="k">level</span><span className="v">{level}</span></span>
+          </>
+        )}
+        {interviewMode === "softskills" && (
+          <span><span className="k">scorer</span><span className="v">rubert-tiny2 + ml</span></span>
+        )}
+        <span><span className="k">messages</span><span className="v">{messages.length}</span></span>
+      </div>
+
+      {/* В practice-режиме чат — это история диалога с интервьюером. Пока
+          сообщений нет, прячем его целиком: задание само рендерится в
+          PracticeCodeWorkspace ниже. В theory-режиме чат остаётся всегда. */}
+      {(interviewMode !== "practice" || messages.length > 0 || aiTyping) && (
+        <div
+          className="chat"
+          ref={chatRef}
+          style={
+            interviewMode === "practice"
+              ? { maxHeight: 280, minHeight: 0, overflowY: "auto" }
+              : { maxHeight: 480, overflowY: "auto" }
+          }
+        >
+          {messages.map((m, i) => (
+            <div className={`msg ${m.sender}`} key={m.messageId || i}>
+              <div className="msg-avatar">{m.sender === "ai" ? "AI" : "СБ"}</div>
+              <div>
+                <div className="msg-bubble">{m.content}</div>
+                <div className="msg-meta">{m.topic || "reply"} · {m.verdict || ""}</div>
+              </div>
+            </div>
+          ))}
+          {aiTyping && (
+            <div className="msg ai">
+              <div className="msg-avatar">AI</div>
+              <div>
+                <div className="msg-bubble">
+                  <span className="typing-dot"><i></i><i></i><i></i></span>
+                </div>
+                <div className="msg-meta">генерирует ответ…</div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {interviewMode === "practice" ? (
         <PracticeCodeWorkspace
           aiTyping={aiTyping}
-          disabled={!sessionId}
           messages={messages}
-          onSubmitCode={sendMessage}
+          onSubmitCode={(payload) => sendMessage(payload)}
+          disabled={!wsConnected}
         />
       ) : (
-        <>
-          <ChatWindow aiTyping={aiTyping} messages={messages} streamBuffer={streamBuffer} />
-          <MessageComposer
-            disabled={!sessionId}
-            onPendingChange={setPendingUserMessage}
-            onSend={sendMessage}
-            pending={pendingUserMessage}
+        <div className="composer">
+          <textarea
+            placeholder="Напишите ответ… (Cmd+Enter — отправить)"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => {
+              if ((e.metaKey || e.ctrlKey) && e.key === "Enter") void sendMessage(input);
+            }}
           />
-        </>
+          <button className="btn btn--accent composer-send" onClick={() => void sendMessage(input)} type="button">
+            Отправить <Icon name="arrow" size={14} />
+          </button>
+        </div>
       )}
+
+      <div className="row-between mono" style={{ fontSize: 11, color: "var(--muted)" }}>
+        <span>Вопрос {step} · role: {role}</span>
+        <span>Mode: {interviewMode} · auto-pace: on</span>
+      </div>
     </section>
   );
 }

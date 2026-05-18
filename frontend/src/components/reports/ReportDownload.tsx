@@ -17,7 +17,7 @@ const ReportDownload: React.FC<ReportDownloadProps> = ({
 
   return (
     <div className="report-download">
-      <p className="report-download__label">Download Report</p>
+      <p className="report-download__label">Скачать отчёт</p>
       <div className="report-download__buttons">
         {formats.map((fmt) => (
           <button
@@ -30,7 +30,7 @@ const ReportDownload: React.FC<ReportDownloadProps> = ({
         ))}
       </div>
       <p className="report-download__info">
-        Report ID: {reportId} | File: {fileName}.{format}
+        ID отчёта: {reportId} | Файл: {fileName}.{format}
       </p>
     </div>
   );

@@ -15,10 +15,10 @@ interface SidebarProps {
 }
 
 const defaultNavItems: NavItem[] = [
-  { id: 'dashboard', label: 'Dashboard', path: '/dashboard' },
-  { id: 'resume', label: 'Resume', path: '/resume' },
-  { id: 'interviews', label: 'Interviews', path: '/interviews' },
-  { id: 'reports', label: 'Reports', path: '/reports' },
+  { id: 'dashboard', label: 'Панель', path: '/dashboard' },
+  { id: 'resume', label: 'Резюме', path: '/resume' },
+  { id: 'interviews', label: 'Интервью', path: '/interviews' },
+  { id: 'reports', label: 'Отчёты', path: '/reports' },
   { id: 'github', label: 'GitHub', path: '/github' },
 ];
 

@@ -51,16 +51,16 @@ const RecentInterviews: React.FC<RecentInterviewsProps> = ({
 
   return (
     <div className="recent-interviews">
-      <h3 className="recent-interviews__title">Recent Interviews</h3>
+      <h3 className="recent-interviews__title">Последние интервью</h3>
       <table className="recent-interviews__table">
         <thead>
           <tr>
-            <th>Candidate</th>
-            <th>Role</th>
-            <th>Date</th>
-            <th>Score</th>
-            <th>Status</th>
-            <th>Action</th>
+            <th>Кандидат</th>
+            <th>Роль</th>
+            <th>Дата</th>
+            <th>Баллы</th>
+            <th>Статус</th>
+            <th>Действие</th>
           </tr>
         </thead>
         <tbody>
@@ -80,7 +80,7 @@ const RecentInterviews: React.FC<RecentInterviewsProps> = ({
                   className="recent-interviews__view-btn"
                   onClick={() => onView?.(interview.id)}
                 >
-                  View
+                  Открыть
                 </button>
               </td>
             </tr>

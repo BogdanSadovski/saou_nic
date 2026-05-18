@@ -59,9 +59,9 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
 
       return (
         <div style={styles.container}>
-          <h2 style={styles.title}>Something went wrong</h2>
+          <h2 style={styles.title}>Что-то пошло не так</h2>
           <p style={styles.message}>
-            {this.state.error?.message || 'An unexpected error occurred.'}
+            {this.state.error?.message || 'Произошла непредвиденная ошибка.'}
           </p>
           {process.env.NODE_ENV === 'development' && this.state.error && (
             <pre style={styles.stack}>
@@ -73,7 +73,7 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
             style={styles.button}
             onClick={() => this.setState({ hasError: false, error: null, errorInfo: null })}
           >
-            Try again
+            Попробовать снова
           </button>
         </div>
       );

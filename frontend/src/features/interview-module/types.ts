@@ -1,4 +1,5 @@
 export type InterviewRole =
+  | "SoftSkills"
   | "Frontend"
   | "Backend"
   | "Web"
@@ -14,7 +15,7 @@ export type InterviewRole =
   | "IoT"
   | "Management";
 export type InterviewLevel = "Junior" | "Middle" | "Senior";
-export type InterviewMode = "practice" | "theory";
+export type InterviewMode = "practice" | "theory" | "softskills";
 
 export type VacancyOption = {
   id: string;

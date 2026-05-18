@@ -95,6 +95,7 @@ func (r *Router) setupRoutes() {
 	resume.HandleFunc("/import", r.handler.ImportResumeProfile).Methods(http.MethodPost)
 	resume.HandleFunc("/history", r.handler.GetResumeImportHistory).Methods(http.MethodGet)
 	resume.HandleFunc("/history/{report_id}", r.handler.GetResumeImportReport).Methods(http.MethodGet)
+	resume.HandleFunc("/vacancies/{report_id}", r.handler.GetMatchingVacancies).Methods(http.MethodGet)
 
 	// Legacy protected endpoints
 	legacyProtected := legacyAPI.PathPrefix("").Subrouter()
@@ -105,6 +106,7 @@ func (r *Router) setupRoutes() {
 	legacyResume.HandleFunc("/import", r.handler.ImportResumeProfile).Methods(http.MethodPost)
 	legacyResume.HandleFunc("/history", r.handler.GetResumeImportHistory).Methods(http.MethodGet)
 	legacyResume.HandleFunc("/history/{report_id}", r.handler.GetResumeImportReport).Methods(http.MethodGet)
+	legacyResume.HandleFunc("/vacancies/{report_id}", r.handler.GetMatchingVacancies).Methods(http.MethodGet)
 
 	// WebSocket endpoint
 	r.HandleFunc("/ws", r.wsHandler.HandleWebSocket)

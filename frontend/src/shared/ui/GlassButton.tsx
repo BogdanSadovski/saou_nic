@@ -8,17 +8,22 @@ type GlassButtonProps = PropsWithChildren<
   }
 >;
 
+/**
+ * Legacy shim. Maps onto the RealSync `.btn` family.
+ */
 export function GlassButton({
   className,
   variant = "primary",
   children,
+  type,
   ...props
 }: GlassButtonProps) {
   return (
     <button
+      type={type ?? "button"}
       className={cn(
-        "glass-button",
-        variant === "ghost" ? "glass-button-ghost" : "glass-button-primary",
+        "btn",
+        variant === "ghost" ? "btn--ghost" : "btn--primary",
         className,
       )}
       {...props}

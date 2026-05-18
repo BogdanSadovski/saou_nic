@@ -1,0 +1,253 @@
+/* ──────────────────────────────────────────────────────
+   v3 additions — trends pass
+   Experimental typography · Glitch · Retro-digital ·
+   Neo-brutalism (touch) · Retrofuturism amber · Immersive
+   ────────────────────────────────────────────────────── */
+
+/* ── Giant decorative letter (experimental typography) ── */
+.giant-letter {
+  position: absolute;
+  font-family: var(--f-accent);
+  font-style: italic;
+  font-weight: 400;
+  line-height: 0.78;
+  pointer-events: none;
+  color: transparent;
+  -webkit-text-stroke: 1px var(--muted-2);
+  text-stroke: 1px var(--muted-2);
+  user-select: none;
+}
+.giant-letter.fill {
+  -webkit-text-stroke: 0;
+  text-stroke: 0;
+  color: var(--accent);
+  opacity: 0.18;
+  mix-blend-mode: multiply;
+}
+[data-theme="dark"] .giant-letter.fill { mix-blend-mode: screen; opacity: 0.24; }
+
+/* ── Glitch / chromatic aberration ─────────────────── */
+.glitch {
+  position: relative;
+  display: inline-block;
+}
+.glitch::before, .glitch::after {
+  content: attr(data-text);
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity var(--d-1) var(--ease-out), transform var(--d-1) var(--ease-out);
+}
+.glitch:hover::before {
+  color: oklch(0.66 0.20 25);
+  transform: translate(-2px, 1px);
+  opacity: 0.85;
+}
+.glitch:hover::after {
+  color: oklch(0.62 0.13 240);
+  transform: translate(2px, -1px);
+  opacity: 0.85;
+}
+.glitch:hover { animation: jitter 0.42s steps(4, end); }
+@keyframes jitter {
+  0%, 100% { transform: translate(0, 0); }
+  25% { transform: translate(-1px, 1px); }
+  50% { transform: translate(1px, -1px); }
+  75% { transform: translate(-1px, -1px); }
+}
+
+/* Auto-glitch the brand on hover (no data-text needed for simpler version) */
+.brand:hover em {
+  animation: text-glitch 0.6s steps(5, end);
+}
+@keyframes text-glitch {
+  0% { text-shadow: 0 0 oklch(0.66 0.20 25); }
+  20% { text-shadow: -2px 0 oklch(0.66 0.20 25), 2px 0 oklch(0.62 0.13 240); }
+  40% { text-shadow: 2px 0 oklch(0.66 0.20 25), -2px 0 oklch(0.62 0.13 240); }
+  60% { text-shadow: -1px 0 oklch(0.66 0.20 25), 1px 0 oklch(0.62 0.13 240); }
+  100% { text-shadow: none; }
+}
+
+/* ── Neo-brutalism touch — raw mono panel ──────────── */
+.brutal {
+  border: 2px solid var(--ink);
+  background: var(--paper);
+  padding: 22px 24px;
+  font-family: var(--f-mono);
+  font-size: 13px;
+  color: var(--ink);
+  position: relative;
+  box-shadow: 6px 6px 0 0 var(--ink);
+  transition: transform var(--d-2) var(--ease-out), box-shadow var(--d-2) var(--ease-out);
+}
+.brutal:hover {
+  transform: translate(-2px, -2px);
+  box-shadow: 8px 8px 0 0 var(--ink);
+}
+.brutal h4 {
+  font-family: var(--f-mono);
+  font-size: 12.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  font-weight: 600;
+  margin-bottom: 12px;
+}
+.brutal .row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  padding: 6px 0;
+  border-top: 1px dashed var(--ink);
+  letter-spacing: 0.02em;
+}
+.brutal .row:first-of-type { border-top: 2px solid var(--ink); }
+.brutal .row:last-of-type { border-bottom: 2px solid var(--ink); }
+
+/* ── Amber retrofuturism accent ────────────────────── */
+.tag--amber {
+  background: oklch(0.92 0.10 60);
+  border-color: oklch(0.82 0.16 60);
+  color: oklch(0.36 0.12 60);
+}
+[data-theme="dark"] .tag--amber {
+  background: oklch(0.30 0.08 60);
+  border-color: oklch(0.50 0.14 60);
+  color: oklch(0.86 0.16 60);
+}
+
+/* ── Immersive parallax — small floating glyphs ─────── */
+.parallax-glyph {
+  position: absolute;
+  font-family: var(--f-mono);
+  font-size: 13px;
+  color: var(--muted-2);
+  letter-spacing: 0.12em;
+  pointer-events: none;
+  will-change: transform;
+  transition: transform 0.6s var(--ease-out);
+}
+
+/* ── Magnetic CTA — handled via JS, base style here ─── */
+.magnetic {
+  display: inline-flex;
+  transition: transform var(--d-2) var(--ease-out);
+}
+
+/* ── CRT noise overlay (subtle moving grain) ────────── */
+.crt-noise {
+  position: relative;
+  overflow: hidden;
+}
+.crt-noise::before {
+  content: '';
+  position: absolute;
+  inset: -50%;
+  pointer-events: none;
+  background-image:
+    radial-gradient(circle at 30% 20%, oklch(1 0 0 / 0.04) 0, transparent 1px),
+    radial-gradient(circle at 70% 60%, oklch(1 0 0 / 0.04) 0, transparent 1px),
+    radial-gradient(circle at 50% 80%, oklch(1 0 0 / 0.04) 0, transparent 1px);
+  background-size: 7px 7px, 9px 9px, 11px 11px;
+  animation: noise-shift 4s steps(8, end) infinite;
+  opacity: 0.4;
+  z-index: 1;
+}
+@keyframes noise-shift {
+  0% { transform: translate(0, 0); }
+  25% { transform: translate(-2%, 1%); }
+  50% { transform: translate(1%, -2%); }
+  75% { transform: translate(-1%, -1%); }
+  100% { transform: translate(0, 0); }
+}
+
+/* ── Mixed-weight expressive headline (experimental typography) ── */
+.expr-headline {
+  font-family: var(--f-display);
+  letter-spacing: -0.035em;
+  line-height: 0.92;
+}
+.expr-headline .light { font-weight: 400; }
+.expr-headline .bold { font-weight: 600; }
+.expr-headline .ital {
+  font-family: var(--f-accent);
+  font-style: italic;
+  font-weight: 400;
+  letter-spacing: -0.01em;
+}
+.expr-headline .underline {
+  background: linear-gradient(180deg, transparent 70%, var(--accent) 70%, var(--accent) 92%, transparent 92%);
+  padding: 0 4px;
+}
+.expr-headline .strike { text-decoration: line-through; text-decoration-thickness: 3px; color: var(--muted-2); }
+.expr-headline .pill {
+  display: inline-block;
+  padding: 0.05em 0.35em;
+  background: var(--ink);
+  color: var(--bg);
+  border-radius: 0.18em;
+}
+
+/* ── Data-stream ticker (live event log) ───────────── */
+.datastream {
+  display: grid;
+  gap: 0;
+  font-family: var(--f-mono);
+  font-size: 12.5px;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  background: var(--paper-2);
+}
+.datastream-row {
+  display: grid;
+  grid-template-columns: 80px 18px 1fr auto;
+  align-items: center;
+  gap: 14px;
+  padding: 8px 14px;
+  border-bottom: 1px dashed var(--line);
+  animation: stream-in var(--d-3) var(--ease-out);
+}
+.datastream-row:last-child { border-bottom: none; }
+.datastream-row .t { color: var(--ink-2); }
+.datastream-row .lvl {
+  width: 12px; height: 12px;
+  border-radius: 2px;
+  display: inline-grid; place-items: center;
+}
+.datastream-row .lvl.ok { background: oklch(0.92 0.10 130); color: oklch(0.30 0.10 130); }
+.datastream-row .lvl.warn { background: oklch(0.92 0.10 60); color: oklch(0.36 0.12 60); }
+.datastream-row .lvl.err { background: oklch(0.93 0.10 25); color: oklch(0.40 0.14 25); }
+.datastream-row .lvl::before { content: ''; width: 4px; height: 4px; background: currentColor; border-radius: 50%; }
+.datastream-row .src { color: var(--ink); font-weight: 500; }
+.datastream-row .v { color: var(--muted); }
+@keyframes stream-in {
+  from { opacity: 0; transform: translateX(-8px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+/* ── Wonk: subtle letter rotation on hover (typography flex) ── */
+.wonk { display: inline-block; }
+.wonk span {
+  display: inline-block;
+  transition: transform var(--d-2) var(--ease-out);
+}
+.wonk:hover span:nth-child(odd) { transform: translateY(-2px) rotate(-3deg); }
+.wonk:hover span:nth-child(even) { transform: translateY(2px) rotate(3deg); }
+
+/* ── Pixel border accent (retro-digital) ────────────── */
+.pixel-border {
+  position: relative;
+}
+.pixel-border::after {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    90deg, var(--ink) 0 4px, transparent 4px 8px
+  ) top / 100% 2px no-repeat,
+  repeating-linear-gradient(90deg, var(--ink) 0 4px, transparent 4px 8px) bottom / 100% 2px no-repeat,
+  repeating-linear-gradient(0deg, var(--ink) 0 4px, transparent 4px 8px) left / 2px 100% no-repeat,
+  repeating-linear-gradient(0deg, var(--ink) 0 4px, transparent 4px 8px) right / 2px 100% no-repeat;
+}
