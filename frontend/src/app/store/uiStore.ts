@@ -1,11 +1,25 @@
 import { create } from "zustand";
 
-type ThemeMode = "light" | "dark" | "system";
+/**
+ * UI store — theme (light/dark only) + command modal flag.
+ *
+ * "System" theme tracking was removed: it required a matchMedia
+ * listener that flaked when the tab was backgrounded, and most users
+ * just want an explicit pick anyway. The topbar sun/moon button and
+ * the Profile → Тема segmented both flip between the two values.
+ *
+ * Initial theme picks the OS preference *once* at load — anyone who
+ * wants something different toggles it and that choice is then sticky.
+ */
+
+type ThemeMode = "light" | "dark";
 
 type UIState = {
   theme: ThemeMode;
-  /** Resolved theme actually applied to the DOM (system → light/dark). */
-  resolvedTheme: "light" | "dark";
+  /** Kept for backwards compatibility with consumers that read it.
+   *  Always identical to `theme` now that the indirect "system" level
+   *  is gone. */
+  resolvedTheme: ThemeMode;
   isCommandModalOpen: boolean;
   setTheme: (theme: ThemeMode) => void;
   toggleTheme: () => void;
@@ -15,39 +29,30 @@ type UIState = {
 
 const THEME_KEY = "realsync_theme";
 
-const matchesDark = (): boolean =>
-  typeof window !== "undefined" && window.matchMedia("(prefers-color-scheme: dark)").matches;
-
-const loadStoredTheme = (): ThemeMode => {
-  if (typeof window === "undefined") return "system";
-  const raw = window.localStorage.getItem(THEME_KEY);
-  if (raw === "light" || raw === "dark" || raw === "system") {
-    return raw;
-  }
-  return "system";
+const detectInitial = (): ThemeMode => {
+  if (typeof window === "undefined") return "light";
+  const stored = window.localStorage.getItem(THEME_KEY);
+  if (stored === "light" || stored === "dark") return stored;
+  // First visit: respect OS preference once.
+  return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches
+    ? "dark"
+    : "light";
 };
 
-const resolve = (theme: ThemeMode): "light" | "dark" =>
-  theme === "system" ? (matchesDark() ? "dark" : "light") : theme;
-
-const initialTheme = loadStoredTheme();
+const initialTheme: ThemeMode = detectInitial();
 
 export const useUIStore = create<UIState>((set, get) => ({
   theme: initialTheme,
-  resolvedTheme: resolve(initialTheme),
+  resolvedTheme: initialTheme,
   isCommandModalOpen: false,
   setTheme: (theme) => {
     if (typeof window !== "undefined") {
       window.localStorage.setItem(THEME_KEY, theme);
     }
-    set({ theme, resolvedTheme: resolve(theme) });
+    set({ theme, resolvedTheme: theme });
   },
   toggleTheme: () => {
-    // The sun/moon button in the topbar flips light↔dark explicitly.
-    // It writes both `theme` AND `resolvedTheme` so subsequent OS
-    // changes don't override the user's choice — to re-enable system
-    // tracking, switch via Profile → Тема → Системная.
-    const next = get().resolvedTheme === "light" ? "dark" : "light";
+    const next: ThemeMode = get().theme === "light" ? "dark" : "light";
     if (typeof window !== "undefined") {
       window.localStorage.setItem(THEME_KEY, next);
     }
@@ -56,34 +61,3 @@ export const useUIStore = create<UIState>((set, get) => ({
   openCommandModal: () => set({ isCommandModalOpen: true }),
   closeCommandModal: () => set({ isCommandModalOpen: false }),
 }));
-
-// Re-resolve "system" theme whenever the OS preference changes so the UI
-// follows the user's preferred scheme without a reload.
-if (typeof window !== "undefined" && window.matchMedia) {
-  const mql = window.matchMedia("(prefers-color-scheme: dark)");
-  const syncFromSystem = () => {
-    const { theme } = useUIStore.getState();
-    if (theme === "system") {
-      const next = matchesDark() ? "dark" : "light";
-      const { resolvedTheme } = useUIStore.getState();
-      if (next !== resolvedTheme) {
-        useUIStore.setState({ resolvedTheme: next });
-      }
-    }
-  };
-  if (typeof mql.addEventListener === "function") {
-    mql.addEventListener("change", syncFromSystem);
-  } else if (typeof mql.addListener === "function") {
-    // Safari < 14
-    mql.addListener(syncFromSystem);
-  }
-  // Browsers occasionally miss the matchMedia change event when the OS
-  // toggles theme while the tab is backgrounded (especially macOS Safari
-  // and Chrome with throttled renderers). Re-sync on window focus +
-  // visibilitychange so the moment the user returns to the tab the UI
-  // matches what they expect.
-  window.addEventListener("focus", syncFromSystem);
-  document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible") syncFromSystem();
-  });
-}

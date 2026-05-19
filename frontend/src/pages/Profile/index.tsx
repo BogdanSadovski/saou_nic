@@ -875,7 +875,7 @@ export default function ProfilePage() {
               <div className="field">
                 <label>Тема</label>
                 <div className="segmented">
-                  {(["light", "system", "dark"] as const).map((mode) => (
+                  {(["light", "dark"] as const).map((mode) => (
                     <button
                       key={mode}
                       aria-checked={theme === mode}
@@ -884,11 +884,7 @@ export default function ProfilePage() {
                       role="radio"
                       type="button"
                     >
-                      {mode === "light"
-                        ? "Светлая"
-                        : mode === "dark"
-                          ? "Тёмная"
-                          : "Системная"}
+                      {mode === "light" ? "Светлая" : "Тёмная"}
                     </button>
                   ))}
                 </div>
