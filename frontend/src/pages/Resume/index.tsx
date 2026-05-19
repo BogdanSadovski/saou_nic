@@ -80,8 +80,24 @@ export default function ResumePage() {
         }
       } catch (e) {
         if (!cancelled) {
-          const msg = e instanceof Error ? e.message : "Не удалось загрузить вакансии";
-          setVacanciesError(msg);
+          // Pull the real HTTP status + server message instead of a
+          // bland "не удалось загрузить" — when dev.by's HTML changes
+          // or the gateway misroutes, the user needs to see WHY so
+          // they can switch back to hh.ru or report the issue.
+          const err = e as {
+            code?: string;
+            message?: string;
+            response?: { status?: number; statusText?: string; data?: { error?: string; message?: string } };
+          };
+          const status = err.response?.status;
+          const serverMsg = err.response?.data?.error ?? err.response?.data?.message;
+          const parts: string[] = [];
+          if (status) parts.push(`HTTP ${status}`);
+          if (err.response?.statusText) parts.push(err.response.statusText);
+          if (serverMsg) parts.push(serverMsg);
+          else if (err.message) parts.push(err.message);
+          if (parts.length === 0) parts.push("Не удалось загрузить вакансии");
+          setVacanciesError(parts.join(" · "));
           if (vacancySource === "devby") setDevbyVacancies(null);
           else setVacancies(null);
         }
@@ -433,8 +449,6 @@ export default function ResumePage() {
                   </div>
                   <div className="segmented" style={{ fontSize: 11 }}>
                     {[
-                      { v: "113", label: "Россия" },
-                      { v: "1", label: "Москва" },
                       { v: "world", label: "Все страны" },
                     ].map((opt) => (
                       <button
