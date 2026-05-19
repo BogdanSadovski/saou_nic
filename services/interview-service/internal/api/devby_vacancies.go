@@ -31,10 +31,11 @@ import (
 // допустимы, но смысла бить чаще нет.
 
 const (
-	devByListURL    = "https://jobs.devby.io/"
-	devByDetailBase = "https://jobs.devby.io"
-	devByCacheTTL   = 30 * time.Minute
-	devByMaxResults = 12
+	devByListURL      = "https://jobs.devby.io/vacancies"
+	devByDetailBase   = "https://jobs.devby.io"
+	devByCacheTTL     = 30 * time.Minute
+	devByMaxResults   = 10
+	devByMinFromDevBy = 1 // как минимум 1 dev.by-вакансия в выдаче (если есть)
 )
 
 type DevByVacancy struct {
@@ -202,7 +203,9 @@ func rankDevByByQuery(items []DevByVacancy, skills []string) []DevByVacancy {
 	return out
 }
 
-func (h *Handler) fetchDevByVacancies(ctx context.Context, skills []string) (*DevByResponse, error) {
+// fetchDevByOnly загружает только dev.by-ленту без догона. Используется
+// и напрямую (в hybrid-handler ниже) и тестами.
+func (h *Handler) fetchDevByOnly(ctx context.Context, skills []string) ([]DevByVacancy, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, devByListURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("devby: build request: %w", err)
