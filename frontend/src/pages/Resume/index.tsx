@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 
 import { VACANCY_OPTIONS } from "@/features/interview-module/vacancies";
 import { resumeApi } from "@/shared/api/resume";
-import type { HHVacanciesResponse, ResumeImportResponse } from "@/shared/api/resume";
+import type { DevByVacanciesResponse, HHVacanciesResponse, ResumeImportResponse } from "@/shared/api/resume";
 import { ResumeUploader } from "@/features/upload-resume/ResumeUploader";
 import { Counter, RsIcon as Icon, Track } from "@/shared/ui/realsync";
 
@@ -30,10 +30,12 @@ export default function ResumePage() {
   const [result, setResult] = useState<ResumeImportResponse | null>(null);
   const [history, setHistory] = useState<ResumeImportResponse[]>([]);
   const [activeIdx, setActiveIdx] = useState(0);
+  const [vacancySource, setVacancySource] = useState<"hh" | "devby">("hh");
   const [vacancies, setVacancies] = useState<HHVacanciesResponse | null>(null);
+  const [devbyVacancies, setDevbyVacancies] = useState<DevByVacanciesResponse | null>(null);
   const [vacanciesLoading, setVacanciesLoading] = useState(false);
   const [vacanciesError, setVacanciesError] = useState<string | null>(null);
-  const [vacancyArea, setVacancyArea] = useState<string>("16"); // 16=Belarus by default
+  const [vacancyArea, setVacancyArea] = useState<string>("1002"); // 1002=Минск default (≥70% IT-вакансий Беларуси)
 
   useEffect(() => {
     let cancelled = false;
@@ -61,6 +63,7 @@ export default function ResumePage() {
   useEffect(() => {
     if (!result?.report_id) {
       setVacancies(null);
+      setDevbyVacancies(null);
       return;
     }
     let cancelled = false;
@@ -68,13 +71,19 @@ export default function ResumePage() {
     setVacanciesError(null);
     (async () => {
       try {
-        const data = await resumeApi.getMatchingVacancies(result.report_id, vacancyArea);
-        if (!cancelled) setVacancies(data);
+        if (vacancySource === "devby") {
+          const data = await resumeApi.getMatchingDevByVacancies(result.report_id);
+          if (!cancelled) setDevbyVacancies(data);
+        } else {
+          const data = await resumeApi.getMatchingVacancies(result.report_id, vacancyArea);
+          if (!cancelled) setVacancies(data);
+        }
       } catch (e) {
         if (!cancelled) {
           const msg = e instanceof Error ? e.message : "Не удалось загрузить вакансии";
           setVacanciesError(msg);
-          setVacancies(null);
+          if (vacancySource === "devby") setDevbyVacancies(null);
+          else setVacancies(null);
         }
       } finally {
         if (!cancelled) setVacanciesLoading(false);
@@ -83,7 +92,7 @@ export default function ResumePage() {
     return () => {
       cancelled = true;
     };
-  }, [result?.report_id, vacancyArea]);
+  }, [result?.report_id, vacancyArea, vacancySource]);
 
   const formatSalary = (v: { salary_from?: number | null; salary_to?: number | null; salary_currency?: string }) => {
     if (!v.salary_from && !v.salary_to) return null;
@@ -363,30 +372,83 @@ export default function ResumePage() {
 
           <section>
             <header className="dash-section-head" style={{ gap: 16, flexWrap: "wrap" }}>
-              <h2 style={{ fontSize: 28 }}>Подходящие вакансии <span className="mono" style={{ fontSize: 12, color: "var(--muted)", letterSpacing: "0.06em" }}>· hh.ru</span></h2>
+              <h2 style={{ fontSize: 28 }}>
+                Подходящие вакансии{" "}
+                <span className="mono" style={{ fontSize: 12, color: "var(--muted)", letterSpacing: "0.06em" }}>
+                  · {vacancySource === "devby" ? "dev.by" : "hh.ru"}
+                </span>
+              </h2>
               <div className="row" style={{ gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-                {vacancies?.query ? (
+                {/* Source picker: HH.ru (полноценный API, фильтр по регионам)
+                    vs dev.by (только IT-вакансии Беларуси, без региона). */}
+                <div className="segmented" style={{ fontSize: 11 }}>
+                  <button
+                    type="button"
+                    className={vacancySource === "hh" ? "is-active" : ""}
+                    onClick={() => setVacancySource("hh")}
+                  >
+                    hh.ru / rabota.by
+                  </button>
+                  <button
+                    type="button"
+                    className={vacancySource === "devby" ? "is-active" : ""}
+                    onClick={() => setVacancySource("devby")}
+                  >
+                    🇧🇾 dev.by (IT)
+                  </button>
+                </div>
+                {vacancySource === "hh" && vacancies?.query ? (
                   <span className="mono" style={{ fontSize: 11, color: "var(--muted)" }}>
                     запрос: «{vacancies.query}»
                   </span>
                 ) : null}
-                <div className="segmented" style={{ fontSize: 11 }}>
-                  {[
-                    { v: "16", label: "Беларусь" },
-                    { v: "113", label: "Россия" },
-                    { v: "1", label: "Москва" },
-                    { v: "world", label: "Все" },
-                  ].map((opt) => (
-                    <button
-                      key={opt.v}
-                      type="button"
-                      className={vacancyArea === opt.v ? "is-active" : ""}
-                      onClick={() => setVacancyArea(opt.v)}
-                    >
-                      {opt.label}
-                    </button>
-                  ))}
+                {vacancySource === "devby" && devbyVacancies?.query ? (
+                  <span className="mono" style={{ fontSize: 11, color: "var(--muted)" }}>
+                    скиллы: «{devbyVacancies.query}»
+                  </span>
+                ) : null}
+                {/* Регионы показываем только для hh.ru — у dev.by нет
+                    поиска по регионам, там вся IT-лента Беларуси. */}
+                {vacancySource === "hh" && (
+                <div style={{ display: "grid", gap: 6 }}>
+                  <div className="segmented" style={{ fontSize: 11, flexWrap: "wrap" }}>
+                    {[
+                      { v: "1002", label: "Минск" },
+                      { v: "1007", label: "Брест" },
+                      { v: "1005", label: "Витебск" },
+                      { v: "1003", label: "Гомель" },
+                      { v: "1006", label: "Гродно" },
+                      { v: "1004", label: "Могилёв" },
+                      { v: "16", label: "Вся Беларусь" },
+                    ].map((opt) => (
+                      <button
+                        key={opt.v}
+                        type="button"
+                        className={vacancyArea === opt.v ? "is-active" : ""}
+                        onClick={() => setVacancyArea(opt.v)}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="segmented" style={{ fontSize: 11 }}>
+                    {[
+                      { v: "113", label: "Россия" },
+                      { v: "1", label: "Москва" },
+                      { v: "world", label: "Все страны" },
+                    ].map((opt) => (
+                      <button
+                        key={opt.v}
+                        type="button"
+                        className={vacancyArea === opt.v ? "is-active" : ""}
+                        onClick={() => setVacancyArea(opt.v)}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
                 </div>
+                )}
               </div>
             </header>
 
@@ -400,6 +462,78 @@ export default function ResumePage() {
               }}>
                 {vacanciesError}
               </p>
+            ) : vacancySource === "devby" ? (
+              !devbyVacancies || devbyVacancies.items.length === 0 ? (
+                <p className="muted" style={{ fontSize: 14 }}>
+                  На dev.by сегодня нет IT-вакансий, подходящих под ваши скиллы. Переключитесь на hh.ru или попробуйте позже.
+                </p>
+              ) : (
+                <>
+                  <div className="row-between mono" style={{ fontSize: 11, color: "var(--muted)", marginBottom: 10, letterSpacing: "0.06em" }}>
+                    <span>dev.by · только IT по Беларуси</span>
+                    <span>Показываем {devbyVacancies.items.length}</span>
+                  </div>
+                  <div style={{ display: "grid", gap: 10 }}>
+                    {devbyVacancies.items.map((v) => (
+                      <a
+                        key={v.id}
+                        href={v.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns: "1fr auto",
+                          gap: 14,
+                          padding: "14px 16px",
+                          border: "1px solid var(--line)",
+                          borderRadius: "var(--r-2)",
+                          background: "var(--paper)",
+                          textDecoration: "none",
+                          color: "var(--ink)",
+                          transition: "border-color 180ms ease",
+                        }}
+                        onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.borderColor = "var(--ink)"; }}
+                        onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.borderColor = "var(--line)"; }}
+                      >
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
+                            <strong style={{ fontSize: 15, lineHeight: 1.3 }}>{v.title}</strong>
+                            {v.relevance_score ? (
+                              <span className="mono" style={{ fontSize: 10, color: "var(--accent-ink, var(--ink))" }}>
+                                {Math.round(v.relevance_score * 100)}% match
+                              </span>
+                            ) : null}
+                          </div>
+                          <div className="muted" style={{ fontSize: 13, marginTop: 4 }}>
+                            {v.company}
+                            {v.remote ? <span className="tag tag--lime" style={{ marginLeft: 8, fontSize: 9 }}>Удалёнка</span> : null}
+                          </div>
+                          {v.tags && v.tags.length > 0 ? (
+                            <div className="row mono" style={{ marginTop: 8, gap: 6, flexWrap: "wrap", fontSize: 10 }}>
+                              {v.tags.slice(0, 6).map((t) => (
+                                <span key={t} className="tag">{t}</span>
+                              ))}
+                            </div>
+                          ) : null}
+                        </div>
+                        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", justifyContent: "space-between", gap: 8 }}>
+                          {v.salary ? (
+                            <strong className="mono" style={{ fontSize: 13, whiteSpace: "nowrap", color: "var(--accent-ink, var(--ink))" }}>
+                              {v.salary}
+                            </strong>
+                          ) : (
+                            <span className="mono muted" style={{ fontSize: 10 }}>з/п не указана</span>
+                          )}
+                          <span className="mono" style={{ fontSize: 10, color: "var(--muted)" }}>dev.by →</span>
+                        </div>
+                      </a>
+                    ))}
+                  </div>
+                  <div className="mono" style={{ fontSize: 10, color: "var(--muted)", marginTop: 10, letterSpacing: "0.04em" }}>
+                    Источник: jobs.devby.io · обновление каждые 30 минут
+                  </div>
+                </>
+              )
             ) : !vacancies || vacancies.items.length === 0 ? (
               <p className="muted" style={{ fontSize: 14 }}>
                 По текущему резюме и региону вакансий не найдено. Попробуйте другой регион.

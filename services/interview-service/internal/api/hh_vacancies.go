@@ -33,7 +33,7 @@ import (
 const (
 	hhAPIBase       = "https://api.hh.ru/vacancies"
 	hhCacheTTL      = time.Hour
-	hhDefaultArea   = "16" // Belarus, since this is a Belarusian thesis project.
+	hhDefaultArea   = "1002" // Минск — где сосредоточено ≥70% IT-вакансий Беларуси.
 	hhRequestPerPag = 12
 )
 

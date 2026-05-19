@@ -282,6 +282,23 @@ func main() {
 		}
 		return "/api/v1/resume/vacancies/" + id
 	}))
+	// dev.by jobs scraper — alternative source while HH partner-app
+	// approval is pending. Same shape as /vacancies but different
+	// underlying provider (HTML scrape vs official API).
+	mux.Handle("/api/resume/devby/", rewriteAndProxy(interviewProxy, func(path string) string {
+		id := strings.TrimPrefix(path, "/api/resume/devby/")
+		if id == "" {
+			return "/api/v1/resume/devby"
+		}
+		return "/api/v1/resume/devby/" + id
+	}))
+	mux.Handle("/api/v1/resume/devby/", rewriteAndProxy(interviewProxy, func(path string) string {
+		id := strings.TrimPrefix(path, "/api/v1/resume/devby/")
+		if id == "" {
+			return "/api/v1/resume/devby"
+		}
+		return "/api/v1/resume/devby/" + id
+	}))
 
 	mux.Handle("/api/github/", rewriteAndProxy(githubProxy, func(path string) string {
 		return singleJoiningSlash("/api/v1", stripPrefix("/api/github")(path))

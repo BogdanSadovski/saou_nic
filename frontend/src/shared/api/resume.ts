@@ -97,6 +97,25 @@ export type HHVacanciesResponse = {
   cached_at: string;
 };
 
+export type DevByVacancy = {
+  id: string;
+  title: string;
+  url: string;
+  company: string;
+  remote: boolean;
+  salary?: string;
+  tags?: string[];
+  source: string;
+  relevance_score?: number;
+};
+
+export type DevByVacanciesResponse = {
+  query: string;
+  total: number;
+  items: DevByVacancy[];
+  cached_at: string;
+};
+
 type WrappedResponse<T> = {
   data?: T;
   success?: boolean;
@@ -175,6 +194,35 @@ export const resumeApi = {
         } catch {
           throw new Error("История резюме временно недоступна (404). Обновите api-gateway.");
         }
+      }
+      throw error;
+    }
+  },
+
+  /**
+   * Fetch matching vacancies from dev.by — alternative source while
+   * HH.ru partner-app approval is pending. Scrapes the public job
+   * listing on jobs.devby.io with 30-min Redis caching.
+   */
+  async getMatchingDevByVacancies(reportID: string): Promise<DevByVacanciesResponse> {
+    try {
+      const response = await apiClient.get<WrappedResponse<DevByVacanciesResponse> | DevByVacanciesResponse>(
+        `/resume/devby/${reportID}`,
+      );
+      const data = (response.data as WrappedResponse<DevByVacanciesResponse>)?.data
+        ?? (response.data as DevByVacanciesResponse);
+      if (!data) throw new Error("dev.by: пустой ответ");
+      return data;
+    } catch (error) {
+      const status = (error as { response?: { status?: number } })?.response?.status;
+      if (status === 404) {
+        const fallback = await apiClient.get<WrappedResponse<DevByVacanciesResponse> | DevByVacanciesResponse>(
+          `/v1/resume/devby/${reportID}`,
+        );
+        const data = (fallback.data as WrappedResponse<DevByVacanciesResponse>)?.data
+          ?? (fallback.data as DevByVacanciesResponse);
+        if (!data) throw new Error("dev.by: пустой ответ");
+        return data;
       }
       throw error;
     }
