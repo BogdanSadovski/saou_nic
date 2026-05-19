@@ -15,11 +15,9 @@ export type NotificationChannel = "interview_reminder" | "result_ready" | "weekl
 
 export type Preferences = {
   notifications: Record<NotificationChannel, boolean>;
-  /** Reduce motion (overrides @prefers-reduced-motion off→on). */
+  /** Reduce motion — applied via <html data-motion="reduced">. */
   reduceMotion: boolean;
-  /** Sound feedback during interview (e.g. timer ticks, AI ready ping). */
-  soundEnabled: boolean;
-  /** Compact mode — denser tables and cards. */
+  /** Compact mode — applied via <html data-density="compact">. */
   compactDensity: boolean;
 };
 
@@ -30,7 +28,6 @@ const DEFAULTS: Preferences = {
     weekly_digest: false,
   },
   reduceMotion: false,
-  soundEnabled: true,
   compactDensity: false,
 };
 
@@ -53,7 +50,6 @@ const load = (): Preferences => {
 type State = Preferences & {
   setNotification: (channel: NotificationChannel, value: boolean) => void;
   setReduceMotion: (value: boolean) => void;
-  setSoundEnabled: (value: boolean) => void;
   setCompactDensity: (value: boolean) => void;
   reset: () => void;
 };
@@ -74,10 +70,6 @@ export const usePreferencesStore = create<State>((set, get) => ({
   setReduceMotion: (reduceMotion) => {
     persist({ ...get(), reduceMotion });
     set({ reduceMotion });
-  },
-  setSoundEnabled: (soundEnabled) => {
-    persist({ ...get(), soundEnabled });
-    set({ soundEnabled });
   },
   setCompactDensity: (compactDensity) => {
     persist({ ...get(), compactDensity });

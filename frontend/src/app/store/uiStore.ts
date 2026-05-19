@@ -43,6 +43,10 @@ export const useUIStore = create<UIState>((set, get) => ({
     set({ theme, resolvedTheme: resolve(theme) });
   },
   toggleTheme: () => {
+    // The sun/moon button in the topbar flips light↔dark explicitly.
+    // It writes both `theme` AND `resolvedTheme` so subsequent OS
+    // changes don't override the user's choice — to re-enable system
+    // tracking, switch via Profile → Тема → Системная.
     const next = get().resolvedTheme === "light" ? "dark" : "light";
     if (typeof window !== "undefined") {
       window.localStorage.setItem(THEME_KEY, next);
@@ -57,16 +61,29 @@ export const useUIStore = create<UIState>((set, get) => ({
 // follows the user's preferred scheme without a reload.
 if (typeof window !== "undefined" && window.matchMedia) {
   const mql = window.matchMedia("(prefers-color-scheme: dark)");
-  const onChange = () => {
+  const syncFromSystem = () => {
     const { theme } = useUIStore.getState();
     if (theme === "system") {
-      useUIStore.setState({ resolvedTheme: matchesDark() ? "dark" : "light" });
+      const next = matchesDark() ? "dark" : "light";
+      const { resolvedTheme } = useUIStore.getState();
+      if (next !== resolvedTheme) {
+        useUIStore.setState({ resolvedTheme: next });
+      }
     }
   };
   if (typeof mql.addEventListener === "function") {
-    mql.addEventListener("change", onChange);
+    mql.addEventListener("change", syncFromSystem);
   } else if (typeof mql.addListener === "function") {
     // Safari < 14
-    mql.addListener(onChange);
+    mql.addListener(syncFromSystem);
   }
+  // Browsers occasionally miss the matchMedia change event when the OS
+  // toggles theme while the tab is backgrounded (especially macOS Safari
+  // and Chrome with throttled renderers). Re-sync on window focus +
+  // visibilitychange so the moment the user returns to the tab the UI
+  // matches what they expect.
+  window.addEventListener("focus", syncFromSystem);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") syncFromSystem();
+  });
 }

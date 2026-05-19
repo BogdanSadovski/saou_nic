@@ -894,17 +894,6 @@ export default function ProfilePage() {
                 </div>
               </div>
               <div className="field">
-                <label>Язык</label>
-                <div className="segmented">
-                  <button className="is-active" type="button">
-                    Русский
-                  </button>
-                  <button disabled type="button">
-                    English
-                  </button>
-                </div>
-              </div>
-              <div className="field">
                 <label>Плотный режим</label>
                 <div className="segmented">
                   <button
@@ -922,6 +911,9 @@ export default function ProfilePage() {
                     Компактный
                   </button>
                 </div>
+                <small className="muted mono" style={{ fontSize: 11, marginTop: 6, display: "block" }}>
+                  Компактный режим уменьшает отступы карточек и таблиц на ~20%.
+                </small>
               </div>
               <div className="field">
                 <label>Анимации</label>
@@ -941,25 +933,9 @@ export default function ProfilePage() {
                     Сниженные
                   </button>
                 </div>
-              </div>
-              <div className="field">
-                <label>Звуки во время интервью</label>
-                <div className="segmented">
-                  <button
-                    className={prefs.soundEnabled ? "is-active" : ""}
-                    onClick={() => prefs.setSoundEnabled(true)}
-                    type="button"
-                  >
-                    Вкл
-                  </button>
-                  <button
-                    className={!prefs.soundEnabled ? "is-active" : ""}
-                    onClick={() => prefs.setSoundEnabled(false)}
-                    type="button"
-                  >
-                    Выкл
-                  </button>
-                </div>
+                <small className="muted mono" style={{ fontSize: 11, marginTop: 6, display: "block" }}>
+                  Сниженные анимации убирают transition/animate эффекты — удобно при чувствительности к движению.
+                </small>
               </div>
             </div>
           </section>

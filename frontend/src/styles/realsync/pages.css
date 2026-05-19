@@ -1623,3 +1623,33 @@
   .practice-editor-highlight,
   .practice-code-editor { font-size: 12px; padding: 12px; }
 }
+
+/* ── User preferences (data-density / data-motion) ───── */
+[data-density="compact"] .profile-card,
+[data-density="compact"] .gh-card,
+[data-density="compact"] .card {
+  padding: 22px;
+}
+[data-density="compact"] .metric { padding: 20px 18px; }
+[data-density="compact"] .interview-item,
+[data-density="compact"] .admin-row,
+[data-density="compact"] .report-row { padding: 12px 8px; }
+[data-density="compact"] .dash-section { margin-top: 28px; }
+[data-density="compact"] .profile-fields { gap: 12px; }
+[data-density="compact"] .field { gap: 4px; }
+[data-density="compact"] .page { padding: 28px 28px 80px; }
+[data-density="compact"] .home-stat { padding: 14px 0; }
+[data-density="compact"] .home-feature { padding: 24px 20px 24px 0; }
+[data-density="compact"] .sysbar > * { padding: 4px 10px; }
+
+/* Reduced motion — disable all transitions/animations site-wide
+   while keeping interactivity. Honours user accessibility preference
+   even when the OS-level `prefers-reduced-motion` isn't set. */
+[data-motion="reduced"] *,
+[data-motion="reduced"] *::before,
+[data-motion="reduced"] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
+}
