@@ -234,9 +234,10 @@ func (r *PostgresRepository) CreateInterviewModuleMessage(ctx context.Context, m
 
 	query := `
 		INSERT INTO interview_messages (
-			id, session_id, sender, content, topic, difficulty, created_at, token_usage
+			id, session_id, sender, content, topic, difficulty, created_at,
+			token_usage, verdict, verdict_reason
 		) VALUES (
-			$1, $2, $3, $4, $5, $6, COALESCE($7, NOW()), $8
+			$1, $2, $3, $4, $5, $6, COALESCE($7, NOW()), $8, $9, $10
 		)
 	`
 
@@ -251,6 +252,8 @@ func (r *PostgresRepository) CreateInterviewModuleMessage(ctx context.Context, m
 		message.Difficulty,
 		message.CreatedAt,
 		nullableJSON(tokenUsageJSON),
+		message.Verdict,
+		message.VerdictReason,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to create interview module message: %w", err)
@@ -261,7 +264,8 @@ func (r *PostgresRepository) CreateInterviewModuleMessage(ctx context.Context, m
 
 func (r *PostgresRepository) ListInterviewModuleMessagesBySessionID(ctx context.Context, sessionID uuid.UUID, limit, offset int) ([]*domain.InterviewModuleMessage, error) {
 	query := `
-		SELECT id, session_id, sender, content, topic, difficulty, created_at, token_usage
+		SELECT id, session_id, sender, content, topic, difficulty, created_at,
+		       token_usage, verdict, verdict_reason
 		FROM interview_messages
 		WHERE session_id = $1
 		ORDER BY created_at ASC
@@ -287,6 +291,8 @@ func (r *PostgresRepository) ListInterviewModuleMessagesBySessionID(ctx context.
 			&m.Difficulty,
 			&m.CreatedAt,
 			&tokenUsageRaw,
+			&m.Verdict,
+			&m.VerdictReason,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan interview module message: %w", err)
 		}

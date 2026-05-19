@@ -179,14 +179,19 @@ type InterviewModuleSession struct {
 }
 
 type InterviewModuleMessage struct {
-	ID         uuid.UUID              `json:"id" db:"id"`
-	SessionID  uuid.UUID              `json:"session_id" db:"session_id"`
-	Sender     MessageSender          `json:"sender" db:"sender"`
-	Content    string                 `json:"content" db:"content"`
-	Topic      *string                `json:"topic,omitempty" db:"topic"`
-	Difficulty *int                   `json:"difficulty,omitempty" db:"difficulty"`
-	CreatedAt  time.Time              `json:"created_at" db:"created_at"`
-	TokenUsage map[string]interface{} `json:"token_usage,omitempty" db:"token_usage"`
+	ID            uuid.UUID              `json:"id" db:"id"`
+	SessionID     uuid.UUID              `json:"session_id" db:"session_id"`
+	Sender        MessageSender          `json:"sender" db:"sender"`
+	Content       string                 `json:"content" db:"content"`
+	Topic         *string                `json:"topic,omitempty" db:"topic"`
+	Difficulty    *int                   `json:"difficulty,omitempty" db:"difficulty"`
+	CreatedAt     time.Time              `json:"created_at" db:"created_at"`
+	TokenUsage    map[string]interface{} `json:"token_usage,omitempty" db:"token_usage"`
+	// Per-turn AI verdict (correct/partial/wrong/skipped/off_topic/none).
+	// Persisted in migration 006 so badges survive service restarts and
+	// surface in /messages history queries.
+	Verdict       *string `json:"verdict,omitempty" db:"verdict"`
+	VerdictReason *string `json:"verdict_reason,omitempty" db:"verdict_reason"`
 }
 
 type InterviewModuleReport struct {

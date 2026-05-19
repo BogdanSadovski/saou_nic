@@ -1,0 +1,3 @@
+DELETE FROM audit_logs WHERE id::text LIKE '33333333-%';
+DELETE FROM subscriptions WHERE id::text LIKE '22222222-1111-%';
+DELETE FROM users WHERE id::text LIKE '11111111-1111-1111-1111-%';

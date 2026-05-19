@@ -2473,14 +2473,27 @@ func (h *Handler) toDomainMessage(sessionID uuid.UUID, msg InterviewChatMessage)
 		difficulty = &msg.Difficulty
 	}
 
+	// Persist the AI verdict + reason when set (per-turn classification).
+	// Nil values map to NULL in the DB, so AI questions (which have no
+	// verdict) and skipped/unrated turns don't fail the check constraint.
+	var verdictPtr, reasonPtr *string
+	if v := strings.TrimSpace(msg.Verdict); v != "" {
+		verdictPtr = &v
+	}
+	if r := strings.TrimSpace(msg.VerdictReason); r != "" {
+		reasonPtr = &r
+	}
+
 	return &domain.InterviewModuleMessage{
-		ID:         msg.MessageID,
-		SessionID:  sessionID,
-		Sender:     domain.MessageSender(strings.ToLower(strings.TrimSpace(msg.Sender))),
-		Content:    msg.Content,
-		Topic:      topic,
-		Difficulty: difficulty,
-		CreatedAt:  msg.CreatedAt,
+		ID:            msg.MessageID,
+		SessionID:     sessionID,
+		Sender:        domain.MessageSender(strings.ToLower(strings.TrimSpace(msg.Sender))),
+		Content:       msg.Content,
+		Topic:         topic,
+		Difficulty:    difficulty,
+		CreatedAt:     msg.CreatedAt,
+		Verdict:       verdictPtr,
+		VerdictReason: reasonPtr,
 	}
 }
 
@@ -2496,13 +2509,23 @@ func toAPIMessage(message *domain.InterviewModuleMessage) InterviewChatMessage {
 	if message.Difficulty != nil {
 		difficulty = *message.Difficulty
 	}
+	verdict := ""
+	if message.Verdict != nil {
+		verdict = *message.Verdict
+	}
+	verdictReason := ""
+	if message.VerdictReason != nil {
+		verdictReason = *message.VerdictReason
+	}
 	return InterviewChatMessage{
-		MessageID:  message.ID,
-		Sender:     string(message.Sender),
-		Content:    message.Content,
-		Topic:      topic,
-		Difficulty: difficulty,
-		CreatedAt:  message.CreatedAt,
+		MessageID:     message.ID,
+		Sender:        string(message.Sender),
+		Content:       message.Content,
+		Topic:         topic,
+		Difficulty:    difficulty,
+		CreatedAt:     message.CreatedAt,
+		Verdict:       verdict,
+		VerdictReason: verdictReason,
 	}
 }
 
