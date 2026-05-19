@@ -573,10 +573,15 @@ h1 em, h2 em, h3 em, .display em,
 }
 
 /* Grid layouts */
-.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
-.grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
-.grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
-.grid-6 { display: grid; grid-template-columns: repeat(6, 1fr); gap: 16px; }
+/* minmax(0, 1fr) даёт колонкам право сжиматься меньше своего
+   min-content. Без этого широкий контент (длинные пункты перков,
+   крупные цифры с символом валюты) растягивает колонку шире, чем
+   1/N от родителя, и сетка вылезает за границы карточки. */
+.grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+.grid-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; }
+.grid-4 { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+.grid-6 { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 16px; }
+.grid-2 > *, .grid-3 > *, .grid-4 > *, .grid-6 > * { min-width: 0; }
 @media (max-width: 960px) {
   .grid-3, .grid-4, .grid-6 { grid-template-columns: 1fr 1fr; }
   .grid-2 { grid-template-columns: 1fr; }

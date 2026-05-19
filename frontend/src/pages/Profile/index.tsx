@@ -327,7 +327,13 @@ export default function ProfilePage() {
                   <article
                     className="card card--hover"
                     key={tier.tier}
-                    style={cardStyle}
+                    style={{
+                      ...cardStyle,
+                      minWidth: 0,
+                      display: "flex",
+                      flexDirection: "column",
+                      padding: 20,
+                    }}
                   >
                     <span
                       className="eyebrow"
@@ -339,24 +345,26 @@ export default function ProfilePage() {
                       style={{
                         display: "flex",
                         alignItems: "baseline",
-                        gap: 6,
+                        gap: 4,
                         marginTop: 10,
+                        flexWrap: "wrap",
                       }}
                     >
                       <span
                         className="display"
                         style={{
-                          fontSize: 40,
+                          fontSize: 34,
+                          lineHeight: 1,
                           color: tier.highlight ? "var(--accent)" : "var(--ink)",
                           display: "inline-flex",
                           alignItems: "baseline",
-                          gap: 6,
+                          gap: 4,
                         }}
                       >
                         {formatBYNAmount(tier.price)}
-                        <BynSign size={24} />
+                        <BynSign size={18} style={{ marginLeft: 2 }} />
                       </span>
-                      <span className="muted" style={{ fontSize: 13 }}>
+                      <span className="muted" style={{ fontSize: 12 }}>
                         / мес
                       </span>
                     </div>
