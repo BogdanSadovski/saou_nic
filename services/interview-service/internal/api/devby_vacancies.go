@@ -203,9 +203,7 @@ func rankDevByByQuery(items []DevByVacancy, skills []string) []DevByVacancy {
 	return out
 }
 
-// fetchDevByOnly загружает только dev.by-ленту без догона. Используется
-// и напрямую (в hybrid-handler ниже) и тестами.
-func (h *Handler) fetchDevByOnly(ctx context.Context, skills []string) ([]DevByVacancy, error) {
+func (h *Handler) fetchDevByVacancies(ctx context.Context, skills []string) (*DevByResponse, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, devByListURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("devby: build request: %w", err)

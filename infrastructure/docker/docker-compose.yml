@@ -333,6 +333,9 @@ services:
       RABBITMQ_URL: amqp://${RABBITMQ_DEFAULT_USER:-rabbitmq_user}:${RABBITMQ_DEFAULT_PASS:-rabbitmq_pass}@rabbitmq:5672
       AI_SERVICE_URL: http://ai-service:8001
       JWT_SECRET: ${JWT_SECRET:-super_secret_jwt_key_change_in_production}
+      # HH/rabota.by API требует валидный e-mail в User-Agent.
+      # Если не задано — берётся гmail-почта по умолчанию (см. код).
+      HH_API_USER_AGENT: ${HH_API_USER_AGENT:-}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432

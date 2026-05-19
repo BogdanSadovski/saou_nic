@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"os"
 	"strings"
 	"time"
 
@@ -188,26 +189,76 @@ func (h *Handler) fetchHHVacancies(ctx context.Context, query, area string) (*HH
 
 	fullURL := hhAPIBase + "?" + params.Encode()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fullURL, nil)
-	if err != nil {
-		return nil, fmt.Errorf("hh: build request: %w", err)
+	// HH-API правила User-Agent (docs hh.ru):
+	//   1. Должен быть установлен (без него 403);
+	//   2. Формат "AppName/Version (real-contact-email)";
+	//   3. Домен e-mail должен быть валидным — фейк-домены типа
+	//      "@realsync.local" HH-антибот режет.
+	// Делаем UA конфигурируемым через HH_API_USER_AGENT — на проде
+	// подставляется реальный email владельца сервиса.
+	userAgent := os.Getenv("HH_API_USER_AGENT")
+	if strings.TrimSpace(userAgent) == "" {
+		userAgent = "RealSync-Interview-Platform/1.0 (realsync.platform+hh@gmail.com)"
 	}
-	// HH explicitly requires a User-Agent identifying the client with
-	// an email contact. Without it requests fail with 403.
-	req.Header.Set("User-Agent", "RealSync-Interview-Platform/1.0 (admin@realsync.local)")
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("Accept-Language", "ru-RU,ru")
 
-	client := &http.Client{Timeout: 8 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("hh: do request: %w", err)
+	// Retry на 403/5xx с экспоненциальным backoff. HH-rate-limiter
+	// часто выпускает «temporal» 403 — после паузы 2-3с запрос
+	// проходит. Полный 403 daily-cap тоже отрабатывает: после двух
+	// неудач возвращаем ошибку, чтобы фронт показал реальный код.
+	client := &http.Client{Timeout: 10 * time.Second}
+	var lastErr error
+	var resp *http.Response
+	backoff := []time.Duration{0, 1500 * time.Millisecond, 3500 * time.Millisecond}
+	for attempt, wait := range backoff {
+		if wait > 0 {
+			time.Sleep(wait)
+		}
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, fullURL, nil)
+		if err != nil {
+			return nil, fmt.Errorf("hh: build request: %w", err)
+		}
+		req.Header.Set("User-Agent", userAgent)
+		req.Header.Set("Accept", "application/json")
+		req.Header.Set("Accept-Language", "ru-BY,ru;q=0.9,en;q=0.5")
+		req.Header.Set("Accept-Encoding", "gzip, deflate, br")
+
+		resp, lastErr = client.Do(req)
+		if lastErr != nil {
+			continue
+		}
+		if resp.StatusCode < 400 {
+			break // успех
+		}
+		// 4xx (кроме 429) — детерминированная ошибка, retry не поможет.
+		if resp.StatusCode >= 400 && resp.StatusCode < 500 && resp.StatusCode != 429 && resp.StatusCode != 403 {
+			break
+		}
+		// 403/429/5xx — retry. Read и закрыть body чтобы Keep-Alive
+		// не зависал.
+		_, _ = io.Copy(io.Discard, resp.Body)
+		_ = resp.Body.Close()
+		resp = nil
+		if attempt == len(backoff)-1 {
+			lastErr = fmt.Errorf("hh: exhausted retries on transient errors")
+		}
+	}
+	if resp == nil {
+		if lastErr == nil {
+			lastErr = fmt.Errorf("hh: no response")
+		}
+		return nil, lastErr
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
-		return nil, fmt.Errorf("hh: status %d: %s", resp.StatusCode, string(body))
+		// Cпециальная обработка 403: чаще всего значит «нужен
+		// валидный email-домен в UA» или «дневной лимит исчерпан».
+		hint := ""
+		if resp.StatusCode == 403 {
+			hint = " (выставьте HH_API_USER_AGENT с реальным e-mail или подождите ~1 час)"
+		}
+		return nil, fmt.Errorf("hh: status %d%s: %s", resp.StatusCode, hint, string(body))
 	}
 
 	var raw hhRawResponse
