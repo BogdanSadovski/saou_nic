@@ -3,6 +3,7 @@ package api
 import (
 	"github.com/gin-gonic/gin"
 	"github.com/real-ass/admin-service/internal/config"
+	"github.com/real-ass/admin-service/internal/domain"
 	"github.com/real-ass/admin-service/pkg/rbac"
 )
 
@@ -32,10 +33,11 @@ func SetupRouter(
 		// Apply authentication to all v1 routes
 		v1.Use(auth.Authenticate())
 
-		// Dashboard routes
+		// Dashboard routes — admin-only. Без middleware на /stats
+		// любой авторизованный пользователь видел админ-метрики.
 		dashboard := v1.Group("/dashboard")
 		{
-			dashboard.GET("/stats", handler.GetDashboardStats)
+			dashboard.GET("/stats", rbacMiddleware.RequireRole(domain.RoleAdmin), handler.GetDashboardStats)
 		}
 
 		// User management routes

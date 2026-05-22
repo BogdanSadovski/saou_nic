@@ -362,7 +362,7 @@ func (r *PostgresRepository) CreateSubscription(ctx context.Context, subscriptio
 
 	metadata := subscription.Metadata
 	if metadata == nil {
-		metadata = map[string]string{}
+		metadata = map[string]any{}
 	}
 
 	_, err := r.pool.Exec(ctx, query,

@@ -110,7 +110,10 @@ type Subscription struct {
 	MaxUsers      int                `json:"max_users"`
 	MaxStorageGB  int                `json:"max_storage_gb"`
 	Features      []string           `json:"features"`
-	Metadata      map[string]string  `json:"metadata"`
+	// Metadata — произвольный JSONB на стороне БД. Используем any-значения,
+	// потому что seed/реальные подписки кладут туда числа (`price`, `amount`),
+	// булевы (`auto_renew_disabled`), а не только строки.
+	Metadata      map[string]any     `json:"metadata"`
 	CreatedAt     time.Time          `json:"created_at"`
 	UpdatedAt     time.Time          `json:"updated_at"`
 }

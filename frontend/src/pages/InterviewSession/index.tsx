@@ -12,6 +12,7 @@ import {
 } from "@/features/interview-module/stores";
 import type { InterviewLevel, InterviewMessage, InterviewMode, InterviewRole } from "@/features/interview-module/types";
 import { RsIcon as Icon } from "@/shared/ui/realsync";
+import { UserAvatar } from "@/shared/ui";
 
 const formatMMSS = (seconds: number) => {
   const safe = Math.max(seconds, 0);
@@ -57,6 +58,7 @@ export default function InterviewSessionPage() {
   const setAiTyping = useChatStore((state) => state.setAiTyping);
   const pushStreamChunk = useChatStore((state) => state.pushStreamChunk);
   const clearStreamBuffer = useChatStore((state) => state.clearStreamBuffer);
+  const streamBuffer = useChatStore((state) => state.streamBuffer);
   const applyVerdict = useChatStore((state) => state.applyVerdict);
 
   const countdownSec = useTimerStore((state) => state.countdownSec);
@@ -175,11 +177,17 @@ export default function InterviewSessionPage() {
   useEffect(() => {
     if (!timerReady || bootLoading) return;
     const lastMsg = messages[messages.length - 1];
-    const awaitingAI = aiTyping || (lastMsg !== undefined && lastMsg.sender === "user");
+    // Третий сигнал — streamBuffer непустой: typing.stopped уже
+    // прилетел, но финальный message.ai ещё нет (между ними идут
+    // чанки стрима). Без этого таймер тикает 1-2 секунды лишку.
+    const awaitingAI =
+      aiTyping ||
+      (lastMsg !== undefined && lastMsg.sender === "user") ||
+      streamBuffer.trim().length > 0;
     if (awaitingAI) return;
     const timer = window.setInterval(() => tick(), 1000);
     return () => window.clearInterval(timer);
-  }, [tick, timerReady, bootLoading, aiTyping, messages]);
+  }, [tick, timerReady, bootLoading, aiTyping, messages, streamBuffer]);
 
   useEffect(() => {
     if (bootLoading || !timerReady || !autoFinishTriggered || !sessionId) return;
@@ -441,7 +449,9 @@ export default function InterviewSessionPage() {
         >
           {messages.map((m, i) => (
             <div className={`msg ${m.sender}`} key={m.messageId || i}>
-              <div className="msg-avatar">{m.sender === "ai" ? "AI" : "СБ"}</div>
+              <div className="msg-avatar">
+                {m.sender === "ai" ? "AI" : <UserAvatar size={28} />}
+              </div>
               <div>
                 <div className="msg-bubble">{m.content}</div>
                 <div className="msg-meta">{m.topic || "reply"} · {m.verdict || ""}</div>

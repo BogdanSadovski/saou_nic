@@ -97,7 +97,6 @@ export default function CareerCenterPage() {
           </div>
           <div className="row" style={{ marginTop: 16 }}>
             <button className="btn btn--accent" onClick={() => navigate("/interview")} type="button">Запустить лучший симулятор <Icon name="arrow" /></button>
-            <button className="btn btn--ghost" type="button">Сохранить публичный профиль</button>
           </div>
         </div>
 
@@ -160,20 +159,6 @@ export default function CareerCenterPage() {
           </ol>
         </div>
 
-        <div className="card card--hover reveal reveal-6">
-          <span className="eyebrow">Публичный профиль</span>
-          <h3>Публикация результата</h3>
-          <p className="body" style={{ marginTop: 8 }}>Сохраните карточку кандидата и поделитесь ссылкой без ручной вёрстки.</p>
-          <div style={{ marginTop: 16, padding: 16, border: "1px solid var(--line)", borderRadius: "var(--r-1)", display: "grid", gap: 4 }}>
-            <strong>Садовский Богдан Дм.</strong>
-            <span className="muted" style={{ fontSize: 13 }}>Backend · 82% readiness</span>
-            <span className="mono" style={{ fontSize: 11, color: "var(--muted)" }}>realsync.io/p/bsadovski</span>
-          </div>
-          <div className="row" style={{ marginTop: 16 }}>
-            <button className="btn btn--primary btn--sm" type="button">Сохранить снапшот</button>
-            <button className="btn btn--ghost btn--sm" type="button">Скопировать ссылку</button>
-          </div>
-        </div>
       </section>
     </>
   );

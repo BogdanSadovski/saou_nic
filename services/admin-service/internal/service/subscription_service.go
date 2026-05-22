@@ -57,7 +57,7 @@ func (s *SubscriptionService) CreateSubscription(ctx context.Context, userID uui
 		MaxUsers:     tierMaxUsers(tier),
 		MaxStorageGB: tierMaxStorage(tier),
 		Features:     tierFeatures(tier),
-		Metadata:     make(map[string]string),
+		Metadata:     make(map[string]any),
 		CreatedAt:    now,
 		UpdatedAt:    now,
 	}

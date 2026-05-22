@@ -1,6 +1,7 @@
 import { NavLink, useNavigate } from "react-router-dom";
 
 import { useAuthStore, useUIStore, useUserStore } from "@/app/store";
+import { UserAvatar } from "@/shared/ui";
 
 const NAV = [
   { to: "/", label: "Главная", end: true },
@@ -11,14 +12,8 @@ const NAV = [
   { to: "/workspace/resume", label: "Резюме" },
 ];
 
-const initialsOf = (fullName: string, email: string): string => {
-  const source = (fullName || email).trim();
-  if (!source) return "·";
-  const parts = source.split(/[\s@]+/).filter(Boolean);
-  if (parts.length === 0) return "·";
-  if (parts.length === 1) return parts[0]!.slice(0, 2).toUpperCase();
-  return (parts[0]![0]! + parts[1]![0]!).toUpperCase();
-};
+// initialsOf удалён — теперь у всех юзеров единая ISO-куб иконка
+// через <UserAvatar />. См. shared/ui/UserAvatar.tsx.
 
 function ThemeToggle() {
   const resolved = useUIStore((s) => s.resolvedTheme);
@@ -89,7 +84,7 @@ export function Navbar() {
             type="button"
             title={user.fullName || user.email || "Профиль"}
           >
-            <span className="avatar">{initialsOf(user.fullName, user.email)}</span>
+            <UserAvatar size={32} className="avatar" alt={user.fullName || user.email} />
             <span className="user-meta">
               <span className="user-name">{user.fullName || user.email || "Профиль"}</span>
               <span className="user-role">{(user.role || "user").toUpperCase()}</span>
@@ -97,7 +92,7 @@ export function Navbar() {
           </button>
         ) : (
           <button className="user" onClick={() => navigate("/auth")} type="button">
-            <span className="avatar">·</span>
+            <UserAvatar size={32} className="avatar" alt="Гость" />
             <span className="user-meta">
               <span className="user-name">Войти</span>
               <span className="user-role">GUEST</span>

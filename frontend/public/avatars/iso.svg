@@ -1,0 +1,19 @@
+<?xml version="1.0"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+<rect width="200" height="200" rx="40" fill="#f5f1e8"></rect>
+      <defs>
+        <pattern id="iso-1779448061455" x="0" y="0" width="20" height="20" patternUnits="userSpaceOnUse">
+          <line x1="0" y1="0" x2="20" y2="0" stroke="#8a857a" stroke-width="0.6" opacity="0.45"></line>
+          <line x1="0" y1="0" x2="0" y2="20" stroke="#8a857a" stroke-width="0.6" opacity="0.45"></line>
+        </pattern>
+      </defs>
+      <rect x="0" y="0" width="200" height="200" fill="url(#iso-1779448061455)"></rect>
+      
+      <g fill="none" stroke="#2b2a26" stroke-width="3" stroke-linejoin="round">
+        <polygon points="100,40 160,75 160,140 100,175 40,140 40,75"></polygon>
+        <line x1="100" y1="40" x2="100" y2="105"></line>
+        <line x1="40" y1="75" x2="100" y2="105"></line>
+        <line x1="160" y1="75" x2="100" y2="105"></line>
+      </g>
+      <polygon points="100,40 160,75 100,105 40,75" fill="#cdee5a" opacity="0.9"></polygon>
+</svg>

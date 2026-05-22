@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 
 import { VACANCY_OPTIONS } from "@/features/interview-module/vacancies";
 import { resumeApi } from "@/shared/api/resume";
-import type { HHVacanciesResponse, ResumeImportResponse } from "@/shared/api/resume";
+import type { ResumeImportResponse } from "@/shared/api/resume";
 import { ResumeUploader } from "@/features/upload-resume/ResumeUploader";
 import { Counter, RsIcon as Icon, Track } from "@/shared/ui/realsync";
 
@@ -30,10 +30,14 @@ export default function ResumePage() {
   const [result, setResult] = useState<ResumeImportResponse | null>(null);
   const [history, setHistory] = useState<ResumeImportResponse[]>([]);
   const [activeIdx, setActiveIdx] = useState(0);
-  const [vacancies, setVacancies] = useState<HHVacanciesResponse | null>(null);
-  const [vacanciesLoading, setVacanciesLoading] = useState(false);
-  const [vacanciesError, setVacanciesError] = useState<string | null>(null);
-  const [vacancyArea, setVacancyArea] = useState<string>("1002"); // 1002=Минск default (≥70% IT-вакансий Беларуси)
+  // Вместо API-интеграции с HH/rabota.by (требует OAuth-приложение,
+  // лимиты, анти-бот) — формируем deep-links на /search/vacancy
+  // с предзаполненным text=. Юзер кликает по карточке, открывается
+  // родной поиск выбранного агрегатора с готовым запросом.
+  //
+  // Источник переключается вручную:
+  //   rabota — белорусский, hh — международный (Россия/СНГ/мир).
+  const [vacancySource, setVacancySource] = useState<"rabota" | "hh">("rabota");
 
   useEffect(() => {
     let cancelled = false;
@@ -56,59 +60,141 @@ export default function ResumePage() {
     };
   }, []);
 
-  // Load matching HH.ru vacancies whenever the active resume report
-  // or the selected region changes.
-  useEffect(() => {
-    if (!result?.report_id) {
-      setVacancies(null);
-      return;
-    }
-    let cancelled = false;
-    setVacanciesLoading(true);
-    setVacanciesError(null);
-    (async () => {
-      try {
-        // rabota.by = api.hh.ru с area=Беларусь (16) или конкретный
-        // город (1002 Минск …). Авторизация / OAuth-приложение для
-        // публичного поиска не нужны — нужен только User-Agent
-        // (выставляется на бэкенде).
-        const data = await resumeApi.getMatchingVacancies(result.report_id, vacancyArea);
-        if (!cancelled) setVacancies(data);
-      } catch (e) {
-        if (!cancelled) {
-          const err = e as {
-            code?: string;
-            message?: string;
-            response?: { status?: number; statusText?: string; data?: { error?: string; message?: string } };
-          };
-          const status = err.response?.status;
-          const serverMsg = err.response?.data?.error ?? err.response?.data?.message;
-          const parts: string[] = [];
-          if (status) parts.push(`HTTP ${status}`);
-          if (err.response?.statusText) parts.push(err.response.statusText);
-          if (serverMsg) parts.push(serverMsg);
-          else if (err.message) parts.push(err.message);
-          if (parts.length === 0) parts.push("Не удалось загрузить вакансии");
-          setVacanciesError(parts.join(" · "));
-          setVacancies(null);
-        }
-      } finally {
-        if (!cancelled) setVacanciesLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [result?.report_id, vacancyArea]);
+  // Уровень (junior/middle/senior) в подборе вакансий НЕ используется —
+  // пользователь явно попросил их убрать. Карточки ведут на чистый
+  // поиск по тексту без фильтра по experience.
 
-  const formatSalary = (v: { salary_from?: number | null; salary_to?: number | null; salary_currency?: string }) => {
-    if (!v.salary_from && !v.salary_to) return null;
-    const cur = (v.salary_currency || "").toUpperCase();
-    const sign = cur === "RUR" || cur === "RUB" ? "₽" : cur === "BYR" || cur === "BYN" ? "Br" : cur === "USD" ? "$" : cur === "EUR" ? "€" : cur;
-    const fmt = (n: number) => n.toLocaleString("ru-RU");
-    if (v.salary_from && v.salary_to) return `${fmt(v.salary_from)} – ${fmt(v.salary_to)} ${sign}`;
-    if (v.salary_from) return `от ${fmt(v.salary_from)} ${sign}`;
-    return `до ${fmt(v.salary_to!)} ${sign}`;
+  // Убирает упоминания стажёрства/intern И уровней из отображаемого
+  // тайтла. ВАЖНО: JS `\b` работает только для ASCII, поэтому
+  // `\bстажер\b` фактически не совпадает с «Стажер» в кириллице.
+  // Используем Unicode-aware lookarounds через \p{L} с флагом `u`.
+  const cleanRoleTitle = (raw: string): string => {
+    const NOT_LETTER_BEFORE = "(?<![\\p{L}\\d])";
+    const NOT_LETTER_AFTER = "(?![\\p{L}\\d])";
+    const internWords = "стажёр|стажер|стажирующийся|стажировка|intern(?:ship)?|trainee";
+    const levelWords = "junior|middle|senior|lead|staff|principal|джун|мидл|сеньор|сеньер|младший|старший|ведущий";
+    const reIntern = new RegExp(`${NOT_LETTER_BEFORE}(?:${internWords})${NOT_LETTER_AFTER}`, "giu");
+    const reLevel = new RegExp(`${NOT_LETTER_BEFORE}(?:${levelWords})\\+?${NOT_LETTER_AFTER}`, "giu");
+    let cleaned = raw
+      .replace(reIntern, " ")
+      .replace(reLevel, " ")
+      .replace(/\(\s*\)/g, "")            // пустые скобки после чистки
+      .replace(/\s*\/\s*/g, " / ")
+      .replace(/\s+/g, " ")
+      .trim();
+    // обрезаем висящие слеши/тире в начале и конце
+    cleaned = cleaned
+      .replace(/^[/\-–—\s]+/, "")
+      .replace(/[/\-–—\s]+$/, "")
+      .trim();
+    return cleaned || raw;
+  };
+
+  // Упрощаем сложные тайтлы из AI до коротких запросов, которые
+  // агрегаторы реально понимают. AI любит формулировать роли как
+  // «Стажер / Junior Backend-разработчик (Go)» — rabota.by/hh.ru ищет
+  // это буквально и возвращает 0 результатов. Нам нужно: «Go»,
+  // «Frontend», «DevOps», «Python» — одно слово, по которому есть выдача.
+  //
+  // Логика:
+  //  1) Если в названии встречается известный технологический ключ —
+  //     возвращаем его (приоритет: язык → специализация → стек).
+  //  2) Если ничего не нашлось — берём первое значимое слово, очищая
+  //     служебные префиксы (Junior/Middle/Senior/Lead/Стажер...) и
+  //     суффиксы (-разработчик/Engineer/Developer).
+  const simplifyRoleQuery = (raw: string): string => {
+    const text = raw.toLowerCase();
+    const TECH_KEYS: Array<[string, string]> = [
+      // языки
+      ["go", "Go"], ["golang", "Go"],
+      ["python", "Python"], ["java ", "Java"], ["javascript", "JavaScript"],
+      ["typescript", "TypeScript"], ["kotlin", "Kotlin"], ["swift", "Swift"],
+      ["rust", "Rust"], ["scala", "Scala"], ["ruby", "Ruby"], ["php", "PHP"],
+      ["c++", "C++"], ["c#", "C#"], [".net", ".NET"],
+      // специализации
+      ["frontend", "Frontend"], ["front-end", "Frontend"], ["фронт", "Frontend"],
+      ["backend", "Backend"], ["back-end", "Backend"], ["бэк", "Backend"],
+      ["fullstack", "Fullstack"], ["full-stack", "Fullstack"],
+      ["devops", "DevOps"], ["sre", "SRE"], ["platform", "Platform Engineer"],
+      ["mobile", "Mobile"], ["android", "Android"], ["ios", "iOS"],
+      ["data engineer", "Data Engineer"], ["data scientist", "Data Scientist"],
+      ["data analyst", "Data Analyst"], ["machine learning", "Machine Learning"],
+      ["ml engineer", "ML Engineer"],
+      ["qa", "QA"], ["тестировщик", "QA"],
+      ["product manager", "Product Manager"], ["project manager", "Project Manager"],
+      ["designer", "Designer"], ["дизайнер", "Дизайнер"],
+      ["security", "Security Engineer"], ["безопасн", "Security"],
+      // популярные стеки
+      ["react", "React"], ["vue", "Vue"], ["angular", "Angular"],
+      ["node.js", "Node.js"], ["nodejs", "Node.js"],
+      ["spring", "Java"],
+    ];
+    for (const [needle, label] of TECH_KEYS) {
+      if (text.includes(needle)) return label;
+    }
+    // Фолбэк: берём первое значимое слово, чистим префиксы.
+    // ВАЖНО: JS \b не работает с кириллицей — используем
+    // Unicode lookarounds через \p{L} с флагом `u`.
+    const seniorRe = /(?<![\p{L}\d])(junior|middle|senior|lead|staff|principal|стажёр|стажер|младший|старший|ведущий)\+?(?![\p{L}\d])/giu;
+    const roleSuffixRe = /(?<![\p{L}\d])(разработчик|инженер|developer|engineer|programmer)(?![\p{L}\d])/giu;
+    const stripped = raw
+      .replace(/[()\[\]/,]/g, " ")
+      .replace(seniorRe, " ")
+      .replace(roleSuffixRe, " ")
+      .trim();
+    const first = stripped.split(/\s+/)[0] || raw.split(/\s+/)[0] || raw;
+    return first.trim() || raw;
+  };
+
+  // Карточки-«пробросы» в поиск агрегатора — собираем из AI-рекомендаций
+  // (recommended_positions[].role) плюс топ-скиллов резюме. Никаких
+  // сетевых запросов: каждая карточка — это просто
+  // https://<source>/search/vacancy?text=<query>&experience=<bucket>.
+  const vacancyShortcuts = useMemo(() => {
+    if (!result) {
+      return [] as Array<{ id: string; title: string; subtitle?: string; query: string; tags?: string[] }>;
+    }
+    const seenQueries = new Set<string>();
+    const tops: Array<{ id: string; title: string; subtitle?: string; query: string; tags?: string[] }> = [];
+    (result.ai_insights.recommended_positions || [])
+      .filter((p) => p.role.trim())
+      .slice(0, 5)
+      .forEach((p, i) => {
+        const query = simplifyRoleQuery(p.role);
+        const key = query.toLowerCase();
+        if (seenQueries.has(key)) return;
+        seenQueries.add(key);
+        tops.push({
+          id: `role-${i}`,
+          title: cleanRoleTitle(p.role),
+          subtitle: p.rationale?.slice(0, 140),
+          query,
+          tags: (result.extracted_skills || []).slice(0, 3),
+        });
+      });
+    // Плюс карточки «по топ-скиллам» — для прямого поиска по стеку.
+    const skillsTop = (result.extracted_skills || []).slice(0, 4);
+    skillsTop.forEach((skill, i) => {
+      const key = skill.toLowerCase();
+      if (seenQueries.has(key)) return;
+      seenQueries.add(key);
+      tops.push({
+        id: `skill-${i}`,
+        title: `Поиск по навыку: ${skill}`,
+        subtitle: `Все вакансии, где упомянут ${skill}`,
+        query: skill,
+        tags: skillsTop.filter((s) => s !== skill).slice(0, 2),
+      });
+    });
+    return tops.slice(0, 6);
+  }, [result]);
+
+  const buildVacancyURL = (query: string, source: "rabota" | "hh") => {
+    const domain = source === "rabota" ? "rabota.by" : "hh.ru";
+    const params = new URLSearchParams();
+    params.set("text", query);
+    params.set("order_by", "relevance");
+    return `https://${domain}/search/vacancy?${params.toString()}`;
   };
 
   const goToInterviewTrack = (role: string, mode: string, level: string, durationMinutes: number) => {
@@ -155,9 +241,10 @@ export default function ResumePage() {
   }, [result]);
 
   const langs = useMemo(() => {
-    // Allowlist of actual programming languages. The LLM occasionally
-    // returns spoken languages ("русский", "английский") in
-    // language_insights — those must not appear here.
+    // Список реальных языков программирования. Используется и для
+    // фильтрации (отсеять «русский»/«английский», которые LLM иногда
+    // подкидывает), и для извлечения языков из произвольного списка
+    // скиллов как последний fallback.
     const PROG_LANGS = new Set([
       "go", "golang", "python", "py", "typescript", "ts", "javascript", "js",
       "java", "kotlin", "swift", "rust", "ruby", "rb", "php", "scala", "c",
@@ -169,8 +256,10 @@ export default function ResumePage() {
       "fortran", "cobol", "ada", "lisp", "scheme", "racket", "prolog",
       "assembly", "asm", "wasm", "webassembly", "verilog", "vhdl",
     ]);
+    const normKey = (raw: string) =>
+      raw.trim().toLowerCase().replace(/[\s_.]/g, "");
     const isProg = (raw: string) => {
-      const k = raw.trim().toLowerCase().replace(/[\s_.]/g, "");
+      const k = normKey(raw);
       return PROG_LANGS.has(k) || PROG_LANGS.has(k.replace(/script$/, ""));
     };
 
@@ -181,18 +270,58 @@ export default function ResumePage() {
         { name: "Python", conf: 54 },
       ];
     }
+
+    // 1) AI language_insights — лучший источник: с confidence и evidence.
     const fromInsights = (result.ai_insights.language_insights || [])
       .filter((item) => item.language.trim() && isProg(item.language))
       .map((item) => ({ name: item.language.trim(), conf: item.confidence }))
       .slice(0, 5);
     if (fromInsights.length) return fromInsights;
-    return (result.charts.language_distribution || [])
+
+    // 2) Regex-распределение, посчитанное Go-сервисом.
+    const fromChart = (result.charts.language_distribution || [])
       .filter((item) => item.label.trim() && isProg(item.label))
-      .map((item, i) => ({ name: item.label.trim(), conf: Math.max(50, 76 - i * 7) }))
+      .map((item, i) => ({
+        name: item.label.trim(),
+        conf: Math.max(50, 76 - i * 7),
+      }))
       .slice(0, 5);
+    if (fromChart.length) return fromChart;
+
+    // 3) Pool из всех мест где могут быть упомянуты языки: extracted_skills,
+    // primary_skills интервью-треков, focus_areas. Раньше тут возвращалось
+    // [] и блок показывал «не найдено» — теперь хотя бы что-то.
+    const pool: string[] = [
+      ...(result.extracted_skills || []),
+      ...((result.ai_insights.interview_tracks || []).flatMap(
+        (t) => t.primary_skills || [],
+      )),
+      ...((result.ai_insights.interview_tracks || []).flatMap(
+        (t) => t.focus_areas || [],
+      )),
+    ];
+    const seen = new Set<string>();
+    const fromPool: { name: string; conf: number }[] = [];
+    for (const raw of pool) {
+      if (!raw || !isProg(raw)) continue;
+      const key = normKey(raw);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      fromPool.push({ name: raw.trim(), conf: Math.max(50, 78 - fromPool.length * 8) });
+      if (fromPool.length >= 5) break;
+    }
+    if (fromPool.length) return fromPool;
+
+    // 4) Последний фолбэк — общая инженерная база. Никогда не возвращаем
+    // пусто: пользователь хотя бы видит, какие категории платформа
+    // покрывает в принципе.
+    return [
+      { name: "Общая инженерия", conf: 55 },
+    ];
   }, [result]);
 
   const skills = useMemo(() => {
+    // Демо-набор пока отчёта нет вовсе.
     const placeholder = [
       { name: "System design", v: 88 },
       { name: "PostgreSQL", v: 84 },
@@ -203,30 +332,62 @@ export default function ResumePage() {
     ];
     if (!result) return placeholder;
 
+    // 1) Regex-распределение из interview-service (даёт количество
+    //    упоминаний на категорию).
     const items = (result.charts.skills_distribution || []).filter(
       (i) => i.label.trim() && i.value > 0,
     );
-    // Need at least 3 distinct skills to render a meaningful coverage view.
-    // A single skill always gets normalised to 100% which looks broken.
-    if (items.length < 3) return placeholder;
-
-    const sorted = [...items].sort((a, b) => b.value - a.value).slice(0, 8);
-    const max = Math.max(...sorted.map((i) => i.value));
-    const min = Math.min(...sorted.map((i) => i.value));
-
-    // Backend reports raw mention counts (e.g. SQL=8, Docker=1, Go=1).
-    // Using them as percentages directly produces an unreadable chart
-    // with one tiny "8%" bar and a bunch of "1%" slivers. Instead, map
-    // each skill to a 55–95% bar so the leader visibly dominates and
-    // lesser skills still look like real coverage, not background noise.
-    if (max === min) {
-      return sorted.map((s) => ({ name: s.label, v: 75 }));
+    if (items.length > 0) {
+      const sorted = [...items].sort((a, b) => b.value - a.value).slice(0, 8);
+      const max = Math.max(...sorted.map((i) => i.value));
+      const min = Math.min(...sorted.map((i) => i.value));
+      if (max === min) {
+        return sorted.map((s) => ({ name: s.label, v: 80 }));
+      }
+      const span = max - min;
+      return sorted.map((s) => ({
+        name: s.label,
+        v: 55 + Math.round(((s.value - min) / span) * 40),
+      }));
     }
-    const span = max - min;
-    return sorted.map((s) => ({
-      name: s.label,
-      v: 55 + Math.round(((s.value - min) / span) * 40),
-    }));
+
+    // 2) AI-источник: собираем primary_skills + focus_areas из всех
+    //    interview_tracks, дедуплицируем, мапим в 60–88%.
+    const aiPool: string[] = [
+      ...((result.ai_insights.interview_tracks || []).flatMap(
+        (t) => t.primary_skills || [],
+      )),
+      ...((result.ai_insights.interview_tracks || []).flatMap(
+        (t) => t.focus_areas || [],
+      )),
+      ...(result.extracted_skills || []),
+    ];
+    const seen = new Set<string>();
+    const collected: string[] = [];
+    for (const raw of aiPool) {
+      const v = (raw || "").trim();
+      if (!v) continue;
+      const key = v.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      collected.push(v);
+      if (collected.length >= 6) break;
+    }
+    if (collected.length > 0) {
+      return collected.map((name, i) => ({
+        name,
+        v: Math.max(55, 88 - i * 5),
+      }));
+    }
+
+    // 3) Полный fallback — общие инженерные категории. Никогда не
+    //    оставляем блок пустым: лучше показать честную базу, чем дыру.
+    return [
+      { name: "Алгоритмы и структуры", v: 70 },
+      { name: "Системный дизайн", v: 65 },
+      { name: "Командная работа", v: 75 },
+      { name: "Коммуникация", v: 72 },
+    ];
   }, [result]);
 
   const plan = useMemo(() => {
@@ -335,21 +496,15 @@ export default function ResumePage() {
               <h2 style={{ fontSize: 28 }}>Языки программирования</h2>
               <span className="eyebrow">по релевантности</span>
             </header>
-            {langs.length === 0 ? (
-              <p className="muted" style={{ fontSize: 14 }}>
-                В резюме не найдено упоминаний языков программирования.
-              </p>
-            ) : (
-              <div className="lang-grid">
-                {langs.map((l) => (
-                  <div className="lang-item" key={l.name} onClick={() => navigate("/interview")}>
-                    <strong>{l.name}</strong>
-                    <span className="conf mono">уверенность {l.conf}%</span>
-                    <span className="muted" style={{ fontSize: 12, marginTop: 4 }}>Интервью по {l.name} →</span>
-                  </div>
-                ))}
-              </div>
-            )}
+            <div className="lang-grid">
+              {langs.map((l) => (
+                <div className="lang-item" key={l.name} onClick={() => navigate("/interview")}>
+                  <strong>{l.name}</strong>
+                  <span className="conf mono">уверенность {l.conf}%</span>
+                  <span className="muted" style={{ fontSize: 12, marginTop: 4 }}>Интервью по {l.name} →</span>
+                </div>
+              ))}
+            </div>
           </section>
 
           <section>
@@ -380,142 +535,103 @@ export default function ResumePage() {
           <section>
             <header className="dash-section-head" style={{ gap: 16, flexWrap: "wrap" }}>
               <h2 style={{ fontSize: 28 }}>
-                Подходящие вакансии{" "}
+                Подбор вакансий{" "}
                 <span className="mono" style={{ fontSize: 12, color: "var(--muted)", letterSpacing: "0.06em" }}>
-                  · rabota.by
+                  · {vacancySource === "rabota" ? "rabota.by" : "hh.ru"}
                 </span>
               </h2>
-              <div className="row" style={{ gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-                {vacancies?.query ? (
-                  <span className="mono" style={{ fontSize: 11, color: "var(--muted)" }}>
-                    запрос: «{vacancies.query}»
-                  </span>
-                ) : null}
-                <div style={{ display: "grid", gap: 6 }}>
-                  <div className="segmented" style={{ fontSize: 11, flexWrap: "wrap" }}>
-                    {[
-                      { v: "1002", label: "Минск" },
-                      { v: "1007", label: "Брест" },
-                      { v: "1005", label: "Витебск" },
-                      { v: "1003", label: "Гомель" },
-                      { v: "1006", label: "Гродно" },
-                      { v: "1004", label: "Могилёв" },
-                      { v: "16", label: "Вся Беларусь" },
-                    ].map((opt) => (
-                      <button
-                        key={opt.v}
-                        type="button"
-                        className={vacancyArea === opt.v ? "is-active" : ""}
-                        onClick={() => setVacancyArea(opt.v)}
-                      >
-                        {opt.label}
-                      </button>
-                    ))}
-                  </div>
-                  <div className="segmented" style={{ fontSize: 11 }}>
-                    {[
-                      { v: "world", label: "Все страны" },
-                    ].map((opt) => (
-                      <button
-                        key={opt.v}
-                        type="button"
-                        className={vacancyArea === opt.v ? "is-active" : ""}
-                        onClick={() => setVacancyArea(opt.v)}
-                      >
-                        {opt.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
+              <div className="segmented" style={{ fontSize: 11, flexWrap: "wrap" }}>
+                {[
+                  { v: "rabota" as const, label: "rabota.by", hint: "🇧🇾 Беларусь" },
+                  { v: "hh" as const, label: "hh.ru", hint: "🌍 Международный" },
+                ].map((opt) => (
+                  <button
+                    key={opt.v}
+                    type="button"
+                    className={vacancySource === opt.v ? "is-active" : ""}
+                    onClick={() => setVacancySource(opt.v)}
+                    title={opt.hint}
+                  >
+                    {opt.label}
+                    <span className="mono" style={{ marginLeft: 6, fontSize: 9, opacity: 0.7 }}>
+                      {opt.hint}
+                    </span>
+                  </button>
+                ))}
               </div>
             </header>
 
-            {vacanciesLoading ? (
-              <p className="muted" style={{ fontSize: 14 }}>Подбираем вакансии по навыкам из резюме…</p>
-            ) : vacanciesError ? (
-              <p className="mono" style={{
-                fontSize: 12, padding: "10px 12px", borderRadius: "var(--r-1)",
-                background: "oklch(0.93 0.08 25)", color: "oklch(0.30 0.14 25)",
-                border: "1px solid oklch(0.80 0.14 25)",
-              }}>
-                {vacanciesError}
-              </p>
-            ) : !vacancies || vacancies.items.length === 0 ? (
+            <p className="muted" style={{ fontSize: 13, marginBottom: 14 }}>
+              Карточки ниже открывают{" "}
+              <strong>{vacancySource === "rabota" ? "rabota.by" : "hh.ru"}</strong>
+              {" "}с подготовленным запросом — кликаешь и сразу видишь живую
+              выдачу с актуальными вакансиями.
+              {" "}<span className="muted">rabota.by — белорусский агрегатор, hh.ru — международный.</span>
+            </p>
+
+            {vacancyShortcuts.length === 0 ? (
               <p className="muted" style={{ fontSize: 14 }}>
-                По текущему резюме и региону вакансий не найдено. Попробуйте другой регион.
+                После загрузки и анализа резюме здесь появятся карточки с
+                AI-подобранными ролями и быстрыми ссылками на поиск.
               </p>
             ) : (
-              <>
-                <div className="row-between mono" style={{ fontSize: 11, color: "var(--muted)", marginBottom: 10, letterSpacing: "0.06em" }}>
-                  <span>Найдено в общей выдаче: {vacancies.total.toLocaleString("ru-RU")}</span>
-                  <span>Показываем топ-{vacancies.items.length}</span>
-                </div>
-                <div style={{ display: "grid", gap: 10 }}>
-                  {vacancies.items.map((v) => {
-                    const salary = formatSalary(v);
-                    return (
-                      <a
-                        key={v.id}
-                        href={v.url}
-                        target="_blank"
-                        rel="noreferrer"
-                        style={{
-                          display: "grid",
-                          gridTemplateColumns: "1fr auto",
-                          gap: 14,
-                          padding: "14px 16px",
-                          border: "1px solid var(--line)",
-                          borderRadius: "var(--r-2)",
-                          background: "var(--paper)",
-                          textDecoration: "none",
-                          color: "var(--ink)",
-                          transition: "border-color 180ms ease, transform 180ms ease",
-                        }}
-                        onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.borderColor = "var(--ink)"; }}
-                        onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.borderColor = "var(--line)"; }}
-                      >
-                        <div style={{ minWidth: 0 }}>
-                          <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
-                            <strong style={{ fontSize: 15, lineHeight: 1.3 }}>{v.name}</strong>
-                            {v.relevance_score ? (
-                              <span className="mono" style={{ fontSize: 10, color: "var(--accent-ink, var(--ink))" }}>
-                                {Math.round(v.relevance_score * 100)}% match
-                              </span>
-                            ) : null}
-                          </div>
-                          <div className="muted" style={{ fontSize: 13, marginTop: 4 }}>
-                            {[v.employer, v.area].filter(Boolean).join(" · ")}
-                          </div>
-                          {v.snippet ? (
-                            <div className="muted" style={{ fontSize: 12, marginTop: 6, lineHeight: 1.5, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}
-                              dangerouslySetInnerHTML={{ __html: v.snippet }}
-                            />
-                          ) : null}
-                          <div className="row mono" style={{ marginTop: 8, gap: 6, flexWrap: "wrap", fontSize: 10 }}>
-                            {v.experience ? <span className="tag">{v.experience}</span> : null}
-                            {v.schedule ? <span className="tag">{v.schedule}</span> : null}
-                            {v.employment ? <span className="tag">{v.employment}</span> : null}
-                          </div>
+              <div style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))" }}>
+                {vacancyShortcuts.map((card) => {
+                  const url = buildVacancyURL(card.query, vacancySource);
+                  return (
+                    <a
+                      key={card.id}
+                      href={url}
+                      target="_blank"
+                      rel="noreferrer"
+                      style={{
+                        display: "grid",
+                        gap: 10,
+                        padding: "16px 18px",
+                        border: "1px solid var(--line)",
+                        borderRadius: "var(--r-2)",
+                        background: "var(--paper)",
+                        textDecoration: "none",
+                        color: "var(--ink)",
+                        transition: "border-color 180ms ease, transform 180ms ease, background 180ms ease",
+                      }}
+                      onMouseEnter={(e) => {
+                        (e.currentTarget as HTMLAnchorElement).style.borderColor = "var(--ink)";
+                        (e.currentTarget as HTMLAnchorElement).style.transform = "translateY(-2px)";
+                      }}
+                      onMouseLeave={(e) => {
+                        (e.currentTarget as HTMLAnchorElement).style.borderColor = "var(--line)";
+                        (e.currentTarget as HTMLAnchorElement).style.transform = "translateY(0)";
+                      }}
+                    >
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+                        <strong style={{ fontSize: 16, lineHeight: 1.3 }}>{card.title}</strong>
+                        <span className="mono" style={{ fontSize: 10, color: "var(--muted)", whiteSpace: "nowrap" }}>↗</span>
+                      </div>
+                      {card.subtitle ? (
+                        <p className="muted" style={{ fontSize: 12, lineHeight: 1.5, margin: 0, display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
+                          {card.subtitle}
+                        </p>
+                      ) : null}
+                      {card.tags && card.tags.length > 0 ? (
+                        <div className="row mono" style={{ gap: 6, flexWrap: "wrap", fontSize: 10 }}>
+                          {card.tags.map((t) => <span key={t} className="tag">{t}</span>)}
                         </div>
-                        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", justifyContent: "space-between", gap: 8 }}>
-                          {salary ? (
-                            <strong className="mono" style={{ fontSize: 13, whiteSpace: "nowrap", color: "var(--accent-ink, var(--ink))" }}>
-                              {salary}
-                            </strong>
-                          ) : (
-                            <span className="mono muted" style={{ fontSize: 10 }}>з/п не указана</span>
-                          )}
-                          <span className="mono" style={{ fontSize: 11, color: "var(--ink)" }}>Открыть ↗</span>
-                        </div>
-                      </a>
-                    );
-                  })}
-                </div>
-                <div className="mono" style={{ fontSize: 10, color: "var(--muted)", marginTop: 10, letterSpacing: "0.04em" }}>
-                  Источник: rabota.by · публичный поисковый API api.hh.ru (без OAuth, без приложения) · кеш 1 час
-                </div>
-              </>
+                      ) : null}
+                      <span className="mono" style={{ fontSize: 11, color: "var(--ink)", marginTop: 4 }}>
+                        Поиск: «{card.query}» · {vacancySource === "rabota" ? "rabota.by" : "hh.ru"} →
+                      </span>
+                    </a>
+                  );
+                })}
+              </div>
             )}
+
+            <div className="mono" style={{ fontSize: 10, color: "var(--muted)", marginTop: 14, letterSpacing: "0.04em" }}>
+              Поиск формируется на стороне агрегатора, без обращения к их API.
+              Фильтры опыта/уровня настраиваются вручную в интерфейсе выбранного
+              сайта.
+            </div>
           </section>
 
           {result?.ai_insights.interview_tracks?.length ? (

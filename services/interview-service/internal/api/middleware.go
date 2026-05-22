@@ -17,11 +17,16 @@ type contextKey string
 const (
 	ContextKeyUserID contextKey = "user_id"
 	ContextKeyRole   contextKey = "role"
+	contextKeyTier   contextKey = "subscription_tier"
 )
 
 type Claims struct {
 	UserID string `json:"user_id"`
 	Role   string `json:"role"`
+	// SubscriptionTier — задаётся user-service'ом при выдаче JWT, либо
+	// синхронизируется через api-gateway. Используется quota-helper'ом
+	// для определения лимитов. Пустое значение трактуется как trial.
+	SubscriptionTier string `json:"tier,omitempty"`
 	jwt.RegisteredClaims
 }
 
@@ -141,6 +146,14 @@ func (m *AuthMiddleware) Authenticate(next http.Handler) http.Handler {
 		// Add claims to context
 		ctx := context.WithValue(r.Context(), ContextKeyUserID, claims.UserID)
 		ctx = context.WithValue(ctx, ContextKeyRole, claims.Role)
+		// Тариф: JWT claim приоритетнее. Если его нет — пробуем
+		// заголовок X-Subscription-Tier (api-gateway может его
+		// проставлять, обогащая запрос данными из admin-service).
+		tier := claims.SubscriptionTier
+		if strings.TrimSpace(tier) == "" {
+			tier = strings.TrimSpace(r.Header.Get("X-Subscription-Tier"))
+		}
+		ctx = context.WithValue(ctx, contextKeyTier, tier)
 
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})

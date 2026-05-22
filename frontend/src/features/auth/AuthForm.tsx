@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 
 import { useAuthStore } from "@/app/store";
+import OAuthButtons from "@/components/auth/OAuthButtons";
 import { useTranslation } from "@/shared/i18n";
 import { useToast } from "@/shared/ui";
 
@@ -185,6 +186,13 @@ export function AuthForm() {
           Нажимая кнопку, вы соглашаетесь с условиями использования RealSync.
         </p>
       </form>
+
+      {/* OAuth-провайдеры. Кнопка инициирует редирект на бэк, который в
+          свою очередь редиректит на Google/GitHub. По окончании
+          callback бэк возвращает пользователя на /auth с токенами в URL. */}
+      <div style={{ marginTop: 22 }}>
+        <OAuthButtons providers={["Google", "GitHub"]} />
+      </div>
     </section>
   );
 }

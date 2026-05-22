@@ -86,9 +86,16 @@ func (r *Router) setupRoutes() {
 	answers := protected.PathPrefix("/answers").Subrouter()
 	answers.HandleFunc("/{session_id}/submit", r.handler.SubmitAnswer).Methods(http.MethodPost)
 
+	// Subscription quota — фронту нужно показывать «осталось N интервью».
+	quota := protected.PathPrefix("/quota").Subrouter()
+	quota.HandleFunc("/me", r.handler.GetMyQuota).Methods(http.MethodGet)
+
 	// GitHub profile analytics routes
 	github := protected.PathPrefix("/github").Subrouter()
 	github.HandleFunc("/import", r.handler.ImportGitHubProfile).Methods(http.MethodPost)
+	// Кешированный профиль из БД — пользователь видит свои данные сразу,
+	// без re-fetch'а в GitHub API. Заполняется при /github/import.
+	github.HandleFunc("/profile/me", r.handler.GetCachedGitHubProfile).Methods(http.MethodGet)
 
 	// Resume import analytics routes
 	resume := protected.PathPrefix("/resume").Subrouter()
@@ -103,6 +110,7 @@ func (r *Router) setupRoutes() {
 	legacyProtected.Use(r.authMiddleware.Authenticate)
 	legacyGithub := legacyProtected.PathPrefix("/github").Subrouter()
 	legacyGithub.HandleFunc("/import", r.handler.ImportGitHubProfile).Methods(http.MethodPost)
+	legacyGithub.HandleFunc("/profile/me", r.handler.GetCachedGitHubProfile).Methods(http.MethodGet)
 	legacyResume := legacyProtected.PathPrefix("/resume").Subrouter()
 	legacyResume.HandleFunc("/import", r.handler.ImportResumeProfile).Methods(http.MethodPost)
 	legacyResume.HandleFunc("/history", r.handler.GetResumeImportHistory).Methods(http.MethodGet)

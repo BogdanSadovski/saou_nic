@@ -7,36 +7,129 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"strconv"
 	"os"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/sirupsen/logrus"
 )
 
-// HH.ru public Vacancies Search API.
+// HH.ru Vacancies Search API (official OAuth integration).
 //
-// Endpoint: GET https://api.hh.ru/vacancies
-// Docs:    https://api.hh.ru/openapi/redoc#tag/Poisk-vakansij/operation/get-vacancies
+// Endpoint:    GET https://api.hh.ru/vacancies
+// Token URL:   POST https://api.hh.ru/token  (client_credentials grant)
+// Docs:        https://api.hh.ru/openapi/redoc#tag/Poisk-vakansij
+//              https://github.com/hhru/api/blob/master/docs/authorization.md
 //
-// Key points:
-//   - Public read-only — no API key required for vacancy search
-//   - User-Agent header is mandatory; HH bans empty / browser UAs.
-//     Must be of the form "AppName/Version (contact-email)"
-//   - Rate limit: documented as "reasonable", typically ~30 RPS for an
-//     anonymous client. We cache results in Redis for an hour per query
-//     fingerprint, so user-facing requests rarely hit HH directly.
-//   - Area IDs: 16=Беларусь · 113=Россия · 1=Москва · 2=СПб ·
-//     omit param for worldwide.
+// Раньше работали анонимно (только User-Agent с e-mail) — публичный
+// эндпоинт это позволяет, но HH-антибот периодически режет такие
+// запросы по IP (особенно в Docker-средах с общим egress). Теперь
+// ходим через зарегистрированное приложение из https://dev.hh.ru/admin:
+//
+//   HH_CLIENT_ID / HH_CLIENT_SECRET — выдаются при регистрации.
+//     При наличии обоих сервис сам получает access_token по схеме
+//     client_credentials и обновляет его за минуту до истечения.
+//   HH_ACCESS_TOKEN — можно прокинуть готовый токен вручную (например,
+//     долгоживущий «приложенческий» токен).  В этом случае автообмен
+//     по client_credentials не выполняется.
+//   HH_API_USER_AGENT — по-прежнему обязателен; HH требует e-mail
+//     контактного лица в формате "AppName/Version (email)".
+//
+// Area IDs: 16=Беларусь · 113=Россия · 1=Москва · 2=СПб ·
+// 1002=Минск · 1003=Гомель · 1004=Могилёв · 1005=Витебск ·
+// 1006=Гродно · 1007=Брест.  Omit param for worldwide.
 
 const (
 	hhAPIBase       = "https://api.hh.ru/vacancies"
+	hhTokenURL      = "https://api.hh.ru/token"
 	hhCacheTTL      = time.Hour
 	hhDefaultArea   = "1002" // Минск — где сосредоточено ≥70% IT-вакансий Беларуси.
 	hhRequestPerPag = 12
 )
+
+// ----------------- OAuth client_credentials token cache -----------------
+//
+// HH-токен на client_credentials живёт обычно 14 дней, но мы не
+// полагаемся на это — храним `expires_at` из ответа и обновляем за
+// минуту до конца.  Кеш — process-local; при рестарте контейнера
+// получаем токен заново (одна лишняя HTTP-операция за деплой).
+
+type hhTokenCache struct {
+	mu        sync.Mutex
+	token     string
+	expiresAt time.Time
+}
+
+var hhToken hhTokenCache
+
+type hhTokenResponse struct {
+	AccessToken string `json:"access_token"`
+	TokenType   string `json:"token_type"`
+	ExpiresIn   int    `json:"expires_in"`
+}
+
+// fetchHHAccessToken — получает application-токен по client_credentials.
+// Безопасен к параллельным вызовам: внутренний mutex сериализует
+// обновления.  Если HH_ACCESS_TOKEN задан явно — используется он
+// и сетевой обмен пропускается.
+func fetchHHAccessToken(ctx context.Context, userAgent string) (string, error) {
+	if manual := strings.TrimSpace(os.Getenv("HH_ACCESS_TOKEN")); manual != "" {
+		return manual, nil
+	}
+	clientID := strings.TrimSpace(os.Getenv("HH_CLIENT_ID"))
+	clientSecret := strings.TrimSpace(os.Getenv("HH_CLIENT_SECRET"))
+	if clientID == "" || clientSecret == "" {
+		return "", nil // OAuth выключен — пойдём анонимно (только UA).
+	}
+
+	hhToken.mu.Lock()
+	defer hhToken.mu.Unlock()
+	if hhToken.token != "" && time.Until(hhToken.expiresAt) > time.Minute {
+		return hhToken.token, nil
+	}
+
+	form := url.Values{}
+	form.Set("grant_type", "client_credentials")
+	form.Set("client_id", clientID)
+	form.Set("client_secret", clientSecret)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, hhTokenURL,
+		strings.NewReader(form.Encode()))
+	if err != nil {
+		return "", fmt.Errorf("hh-token: build: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("User-Agent", userAgent)
+
+	client := &http.Client{Timeout: 8 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("hh-token: do: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+		return "", fmt.Errorf("hh-token: status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var tr hhTokenResponse
+	if err := json.NewDecoder(resp.Body).Decode(&tr); err != nil {
+		return "", fmt.Errorf("hh-token: decode: %w", err)
+	}
+	if tr.AccessToken == "" {
+		return "", fmt.Errorf("hh-token: empty access_token")
+	}
+	hhToken.token = tr.AccessToken
+	ttl := time.Duration(tr.ExpiresIn) * time.Second
+	if ttl <= 0 {
+		ttl = 14 * 24 * time.Hour // дефолт по докам HH
+	}
+	hhToken.expiresAt = time.Now().Add(ttl)
+	return tr.AccessToken, nil
+}
 
 // HHVacancy is the trimmed-down vacancy shape we expose to the
 // frontend. Full HH.ru response has 40+ fields; we keep only what the
@@ -192,71 +285,52 @@ func (h *Handler) fetchHHVacancies(ctx context.Context, query, area string) (*HH
 	// HH-API правила User-Agent (docs hh.ru):
 	//   1. Должен быть установлен (без него 403);
 	//   2. Формат "AppName/Version (real-contact-email)";
-	//   3. Домен e-mail должен быть валидным — фейк-домены типа
-	//      "@realsync.local" HH-антибот режет.
-	// Делаем UA конфигурируемым через HH_API_USER_AGENT — на проде
-	// подставляется реальный email владельца сервиса.
-	userAgent := os.Getenv("HH_API_USER_AGENT")
-	if strings.TrimSpace(userAgent) == "" {
+	//   3. E-mail должен совпадать с тем, что указан при регистрации
+	//      приложения в https://dev.hh.ru/admin.
+	userAgent := strings.TrimSpace(os.Getenv("HH_API_USER_AGENT"))
+	if userAgent == "" {
 		userAgent = "RealSync-Interview-Platform/1.0 (realsync.platform+hh@gmail.com)"
 	}
 
-	// Retry на 403/5xx с экспоненциальным backoff. HH-rate-limiter
-	// часто выпускает «temporal» 403 — после паузы 2-3с запрос
-	// проходит. Полный 403 daily-cap тоже отрабатывает: после двух
-	// неудач возвращаем ошибку, чтобы фронт показал реальный код.
-	client := &http.Client{Timeout: 10 * time.Second}
-	var lastErr error
-	var resp *http.Response
-	backoff := []time.Duration{0, 1500 * time.Millisecond, 3500 * time.Millisecond}
-	for attempt, wait := range backoff {
-		if wait > 0 {
-			time.Sleep(wait)
-		}
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, fullURL, nil)
-		if err != nil {
-			return nil, fmt.Errorf("hh: build request: %w", err)
-		}
-		req.Header.Set("User-Agent", userAgent)
-		req.Header.Set("Accept", "application/json")
-		req.Header.Set("Accept-Language", "ru-BY,ru;q=0.9,en;q=0.5")
-		req.Header.Set("Accept-Encoding", "gzip, deflate, br")
-
-		resp, lastErr = client.Do(req)
-		if lastErr != nil {
-			continue
-		}
-		if resp.StatusCode < 400 {
-			break // успех
-		}
-		// 4xx (кроме 429) — детерминированная ошибка, retry не поможет.
-		if resp.StatusCode >= 400 && resp.StatusCode < 500 && resp.StatusCode != 429 && resp.StatusCode != 403 {
-			break
-		}
-		// 403/429/5xx — retry. Read и закрыть body чтобы Keep-Alive
-		// не зависал.
-		_, _ = io.Copy(io.Discard, resp.Body)
-		_ = resp.Body.Close()
-		resp = nil
-		if attempt == len(backoff)-1 {
-			lastErr = fmt.Errorf("hh: exhausted retries on transient errors")
-		}
+	// Получаем application-токен (cached). Если CLIENT_ID/SECRET не
+	// заданы — функция вернёт пустую строку и пойдём анонимно.
+	accessToken, tokErr := fetchHHAccessToken(ctx, userAgent)
+	if tokErr != nil {
+		h.logger.WithError(tokErr).Warn("hh: token fetch failed, falling back to anonymous mode")
 	}
-	if resp == nil {
-		if lastErr == nil {
-			lastErr = fmt.Errorf("hh: no response")
-		}
-		return nil, lastErr
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fullURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("hh: build request: %w", err)
+	}
+	req.Header.Set("User-Agent", userAgent)
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Accept-Language", "ru-BY,ru;q=0.9,en;q=0.5")
+	if accessToken != "" {
+		req.Header.Set("Authorization", "Bearer "+accessToken)
+	}
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("hh: do request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
-		// Cпециальная обработка 403: чаще всего значит «нужен
-		// валидный email-домен в UA» или «дневной лимит исчерпан».
 		hint := ""
-		if resp.StatusCode == 403 {
-			hint = " (выставьте HH_API_USER_AGENT с реальным e-mail или подождите ~1 час)"
+		switch resp.StatusCode {
+		case 401:
+			hint = " (HH_ACCESS_TOKEN истёк/невалиден — проверьте HH_CLIENT_ID/HH_CLIENT_SECRET в .env)"
+			// сбрасываем кеш, чтобы следующий запрос обновил токен
+			hhToken.mu.Lock()
+			hhToken.token = ""
+			hhToken.mu.Unlock()
+		case 403:
+			hint = " (приложение не зарегистрировано или e-mail в UA не совпадает с dev.hh.ru/admin)"
+		case 429:
+			hint = " (rate-limit; повторите через минуту)"
 		}
 		return nil, fmt.Errorf("hh: status %d%s: %s", resp.StatusCode, hint, string(body))
 	}

@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 
@@ -13,6 +14,10 @@ import (
 
 type UserService struct {
 	userRepo domain.UserRepository
+	// tgDB — ленивое database/sql соединение для лёгких таблиц
+	// (telegram_links), которые не маппятся в основной UserRepository.
+	// Открывается при первом вызове userDB() в telegram_link.go.
+	tgDB *sql.DB
 }
 
 func NewUserService(userRepo domain.UserRepository) *UserService {

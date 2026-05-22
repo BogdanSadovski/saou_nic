@@ -8,3 +8,7 @@ export { adminApi } from "./admin";
 export { billingApi } from "./billing";
 export type { BackendSubscription } from "./billing";
 export { githubApi } from "./github";
+export { quotaApi } from "./quota";
+export type { QuotaStatus, QuotaSnapshot } from "./quota";
+export { sandboxApi } from "./sandbox";
+export type { SandboxExecuteResponse, SandboxLanguageInfo } from "./sandbox";

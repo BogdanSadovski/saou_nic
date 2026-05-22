@@ -93,6 +93,10 @@ type dataPersistence interface {
 	GetScores(ctx context.Context, sessionID uuid.UUID) ([]*domain.InterviewerScore, error)
 	CalculateConsensus(ctx context.Context, sessionID uuid.UUID) (*domain.InterviewConsensus, error)
 	GetConsensus(ctx context.Context, sessionID uuid.UUID) (*domain.InterviewConsensus, error)
+	// GitHub profile cache (миграция 010_create_github_profile_cache).
+	UpsertGitHubProfile(ctx context.Context, userID uuid.UUID, username string, profileURL string, payload any) (*repository.GitHubProfileCacheEntry, error)
+	GetGitHubProfileForUser(ctx context.Context, userID uuid.UUID) (*repository.GitHubProfileCacheEntry, error)
+	GetGitHubProfileByUsername(ctx context.Context, userID uuid.UUID, username string) (*repository.GitHubProfileCacheEntry, error)
 }
 
 type codeExecutorClient interface {
@@ -538,18 +542,30 @@ type resumeExtractionResult struct {
 }
 
 var resumeSkillKeywords = map[string][]string{
-	"Go":         {"golang", " go ", "go/"},
-	"Python":     {"python", "django", "fastapi", "flask"},
-	"Java":       {"java", "spring", "kafka"},
-	"JavaScript": {"javascript", "node.js", "nodejs", "vue", "angular"},
-	"TypeScript": {"typescript", "ts-node", "nest"},
-	"React":      {"react", "redux", "next.js", "nextjs"},
-	"SQL":        {"sql", "postgres", "mysql", "sqlite"},
-	"Docker":     {"docker", "container", "compose"},
-	"Kubernetes": {"kubernetes", "k8s", "helm"},
-	"AWS":        {"aws", "s3", "ec2", "lambda", "eks"},
-	"CI/CD":      {"ci/cd", "gitlab ci", "github actions", "jenkins"},
-	"Testing":    {"testing", "pytest", "jest", "unit test", "integration test"},
+	"Go":               {"golang", "go/", "go,", "go.", "go и ", "go и\n", " go "},
+	"Python":           {"python", "django", "fastapi", "flask", "asyncio"},
+	"Java":             {"java", "spring", " jvm"},
+	"JavaScript":       {"javascript", "node.js", "nodejs", "vue", "angular"},
+	"TypeScript":       {"typescript", "ts-node", "nest"},
+	"React":            {"react", "redux", "next.js", "nextjs"},
+	"PostgreSQL":       {"postgres", "postgresql", "pgx", "pg-bouncer", "pgbouncer"},
+	"MySQL":            {"mysql", "mariadb"},
+	"Redis":            {"redis", "cache invalidation"},
+	"MongoDB":          {"mongo", "nosql"},
+	"SQL":              {"sql", "select ", "join ", "index "},
+	"Docker":           {"docker", "container", "compose"},
+	"Kubernetes":       {"kubernetes", "k8s", "helm", "kustomize"},
+	"AWS":              {"aws", " s3 ", "ec2", "lambda", "eks"},
+	"GCP":              {"gcp", "google cloud", "cloud run", "bigquery"},
+	"CI/CD":            {"ci/cd", "gitlab ci", "github actions", "jenkins", "argocd", "argo cd"},
+	"gRPC / HTTP":      {"grpc", "rest api", "http api", "protobuf", "openapi"},
+	"Kafka":            {"kafka", "consumer group", "rabbitmq", "amqp", "nats"},
+	"System design":    {"system design", "архитектур", "масштабир", "распределен", "distributed"},
+	"Distributed":      {"distributed", "consensus", "raft", "paxos", "saga", "sharding", "replication"},
+	"Observability":    {"prometheus", "grafana", "opentelemetry", "tracing", "jaeger", "loki", "datadog"},
+	"Testing":          {"unit test", "integration test", "e2e", "pytest", "jest", "testify", "tdd"},
+	"Performance":      {"p95", "p99", "latency", "throughput", "tps", "rps", "профилирован", "pprof", "оптимизирова"},
+	"Security":         {"oauth", "jwt", "auth0", "rbac", "csrf", "xss", "tls", "mtls"},
 }
 
 var programmingLanguagesOrder = []string{
@@ -687,7 +703,10 @@ func (h *Handler) requestInterviewQuestionFromAI(session *InterviewModuleSession
 	// returns in <1s but we keep the budget large for the worst
 	// provider — better than killing a valid call mid-flight and
 	// showing the user a 'AI not connected' fallback.
-	ctx, cancel := context.WithTimeout(context.Background(), 75*time.Second)
+	// DeepSeek для follow-up вопроса с полной историей диалога порой
+	// тратит 40–60 сек. 90 даём с запасом, чтобы не убить валидный
+	// генерационный запрос и не показать пользователю «AI не подключён».
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 
 	timeLeft := time.Until(session.ExpiresAt)
@@ -1051,6 +1070,11 @@ func (h *Handler) ImportGitHubProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Лимит подписки. trial = 1 импорт/мес, pro = 10/мес, platinum/team — безлимит.
+	if _, ok := h.enforceQuotaJSON(w, r, userID, resourceGitHub); !ok {
+		return
+	}
+
 	var req githubImportRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
@@ -1101,7 +1125,84 @@ func (h *Handler) ImportGitHubProfile(w http.ResponseWriter, r *http.Request) {
 	}
 	result.AIInsights = aiInsights
 
+	// Кешируем профиль в БД (миграция 010). На последующих заходах
+	// пользователь увидит данные сразу через GET /github/profile/me,
+	// без повторного хождения в GitHub API.
+	if h.repo != nil {
+		if uid, parseErr := uuid.Parse(userID); parseErr == nil {
+			if _, cacheErr := h.repo.UpsertGitHubProfile(r.Context(), uid, username, normalizedProfileURL, result); cacheErr != nil {
+				h.logger.WithError(cacheErr).Warn("github profile cache upsert failed (non-fatal)")
+			}
+		}
+	}
+
 	writeSuccess(w, http.StatusOK, result)
+}
+
+// GetMyQuota возвращает текущее использование лимитов подписки для
+// фронта (показываем в Profile/Billing «Осталось N интервью / N резюме»).
+func (h *Handler) GetMyQuota(w http.ResponseWriter, r *http.Request) {
+	userID := h.userIDFromContext(r.Context())
+	if userID == "anonymous" {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	tier := h.userTierFromContext(r.Context())
+	resources := []string{resourceInterview, resourceResume, resourceGitHub}
+	out := make(map[string]QuotaStatus, len(resources))
+	for _, res := range resources {
+		out[res] = h.checkQuota(r.Context(), userID, tier, res)
+	}
+	writeSuccess(w, http.StatusOK, map[string]any{
+		"tier":  tier,
+		"quota": out,
+	})
+}
+
+// GetCachedGitHubProfile возвращает сохранённый в БД анализ GitHub
+// профиля без обращения к внешнему API. Если пользователь ни разу не
+// импортировал — отдаём 404, фронт показывает кнопку «Подключить
+// GitHub». При желании клиент может передать ?refresh=true чтобы
+// форсировать re-fetch (логику обработки оставим за фронтом — он
+// просто вызовет POST /github/import).
+func (h *Handler) GetCachedGitHubProfile(w http.ResponseWriter, r *http.Request) {
+	userID := h.userIDFromContext(r.Context())
+	if userID == "anonymous" {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	if h.repo == nil {
+		writeError(w, http.StatusServiceUnavailable, "github cache unavailable")
+		return
+	}
+	uid, err := uuid.Parse(userID)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid user id")
+		return
+	}
+	entry, err := h.repo.GetGitHubProfileForUser(r.Context(), uid)
+	if err != nil {
+		h.logger.WithError(err).Warn("github profile cache read failed")
+		writeError(w, http.StatusInternalServerError, "failed to read github cache")
+		return
+	}
+	if entry == nil {
+		writeError(w, http.StatusNotFound, "github profile not imported yet")
+		return
+	}
+	var payload githubImportResponse
+	if err := entry.Decode(&payload); err != nil {
+		h.logger.WithError(err).Warn("github profile cache decode failed")
+		writeError(w, http.StatusInternalServerError, "corrupted github cache")
+		return
+	}
+	// Прокидываем мета о свежести кеша, чтобы фронт мог решить нужно
+	// ли предлагать «обновить» при показе старого слепка.
+	writeSuccess(w, http.StatusOK, map[string]any{
+		"profile":        payload,
+		"cached_at":      entry.LastSyncedAt,
+		"github_username": entry.GitHubUsername,
+	})
 }
 
 func parseGitHubUsername(raw string) (string, string, error) {
@@ -1359,7 +1460,11 @@ func (h *Handler) requestDeveloperInsights(ctx context.Context, profile *githubI
 		return githubAIInsights{}, err
 	}
 
-	aiCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	// DeepSeek-v4-flash отвечает 8–15 сек, а с двойным ретраем
+	// (json_schema → 400 → json_object со схемой в промпте) суммарно
+	// доходит до 18 сек. Ставим 45 с запасом, чтобы фронт не получал
+	// context-deadline и не падал в шаблонный fallback.
+	aiCtx, cancel := context.WithTimeout(ctx, 45*time.Second)
 	defer cancel()
 
 	endpoint := h.aiServiceURL + "/api/v1/developer/insights"
@@ -1567,6 +1672,11 @@ func (h *Handler) ImportResumeProfile(w http.ResponseWriter, r *http.Request) {
 	userID := h.userIDFromContext(r.Context())
 	if userID == "anonymous" {
 		writeError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+
+	// Лимит подписки. На trial — 3 анализа резюме в месяц; pro — безлимит.
+	if _, ok := h.enforceQuotaJSON(w, r, userID, resourceResume); !ok {
 		return
 	}
 
@@ -1828,19 +1938,23 @@ func detectResumeFormat(fileName, contentType string) (string, string, error) {
 	ext := strings.ToLower(strings.TrimSpace(filepath.Ext(fileName)))
 	ct := strings.ToLower(strings.TrimSpace(contentType))
 
+	// PDF убран из allowlist: парсер ledongthuc/pdf на современных
+	// резюме с кастомными шрифтами выдаёт обрывочный текст, и AI потом
+	// возвращает шаблонный ответ. До интеграции pdftotext/poppler
+	// принимаем только текстовые форматы.
 	allowed := map[string]struct{}{
-		".pdf":  {},
 		".docx": {},
 		".txt":  {},
 		".rtf":  {},
 	}
+	if ext == ".pdf" {
+		return "", "", fmt.Errorf("PDF временно не поддерживается — экспортируйте резюме в DOCX или TXT и попробуйте снова")
+	}
 	if _, ok := allowed[ext]; !ok {
-		return "", "", fmt.Errorf("неподдерживаемый формат файла: %s. Разрешены PDF, DOCX, TXT, RTF", ext)
+		return "", "", fmt.Errorf("неподдерживаемый формат файла: %s. Разрешены DOCX, TXT, RTF", ext)
 	}
 
 	switch {
-	case ext == ".pdf" || strings.Contains(ct, "application/pdf"):
-		return "pdf", "application/pdf", nil
 	case ext == ".docx" || strings.Contains(ct, "application/vnd.openxmlformats-officedocument.wordprocessingml.document"):
 		return "docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", nil
 	case ext == ".txt" || strings.Contains(ct, "text/plain"):
@@ -1989,17 +2103,53 @@ func extractSkillsAndLanguages(text string) ([]githubChartPoint, []githubChartPo
 		}
 	}
 
+	// Language detection: считаем все «word-boundary вхождения» имени
+	// языка. Раньше требовали пробел с двух сторон (" go ") — но в
+	// реальных резюме язык встречается как «Go/PostgreSQL», «Go и
+	// Python», «(Go, 4 года)», «Go.», «Go,». Используем regex с
+	// границами слов / небуквенных символов.
+	// Go RE2 не поддерживает negative lookahead `(?!...)`, поэтому
+	// «Java, но не JavaScript» исключаем вручную — ищем `\bjava\b` и
+	// отбрасываем матчи, после которых идёт «script».
+	langPatterns := map[string]*regexp.Regexp{
+		"Go":         regexp.MustCompile(`(?i)\bgo(lang)?\b`),
+		"Python":     regexp.MustCompile(`(?i)\bpython\b`),
+		"Java":       regexp.MustCompile(`(?i)\bjava\b`),
+		"JavaScript": regexp.MustCompile(`(?i)\b(java\s*script|js)\b`),
+		"TypeScript": regexp.MustCompile(`(?i)\b(type\s*script|ts)\b`),
+		"C#":         regexp.MustCompile(`(?i)\b(c\s*#|c\s*sharp)\b`),
+		"C++":        regexp.MustCompile(`(?i)\b(c\+\+|cpp)\b`),
+		"Rust":       regexp.MustCompile(`(?i)\brust\b`),
+		"Kotlin":     regexp.MustCompile(`(?i)\bkotlin\b`),
+		"Swift":      regexp.MustCompile(`(?i)\bswift\b`),
+		"PHP":        regexp.MustCompile(`(?i)\bphp\b`),
+		"Ruby":       regexp.MustCompile(`(?i)\bruby\b`),
+	}
 	for _, language := range programmingLanguagesOrder {
-		marker := strings.ToLower(language)
-		count := strings.Count(lowered, " "+marker+" ")
-		if language == "C#" {
-			count += strings.Count(lowered, " csharp ")
+		re, ok := langPatterns[language]
+		if !ok {
+			continue
 		}
-		if language == "C++" {
-			count += strings.Count(lowered, " cpp ")
+		matches := re.FindAllStringIndex(text, -1)
+		if language == "Java" {
+			// фильтруем "javascript" — смотрим что идёт после "java"
+			filtered := matches[:0]
+			for _, m := range matches {
+				tail := text[m[1]:]
+				if len(tail) >= 6 && strings.EqualFold(tail[:6], "script") {
+					continue
+				}
+				// допускаем пробел: "java script"
+				trimmed := strings.TrimLeft(tail, " \t")
+				if len(trimmed) >= 6 && strings.EqualFold(trimmed[:6], "script") {
+					continue
+				}
+				filtered = append(filtered, m)
+			}
+			matches = filtered
 		}
-		if count > 0 {
-			languageCounts[language] = count
+		if len(matches) > 0 {
+			languageCounts[language] = len(matches)
 		}
 	}
 
@@ -2111,7 +2261,10 @@ func (h *Handler) requestResumeInsights(
 		return resumeAIInsights{}, err
 	}
 
-	aiCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	// См. комментарий выше у developer/insights — DeepSeek с двойным
+	// ретраем и большим промптом стабильно укладывается в 15–18 сек.
+	// 10 сек гарантированно отдавали fallback. Ставим 45.
+	aiCtx, cancel := context.WithTimeout(ctx, 45*time.Second)
 	defer cancel()
 
 	endpoint := h.aiServiceURL + "/api/v1/resume/insights"
@@ -2655,6 +2808,11 @@ func (h *Handler) CreateInterviewModuleSession(w http.ResponseWriter, r *http.Re
 		return
 	}
 
+	// Лимит подписки. trial = 5 интервью/мес, pro = 30, platinum = ∞.
+	if _, ok := h.enforceQuotaJSON(w, r, userID, resourceInterview); !ok {
+		return
+	}
+
 	idempotencyKey := strings.TrimSpace(r.Header.Get("Idempotency-Key"))
 	if idempotencyKey != "" {
 		cacheKey := fmt.Sprintf("create:%s:%s", userID, idempotencyKey)
@@ -2997,7 +3155,17 @@ func (h *Handler) AddInterviewModuleMessage(w http.ResponseWriter, r *http.Reque
 		})
 	}
 
-	if remainingQuestions <= 1 || next.ShouldEnd {
+	// `questionsAsked` посчитан ДО того, как мы добавим только что
+	// сгенерированный `next` в сессию. Условие должно срабатывать
+	// только если после показа `next` ни одного вопроса больше не
+	// остаётся (т.е. он БЫЛ последним). Раньше использовался
+	// `<= 1` — это резало интервью на один вопрос раньше, чем
+	// положено: при `question_limit=3` пользователь успевал ответить
+	// только на 2 вопроса, потому что после второго ответа
+	// `remainingQuestions = 3 - 2 = 1` и сессия завершалась, не
+	// показывая третий. Меняем на `<= 0`: теперь Q3 успеет
+	// отрисоваться, а end-of-session случится после ответа на него.
+	if remainingQuestions <= 0 || next.ShouldEnd {
 		h.finishModuleSession(r.Context(), session, "Interview completed")
 		h.broadcastSessionEvent(session.SessionID, "session.finished", map[string]string{"reason": "limits reached"})
 		writeSuccess(w, http.StatusAccepted, map[string]interface{}{"accepted": true, "message_id": msg.MessageID, "session_finished": true})
@@ -3700,9 +3868,21 @@ func (h *Handler) requestNextQuestion(ctx context.Context, session *InterviewMod
 			h.applyAnswerSignalToResponse(out, session, answerSignal, intent, lastAnswer)
 
 			if h.isQuestionRepeated(requestCtx, session, out.Question) {
+				// Раньше здесь стоял `break` — мы фиксировали повтор,
+				// клали его в duplicateSeen, но из цикла выходили и
+				// возвращали ошибку. Из-за этого хэндлер падал в
+				// шаблонный fallback, который потом снова и снова мог
+				// сгенерить тот же вопрос (юзер видел зацикливание).
+				// Теперь — `continue`: добавляем дубликат в avoid и
+				// делаем второй заход. Если и он повторится — лимит
+				// итераций цикла закончится сам и сработает обычный
+				// `lastErr` путь.
 				duplicateSeen[out.Question] = struct{}{}
 				lastErr = fmt.Errorf("duplicate interviewer question")
-				break
+				if attempt < len(backoff)-1 {
+					time.Sleep(backoff[attempt])
+				}
+				continue
 			}
 
 			if out.Flags != nil && out.Flags["policy_violation"] {

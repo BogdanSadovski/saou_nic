@@ -187,6 +187,7 @@ func main() {
 	resumeProxy := makeProxy(mustURL(getEnv("RESUME_SERVICE_URL", "http://resume-service:8080")))
 	reportProxy := makeProxy(mustURL(getEnv("REPORT_SERVICE_URL", "http://report-service:8080")))
 	adminProxy := makeProxy(mustURL(getEnv("ADMIN_SERVICE_URL", "http://admin-service:8080")))
+	executorProxy := makeProxy(mustURL(getEnv("CODE_EXECUTOR_URL", "http://code-executor:8095")))
 	githubProxy := makeProxy(mustURL(getEnv("GITHUB_SERVICE_URL", "http://github-service:8082")))
 	aiProxy := makeProxy(mustURL(getEnv("AI_SERVICE_URL", "http://ai-service:8001")))
 	scoringProxy := makeProxy(mustURL(getEnv("SCORING_SERVICE_URL", "http://scoring-service:8080")))
@@ -207,6 +208,10 @@ func main() {
 
 	mux.Handle("/api/auth/", rewriteAndProxy(userProxy, addAPIV1))
 	mux.Handle("/api/users/", rewriteAndProxy(userProxy, addAPIV1))
+	// Telegram-интеграция (link-token, status, unlink) — живёт в user-service.
+	mux.Handle("/api/integrations/", rewriteAndProxy(userProxy, addAPIV1))
+	// Code sandbox — runner с одноразовыми контейнерами + sqlite.
+	mux.Handle("/api/sandbox/", rewriteAndProxy(executorProxy, addAPIV1))
 
 	mux.Handle("/api/interviews", rewriteAndProxy(interviewProxy, addAPIV1))
 	mux.Handle("/api/interviews/", rewriteAndProxy(interviewProxy, addAPIV1))

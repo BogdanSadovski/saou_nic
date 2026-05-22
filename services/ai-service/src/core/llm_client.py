@@ -64,6 +64,14 @@ class LLMClient:
         self._model = model
         self._temperature = temperature
         self._max_tokens = max_tokens
+        self._base_url = (base_url or "").lower()
+        # DeepSeek-у нет смысла отправлять response_format=json_schema:
+        # /chat/completions у них сейчас возвращает 400 "This
+        # response_format type is unavailable now". На каждый запрос
+        # это пустые 3–5 секунд round-trip перед обязательным retry.
+        # Помечаем такие клиенты, чтобы generate_json сразу шёл в
+        # json_object со схемой в user-prompt.
+        self._skip_json_schema = "deepseek.com" in self._base_url
         # OpenRouter recommends HTTP-Referer + X-Title for app attribution.
         # OpenAI / Groq ignore unknown headers.
         default_headers = {
@@ -163,6 +171,39 @@ class LLMClient:
         default_system = (
             "You must respond with valid JSON only. No markdown, no explanations."
         )
+        # Для провайдеров, которые точно не поддерживают json_schema
+        # (DeepSeek), пропускаем заведомо проигрышный первый запрос и
+        # сразу строим запрос с json_object + схемой в user-prompt.
+        # Экономит ~3–5 сек round-trip на каждом вызове.
+        if schema and self._skip_json_schema:
+            schema_hint = ""
+            try:
+                schema_body = schema.get("schema") if isinstance(schema, dict) else None
+                if schema_body:
+                    schema_hint = (
+                        "\n\nReturn ONLY a JSON object that strictly matches "
+                        "the following JSON Schema. Fill EVERY field with "
+                        "values derived from the input above — do not echo "
+                        "field names, descriptions, or example placeholders "
+                        "as values:\n```json\n"
+                        + json.dumps(schema_body, ensure_ascii=False, indent=2)
+                        + "\n```"
+                    )
+            except Exception:
+                schema_hint = ""
+            raw = await self.generate(
+                prompt=prompt + schema_hint,
+                system_prompt=system_prompt or default_system,
+                response_format={"type": "json_object"},
+            )
+            try:
+                parsed = json.loads(raw)
+                logger.debug("LLM JSON parsed ok (%d chars)", len(raw))
+                return parsed
+            except json.JSONDecodeError as exc:
+                logger.error("Failed to parse LLM JSON response: %s", raw[:500])
+                raise ValueError(f"LLM returned invalid JSON: {exc}") from exc
+
         if schema:
             response_format = {"type": "json_schema", "json_schema": schema}
         else:
@@ -187,14 +228,37 @@ class LLMClient:
             logger.warning(
                 "LLM model does not support json_schema response format, retrying with json_object"
             )
+            # Без json_schema провайдер не знает форму ответа и склонен
+            # вернуть структуру с placeholder-полями вместо реальных
+            # данных (наблюдалось у DeepSeek: язык = "primary",
+            # "secondary"; у Groq Llama-3.3-70b — то же самое). Подкладываем
+            # JSON-схему прямо в user-prompt, чтобы модель видела
+            # ожидаемые поля и описания.
+            schema_hint = ""
+            try:
+                schema_body = schema.get("schema") if isinstance(schema, dict) else None
+                if schema_body:
+                    schema_hint = (
+                        "\n\nReturn ONLY a JSON object that strictly matches "
+                        "the following JSON Schema. Fill EVERY field with "
+                        "values derived from the input above — do not echo "
+                        "field names, descriptions, or example placeholders "
+                        "as values:\n```json\n"
+                        + json.dumps(schema_body, ensure_ascii=False, indent=2)
+                        + "\n```"
+                    )
+            except Exception:
+                schema_hint = ""
             raw = await self.generate(
-                prompt=prompt,
+                prompt=prompt + schema_hint,
                 system_prompt=system_prompt or default_system,
                 response_format={"type": "json_object"},
             )
 
         try:
-            return json.loads(raw)
+            parsed = json.loads(raw)
+            logger.debug("LLM JSON parsed ok (%d chars)", len(raw))
+            return parsed
         except json.JSONDecodeError as exc:
             logger.error("Failed to parse LLM JSON response: %s", raw[:500])
             raise ValueError(

@@ -1,0 +1,41 @@
+<?xml version="1.0"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" role="img" aria-label="RealSync">
+  <title>RealSync · Sensor aperture</title>
+  
+  <rect width="200" height="200" rx="40" fill="oklch(0.18 0.012 60)"></rect>
+
+  
+  <g transform="translate(36 36)">
+    <rect x="0" y="0" width="28" height="28" rx="3" fill="oklch(0.32 0.010 60)"></rect>
+    <rect x="34" y="0" width="28" height="28" rx="3" fill="oklch(0.45 0.010 60)"></rect>
+    <rect x="68" y="0" width="28" height="28" rx="3" fill="oklch(0.32 0.010 60)"></rect>
+    <rect x="102" y="0" width="28" height="28" rx="3" fill="oklch(0.45 0.010 60)"></rect>
+
+    <rect x="0" y="34" width="28" height="28" rx="3" fill="oklch(0.45 0.010 60)"></rect>
+    <rect x="102" y="34" width="28" height="28" rx="3" fill="oklch(0.32 0.010 60)"></rect>
+
+    <rect x="0" y="68" width="28" height="28" rx="3" fill="oklch(0.32 0.010 60)"></rect>
+    <rect x="102" y="68" width="28" height="28" rx="3" fill="oklch(0.45 0.010 60)"></rect>
+
+    <rect x="0" y="102" width="28" height="28" rx="3" fill="oklch(0.45 0.010 60)"></rect>
+    <rect x="34" y="102" width="28" height="28" rx="3" fill="oklch(0.32 0.010 60)"></rect>
+    <rect x="68" y="102" width="28" height="28" rx="3" fill="oklch(0.45 0.010 60)"></rect>
+    <rect x="102" y="102" width="28" height="28" rx="3" fill="oklch(0.32 0.010 60)"></rect>
+  </g>
+
+  
+  <g stroke="oklch(0.30 0.012 60)" stroke-width="1.5" fill="none">
+    <line x1="100" y1="100" x2="100" y2="50"></line>
+    <line x1="100" y1="100" x2="143" y2="75"></line>
+    <line x1="100" y1="100" x2="143" y2="125"></line>
+    <line x1="100" y1="100" x2="100" y2="150"></line>
+    <line x1="100" y1="100" x2="57" y2="125"></line>
+    <line x1="100" y1="100" x2="57" y2="75"></line>
+  </g>
+
+  
+  <polygon points="100,54 140,77 140,123 100,146 60,123 60,77" fill="oklch(0.84 0.18 130)"></polygon>
+
+  
+  <text x="100" y="124" text-anchor="middle" font-family="&#39;Bricolage Grotesque&#39;, system-ui, sans-serif" font-weight="700" font-size="74" fill="oklch(0.22 0.10 130)" letter-spacing="-3">R</text>
+</svg>

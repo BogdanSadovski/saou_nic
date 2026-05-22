@@ -1224,7 +1224,32 @@ input {
 }
 
 .toast-item {
-  min-width: 220px;
+  min-width: 280px;
+  max-width: 380px;
+  padding: 14px 18px;
+  border-radius: 14px;
+  font-size: 14px;
+  line-height: 1.45;
+  font-weight: 500;
+  /* Полу-прозрачный glass-фон давал низкий контраст с тёмной темой
+     (тёмная плашка на тёмной странице). Используем solid bg на
+     основе editorial-токенов — текст всегда читается, а на любой
+     странице плашка визуально «выпадает» вперёд. */
+  background: var(--paper);
+  color: var(--ink);
+  border: 1px solid var(--ink);
+  box-shadow: 0 18px 50px -18px oklch(0 0 0 / 0.45), 0 0 0 1px oklch(0 0 0 / 0.04);
+  animation: toast-pop 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+@keyframes toast-pop {
+  from { transform: translateY(8px) scale(0.97); opacity: 0; }
+  to   { transform: none;                       opacity: 1; }
+}
+[data-theme="dark"] .toast-item {
+  /* На тёмной теме делаем плашку светлой — максимальный контраст. */
+  background: oklch(0.96 0.005 80);
+  color: oklch(0.18 0.012 60);
+  border-color: oklch(0.18 0.012 60);
 }
 
 /* BottomNav removed: top nav handles every viewport now. */

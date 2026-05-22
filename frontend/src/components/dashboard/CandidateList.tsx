@@ -1,5 +1,7 @@
 import React from 'react';
 
+import { UserAvatar } from '@/shared/ui';
+
 interface Candidate {
   id: string;
   name: string;
@@ -46,9 +48,7 @@ const CandidateList: React.FC<CandidateListProps> = ({
               {candidate.avatarUrl ? (
                 <img src={candidate.avatarUrl} alt={candidate.name} />
               ) : (
-                <span className="candidate-list__avatar-placeholder">
-                  {candidate.name.charAt(0)}
-                </span>
+                <UserAvatar size={40} alt={candidate.name} />
               )}
             </div>
             <div className="candidate-list__info">

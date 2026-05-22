@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
+	"os"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
@@ -129,19 +131,32 @@ func (h *Handler) OAuthCallback(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	provider := vars["provider"]
 
+	frontendURL := os.Getenv("FRONTEND_BASE_URL")
+	if frontendURL == "" {
+		frontendURL = "http://localhost:3000"
+	}
+
 	code := r.URL.Query().Get("code")
 	if code == "" {
-		respondWithError(w, http.StatusBadRequest, "missing code parameter")
+		http.Redirect(w, r, frontendURL+"/auth?oauth_error=missing_code", http.StatusTemporaryRedirect)
 		return
 	}
 
 	tokens, err := h.oauthService.HandleCallback(r.Context(), provider, code)
 	if err != nil {
-		respondWithError(w, http.StatusInternalServerError, "failed to process OAuth callback")
+		// Подробности ошибки логируем, пользователю — общее сообщение в URL.
+		http.Redirect(w, r, frontendURL+"/auth?oauth_error=callback_failed", http.StatusTemporaryRedirect)
 		return
 	}
 
-	respondWithJSON(w, http.StatusOK, tokens)
+	// Перенаправляем на фронт со встроенным токеном. Фронт-handler
+	// /auth прочитает access_token/refresh_token из query и положит в
+	// localStorage, после чего перейдёт на /workspace.
+	q := url.Values{}
+	q.Set("access_token", tokens.AccessToken)
+	q.Set("refresh_token", tokens.RefreshToken)
+	q.Set("oauth_provider", provider)
+	http.Redirect(w, r, frontendURL+"/auth?"+q.Encode(), http.StatusTemporaryRedirect)
 }
 
 func (h *Handler) GetProfile(w http.ResponseWriter, r *http.Request) {

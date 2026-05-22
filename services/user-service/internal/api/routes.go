@@ -34,6 +34,12 @@ func (h *Handler) RegisterRoutes() *mux.Router {
 	protected.HandleFunc("/users/me", h.UpdateProfile).Methods(http.MethodPut)
 	protected.HandleFunc("/users/me/password", h.ChangePassword).Methods(http.MethodPut)
 
+	// Telegram-интеграция: фронт получает link-token, открывает
+	// t.me/<bot>?start=<token>; сам бот биндит chat_id напрямую в БД.
+	protected.HandleFunc("/integrations/telegram/link-token", h.IssueTelegramLinkToken).Methods(http.MethodPost)
+	protected.HandleFunc("/integrations/telegram/status", h.GetTelegramStatus).Methods(http.MethodGet)
+	protected.HandleFunc("/integrations/telegram", h.UnlinkTelegram).Methods(http.MethodDelete)
+
 	// Admin routes
 	admin := api.PathPrefix("/admin").Subrouter()
 	admin.Use(middleware.RequireRole("admin"))

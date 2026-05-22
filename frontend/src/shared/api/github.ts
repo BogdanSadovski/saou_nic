@@ -141,4 +141,42 @@ export const githubApi = {
 
     return data.data;
   },
+
+  /**
+   * Возвращает закешированный в БД анализ GitHub-профиля пользователя.
+   * 404 — значит профиль ещё ни разу не импортировали, фронт должен
+   * показать кнопку «Подключить GitHub». При успехе отдаём payload +
+   * cached_at, чтобы UI мог предложить "обновить" если кеш стар.
+   */
+  async getCachedProfile(): Promise<{
+    profile: GithubImportResponse;
+    cached_at: string;
+    github_username: string;
+  } | null> {
+    type Cached = {
+      profile: GithubImportResponse;
+      cached_at: string;
+      github_username: string;
+    };
+    try {
+      const { data } = await apiClient.get<WrappedResponse<Cached>>("/github/profile/me");
+      return data?.data ?? null;
+    } catch (error) {
+      const status = isObject(error) && "response" in error
+        ? (error as { response?: { status?: number } }).response?.status
+        : undefined;
+      if (status === 404) return null;
+      // На legacy-route падаем только если основной вернул не-404.
+      try {
+        const { data } = await apiClient.get<WrappedResponse<Cached>>("/v1/github/profile/me");
+        return data?.data ?? null;
+      } catch (fallbackError) {
+        const fStatus = isObject(fallbackError) && "response" in fallbackError
+          ? (fallbackError as { response?: { status?: number } }).response?.status
+          : undefined;
+        if (fStatus === 404) return null;
+        throw new Error(toErrorMessage(fallbackError, "Не удалось загрузить GitHub-профиль"));
+      }
+    }
+  },
 };

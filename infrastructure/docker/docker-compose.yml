@@ -208,6 +208,9 @@ services:
       OAUTH_GOOGLE_CLIENT_SECRET: ${OAUTH_GOOGLE_CLIENT_SECRET:-}
       OAUTH_GITHUB_CLIENT_ID: ${OAUTH_GITHUB_CLIENT_ID:-}
       OAUTH_GITHUB_CLIENT_SECRET: ${OAUTH_GITHUB_CLIENT_SECRET:-}
+      # Telegram-бот username (без @) — используется в deep-link
+      # t.me/<bot>?start=<token> на странице Профиль.
+      TG_BOT_USERNAME: ${TG_BOT_USERNAME:-RealSyncPracticeBot}
       KAFKA_BROKERS: kafka:9092
       RABBITMQ_URL: amqp://${RABBITMQ_DEFAULT_USER:-rabbitmq_user}:${RABBITMQ_DEFAULT_PASS:-rabbitmq_pass}@rabbitmq:5672
       LOG_LEVEL: ${LOG_LEVEL:-info}
@@ -333,8 +336,15 @@ services:
       RABBITMQ_URL: amqp://${RABBITMQ_DEFAULT_USER:-rabbitmq_user}:${RABBITMQ_DEFAULT_PASS:-rabbitmq_pass}@rabbitmq:5672
       AI_SERVICE_URL: http://ai-service:8001
       JWT_SECRET: ${JWT_SECRET:-super_secret_jwt_key_change_in_production}
-      # HH/rabota.by API требует валидный e-mail в User-Agent.
-      # Если не задано — берётся гmail-почта по умолчанию (см. код).
+      # HH.ru OAuth-приложение (https://dev.hh.ru/admin).
+      # CLIENT_ID/SECRET — для авто-получения application-токена по
+      # client_credentials. ACCESS_TOKEN — если хотите задать токен
+      # вручную (имеет приоритет над CLIENT_ID/SECRET).
+      # USER_AGENT обязателен: "AppName/Version (your-email@domain)" —
+      # e-mail должен совпадать с указанным при регистрации приложения.
+      HH_CLIENT_ID: ${HH_CLIENT_ID:-}
+      HH_CLIENT_SECRET: ${HH_CLIENT_SECRET:-}
+      HH_ACCESS_TOKEN: ${HH_ACCESS_TOKEN:-}
       HH_API_USER_AGENT: ${HH_API_USER_AGENT:-}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       POSTGRES_HOST: postgres
@@ -450,6 +460,68 @@ services:
       # Training can take 3-5 minutes on cold start; give it a wide
       # window before the orchestrator considers the service unhealthy.
       start_period: 360s
+    restart: unless-stopped
+  code-executor:
+    build:
+      context: ../../services/code-executor
+      dockerfile: Dockerfile
+    # docker.sock прокидывается с хоста, чтобы runner мог запускать
+    # ephemeral-контейнеры. Это даёт ему фактически root на хосте — в
+    # проде такое решение нужно заменить на отдельный daemon с
+    # user-namespace remap. Для диплома/демо ок.
+    #
+    # SCRATCH volume — одинаковый путь host↔контейнер. Когда runner
+    # пишет код в /tmp/realsync-sandbox/sbx-XXX внутри себя, dockerd
+    # на хосте видит ровно тот же путь и может смонтировать его
+    # в свежий sandbox-контейнер.
+    environment:
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      CPU_LIMIT: ${SANDBOX_CPU_LIMIT:-0.5}
+      MEMORY_LIMIT: ${SANDBOX_MEMORY_LIMIT:-128m}
+      WALL_TIMEOUT_SEC: ${SANDBOX_TIMEOUT_SEC:-10}
+      SANDBOX_SCRATCH_DIR: /tmp/realsync-sandbox
+    volumes:
+    - /var/run/docker.sock:/var/run/docker.sock
+    - /tmp/realsync-sandbox:/tmp/realsync-sandbox
+    ports:
+    - 3013:8095
+    networks:
+    - backend-network
+    - frontend-network
+    restart: unless-stopped
+  telegram-bot:
+    build:
+      context: ../../services/telegram-bot
+      dockerfile: Dockerfile
+    environment:
+      TG_BOT_TOKEN: ${TG_BOT_TOKEN:-}
+      TG_BOT_USERNAME: ${TG_BOT_USERNAME:-realsync_practice_bot}
+      PG_DSN: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres_secret}@postgres:5432/user_service
+      INTERVIEW_SERVICE_URL: http://interview-service:8082
+      SOFTSKILLS_SERVICE_URL: http://softskills-service:8090
+      RESUME_SERVICE_URL: http://resume-service:8080
+      API_GATEWAY_URL: http://api-gateway:8000
+      # LLM-ключ для /news (тот же deepseek, что используется везде).
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_BASE_URL: ${LLM_BASE_URL:-https://api.deepseek.com/v1}
+      LLM_MODEL: ${LLM_MODEL:-deepseek-chat}
+      # HMAC-секрет для приёма push-событий от других сервисов.
+      PUSH_WEBHOOK_SECRET: ${TG_PUSH_SECRET:-change_me_in_env}
+      # ВАЖНО: тот же секрет, что у user-service. Бот минтит JWT за
+      # привязанных юзеров и шлёт Bearer-токен в interview/resume/admin.
+      JWT_SECRET: ${JWT_SECRET:-super_secret_jwt_key_change_in_production}
+      # Публичный HTTPS-URL фронта для кнопки Telegram WebApp (Mini App).
+      # На dev пусть пусто — кнопку просто не покажем.
+      WEB_APP_URL: ${TG_WEB_APP_URL:-}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    ports:
+    # Push-webhook (HMAC-signed) — на внутренней сети.
+    - 3014:8096
+    depends_on:
+    - postgres
+    - softskills-service
+    networks:
+    - backend-network
     restart: unless-stopped
   scoring-service:
     build:

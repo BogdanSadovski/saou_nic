@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
 import {
-  TIER_CATALOG,
   getTierTitle,
   useAuthStore,
   usePreferencesStore,
@@ -10,10 +9,11 @@ import {
   useUIStore,
   useUserStore,
 } from "@/app/store";
+import { TelegramConnectCard } from "@/features/telegram-connect/TelegramConnectCard";
 import { githubApi, type GithubImportResponse } from "@/shared/api/github";
 import { userApi } from "@/shared/api";
 import { formatBYNAmount } from "@/shared/lib/currency";
-import { BynSign, useToast } from "@/shared/ui";
+import { BynSign, UserAvatar, useToast } from "@/shared/ui";
 import { RsIcon as Icon } from "@/shared/ui/realsync";
 
 export default function ProfilePage() {
@@ -109,8 +109,8 @@ export default function ProfilePage() {
   };
 
   // Subscription -----------------------------------------------------------
+  // Read-only сводка для Profile. Управление тарифом — в /workspace/billing.
   const subscription = useSubscriptionStore();
-  const cancelSubscription = useSubscriptionStore((s) => s.cancel);
   const refreshSubscription = useSubscriptionStore((s) => s.refresh);
   const hydrateSubscription = useSubscriptionStore((s) => s.hydrate);
   const [searchParams, setSearchParams] = useSearchParams();
@@ -154,22 +154,7 @@ export default function ProfilePage() {
     navigate("/auth", { replace: true });
   };
 
-  const handleCancelSub = async () => {
-    try {
-      await cancelSubscription();
-      pushToast("Подписка отменена");
-    } catch {
-      pushToast("Не удалось отменить подписку");
-    }
-  };
-
-  const initials = useMemo(() => {
-    const src = (user.fullName || user.email || "").trim();
-    if (!src) return "·";
-    const parts = src.split(/[\s@]+/).filter(Boolean);
-    if (parts.length === 1) return parts[0]!.slice(0, 2).toUpperCase();
-    return (parts[0]![0]! + parts[1]![0]!).toUpperCase();
-  }, [user.fullName, user.email]);
+  // initials больше не нужны — аватар теперь единый <UserAvatar/>.
 
   // Deterministic GH-style cells
   const cells = useMemo(
@@ -197,22 +182,11 @@ export default function ProfilePage() {
           {/* Личные данные */}
           <section className="profile-card">
             <div className="row" style={{ gap: 20 }}>
-              <div
-                className="avatar"
-                style={{
-                  width: 72,
-                  height: 72,
-                  fontSize: 28,
-                  background: "var(--ink)",
-                  color: "var(--accent)",
-                  display: "grid",
-                  placeItems: "center",
-                  borderRadius: 16,
-                  fontFamily: "var(--f-display)",
-                }}
-              >
-                {initials}
-              </div>
+              <UserAvatar size={72} alt={user.fullName || user.email} />
+              {/* Старый блок с инициалами {initials} заменён на единую
+                  ISO-куб иконку (UserAvatar). Поле `initials` больше
+                  не используется здесь, но оставлено как fallback для
+                  совместимости с другими компонентами. */}
               <div>
                 <h2 style={{ fontSize: 36 }}>
                   {firstName} {secondName}
@@ -280,11 +254,12 @@ export default function ProfilePage() {
           {/* Безопасность */}
           <SecuritySection />
 
-          {/* Подписка и оплата */}
+          {/* Подписка — read-only сводка. Покупка/смена тарифа полностью
+              вынесена на /workspace/billing, чтобы не дублировать UI. */}
           <section className="profile-card">
             <header className="row-between" style={{ alignItems: "baseline" }}>
               <div>
-                <span className="eyebrow">Подписка и оплата</span>
+                <span className="eyebrow">Подписка</span>
                 <h2 style={{ fontSize: 28, marginTop: 4 }}>
                   {getTierTitle(subscription.tier)}
                 </h2>
@@ -297,7 +272,7 @@ export default function ProfilePage() {
             </header>
 
             {subscription.intent ? (
-              <div style={{ marginTop: 14 }}>
+              <div style={{ marginTop: 14, display: "grid", gap: 6 }}>
                 <p className="muted" style={{ fontSize: 13 }}>
                   Карта •••• {subscription.intent.cardLast4} ·{" "}
                   {formatBYNAmount(subscription.intent.amount)} <BynSign size={12} />/мес
@@ -309,133 +284,19 @@ export default function ProfilePage() {
               </div>
             ) : (
               <p className="muted" style={{ marginTop: 12, fontSize: 13 }}>
-                Выберите подходящий тариф ниже.
+                Сейчас бесплатный тариф. Управление подпиской и оплата —
+                в разделе «Подписка» рабочего пространства.
               </p>
             )}
 
-            <div className="grid-3" style={{ marginTop: 20, gap: 16 }}>
-              {TIER_CATALOG.map((tier) => {
-                const isCurrent = subscription.tier === tier.tier;
-                const cardStyle: React.CSSProperties = tier.highlight
-                  ? {
-                      background: "var(--ink)",
-                      color: "var(--bg)",
-                      borderColor: "var(--ink)",
-                    }
-                  : {};
-                return (
-                  <article
-                    className="card card--hover"
-                    key={tier.tier}
-                    style={{
-                      ...cardStyle,
-                      minWidth: 0,
-                      display: "flex",
-                      flexDirection: "column",
-                      padding: 20,
-                    }}
-                  >
-                    <span
-                      className="eyebrow"
-                      style={tier.highlight ? { color: "var(--accent)" } : {}}
-                    >
-                      {tier.tier.toUpperCase()}
-                    </span>
-                    <div
-                      style={{
-                        display: "flex",
-                        alignItems: "baseline",
-                        gap: 4,
-                        marginTop: 10,
-                        flexWrap: "wrap",
-                      }}
-                    >
-                      <span
-                        className="display"
-                        style={{
-                          fontSize: 34,
-                          lineHeight: 1,
-                          color: tier.highlight ? "var(--accent)" : "var(--ink)",
-                          display: "inline-flex",
-                          alignItems: "baseline",
-                          gap: 4,
-                        }}
-                      >
-                        {formatBYNAmount(tier.price)}
-                        <BynSign size={18} style={{ marginLeft: 2 }} />
-                      </span>
-                      <span className="muted" style={{ fontSize: 12 }}>
-                        / мес
-                      </span>
-                    </div>
-                    <ul
-                      style={{
-                        display: "grid",
-                        gap: 8,
-                        marginTop: 14,
-                        fontSize: 13,
-                        color: tier.highlight
-                          ? "oklch(0.82 0.01 60)"
-                          : "var(--ink-2)",
-                      }}
-                    >
-                      {tier.perks.map((p) => (
-                        <li
-                          key={p}
-                          style={{ paddingLeft: 14, position: "relative" }}
-                        >
-                          <span
-                            style={{
-                              position: "absolute",
-                              left: 0,
-                              color: "var(--accent)",
-                            }}
-                          >
-                            ·
-                          </span>
-                          {p}
-                        </li>
-                      ))}
-                    </ul>
-                    <div style={{ marginTop: 18 }}>
-                      {isCurrent ? (
-                        <span className="tag tag--lime">ТЕКУЩИЙ ТАРИФ</span>
-                      ) : (
-                        <button
-                          className="btn btn--accent btn--sm"
-                          onClick={() =>
-                            navigate(
-                              `/billing/checkout?tier=${tier.tier}&amount=${tier.price}`,
-                            )
-                          }
-                          type="button"
-                        >
-                          Оформить
-                        </button>
-                      )}
-                    </div>
-                  </article>
-                );
-              })}
-            </div>
-
-            <div className="row" style={{ marginTop: 20, gap: 12 }}>
+            <div className="row" style={{ marginTop: 18, gap: 12 }}>
               <button
-                className="btn btn--ghost btn--sm"
-                onClick={() => navigate("/billing")}
+                className="btn btn--primary btn--sm"
+                onClick={() => navigate("/workspace/billing")}
                 type="button"
               >
-                Открыть биллинг
+                Управлять подпиской
               </button>
-              {subscription.tier !== "free" && (
-                <button
-                  className="btn btn--ghost btn--sm"
-                  onClick={() => void handleCancelSub()}
-                  type="button"
-                >
-                  Отменить подписку
-                </button>
-              )}
             </div>
           </section>
         </div>
@@ -646,6 +507,9 @@ export default function ProfilePage() {
               </div>
             </div>
           </section>
+
+          {/* Telegram — daily push + score через бота */}
+          <TelegramConnectCard />
 
           {/* Полная GitHub-аналитика — только когда есть импорт */}
           {ghReport ? (

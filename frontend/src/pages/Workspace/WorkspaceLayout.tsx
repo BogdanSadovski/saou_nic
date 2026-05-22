@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 
+import { useUserStore } from "@/app/store";
 import { RsIcon as Icon } from "@/shared/ui/realsync";
 
 type Command = {
@@ -11,32 +12,65 @@ type Command = {
   action: () => void;
 };
 
-const RAIL: Array<{ to: string; icon: string; title: string; sub: string; end?: boolean }> = [
+type RailItem = {
+  to: string;
+  icon: string;
+  title: string;
+  sub: string;
+  end?: boolean;
+  adminOnly?: boolean;
+};
+
+// Полный список разделов рабочего пространства. `adminOnly: true`
+// означает, что пункт показывается только пользователям с role=admin
+// (см. фильтрацию ниже). Бэкенд всё равно enforces RBAC — это лишь
+// чтобы обычные пользователи не видели пункт, который для них
+// 403-ит.
+const RAIL: RailItem[] = [
   { to: "/workspace", icon: "◎", title: "Обзор", sub: "Метрики и активность", end: true },
   { to: "/workspace/career", icon: "≡", title: "Карьерный центр", sub: "Карьерный профиль" },
   { to: "/workspace/profile", icon: "◐", title: "Профиль", sub: "Личные настройки" },
   { to: "/workspace/resume", icon: "▤", title: "Резюме", sub: "Резюме и инсайты" },
-  { to: "/workspace/admin", icon: "◇", title: "Админ", sub: "Управление платформой" },
+  { to: "/workspace/billing", icon: "▣", title: "Подписка", sub: "Тарифы и оплата" },
+  { to: "/workspace/admin", icon: "◇", title: "Админ", sub: "Управление платформой", adminOnly: true },
 ];
 
 export default function WorkspaceLayout() {
   const navigate = useNavigate();
+  const userRole = useUserStore((s) => s.user.role);
+  const isAdmin = userRole === "admin";
   const [cmdOpen, setCmdOpen] = useState(false);
   const [query, setQuery] = useState("");
   const inputRef = useRef<HTMLInputElement | null>(null);
 
+  // Отфильтрованный rail: admin-only пункты убираются из навигации
+  // у обычных пользователей. На бэке RBAC всё равно работает (если
+  // юзер угадает URL — получит 403), а здесь UX-only.
+  const visibleRail = useMemo(
+    () => RAIL.filter((item) => !item.adminOnly || isAdmin),
+    [isAdmin],
+  );
+
   const commands = useMemo<Command[]>(
-    () => [
-      { id: "overview", title: "Перейти к обзору", hint: "Метрики, активность, рекомендации", icon: "grid", action: () => navigate("/workspace") },
-      { id: "career", title: "Карьерный центр", hint: "Career-радар и модули", icon: "career", action: () => navigate("/workspace/career") },
-      { id: "profile", title: "Профиль и настройки", hint: "Аватар, тема, GitHub, подписка", icon: "user", action: () => navigate("/workspace/profile") },
-      { id: "resume", title: "Резюме и инсайты", hint: "Загрузка PDF/DOCX, анализ", icon: "file", action: () => navigate("/workspace/resume") },
-      { id: "admin", title: "Админ-панель", hint: "Пользователи, подписки, аудит", icon: "shield", action: () => navigate("/workspace/admin") },
-      { id: "interview", title: "Новое интервью", hint: "Запустить мок-сессию", icon: "play", action: () => navigate("/interview") },
-      { id: "reports", title: "Все отчёты", hint: "История интервью + экспорт", icon: "chart", action: () => navigate("/reports") },
-      { id: "home", title: "На главную", hint: "Лендинг RealSync", icon: "home", action: () => navigate("/") },
-    ],
-    [navigate],
+    () => {
+      const base: Command[] = [
+        { id: "overview", title: "Перейти к обзору", hint: "Метрики, активность, рекомендации", icon: "grid", action: () => navigate("/workspace") },
+        { id: "career", title: "Карьерный центр", hint: "Career-радар и модули", icon: "career", action: () => navigate("/workspace/career") },
+        { id: "profile", title: "Профиль и настройки", hint: "Аватар, тема, GitHub, подписка", icon: "user", action: () => navigate("/workspace/profile") },
+        { id: "resume", title: "Резюме и инсайты", hint: "Загрузка DOCX, анализ", icon: "file", action: () => navigate("/workspace/resume") },
+        { id: "billing", title: "Подписка", hint: "Тарифы и история оплат", icon: "spark", action: () => navigate("/workspace/billing") },
+      ];
+      if (isAdmin) {
+        base.push({ id: "admin", title: "Админ-панель", hint: "Пользователи, подписки, аудит", icon: "shield", action: () => navigate("/workspace/admin") });
+      }
+      base.push(
+        { id: "interview", title: "Новое интервью", hint: "Запустить мок-сессию", icon: "play", action: () => navigate("/interview") },
+        { id: "reports", title: "Все отчёты", hint: "История интервью + экспорт", icon: "chart", action: () => navigate("/reports") },
+        { id: "home", title: "На главную", hint: "Лендинг RealSync", icon: "home", action: () => navigate("/") },
+      );
+      return base;
+    },
+    [navigate, isAdmin],
   );
 
   const filtered = useMemo(() => {
@@ -89,7 +123,7 @@ export default function WorkspaceLayout() {
       <div className="dash-grid">
         <aside className="dash-rail">
           <div className="dash-rail-label">Рабочее пространство</div>
-          {RAIL.map((r) => (
+          {visibleRail.map((r) => (
             <NavLink
               key={r.to}
               to={r.to}

@@ -19,6 +19,7 @@ const ReportsPage = lazy(() => import("@/pages/Reports/index"));
 const ResumePage = lazy(() => import("@/pages/Resume/index"));
 const AdminPage = lazy(() => import("@/pages/Admin/index"));
 const CheckoutPage = lazy(() => import("@/pages/Billing/Checkout"));
+const BillingPage = lazy(() => import("@/pages/Billing/index"));
 const ErrorPage = lazy(() => import("@/pages/Error/index"));
 
 export function AppRouter() {
@@ -41,6 +42,7 @@ export function AppRouter() {
             <Route path="career" element={<CareerCenterPage />} />
             <Route path="profile" element={<ProfilePage />} />
             <Route path="resume" element={<ResumePage />} />
+            <Route path="billing" element={<BillingPage />} />
             <Route path="admin" element={<AdminPage />} />
           </Route>
 
