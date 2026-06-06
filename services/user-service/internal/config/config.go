@@ -103,6 +103,17 @@ func LoadConfig(path string) (*Config, error) {
 		cfg.OAuth.GitHubRedirectURL = v
 	}
 
+	publicHost := os.Getenv("PUBLIC_HOST")
+	if publicHost == "" {
+		publicHost = "localhost"
+	}
+	if cfg.OAuth.GoogleRedirectURL == "" || cfg.OAuth.GoogleRedirectURL == "http://localhost:8000/api/auth/oauth/google/callback" {
+		cfg.OAuth.GoogleRedirectURL = "http://" + publicHost + ":8000/api/auth/oauth/google/callback"
+	}
+	if cfg.OAuth.GitHubRedirectURL == "" || cfg.OAuth.GitHubRedirectURL == "http://localhost:8000/api/auth/oauth/github/callback" {
+		cfg.OAuth.GitHubRedirectURL = "http://" + publicHost + ":8000/api/auth/oauth/github/callback"
+	}
+
 	if err := cfg.validate(); err != nil {
 		return nil, fmt.Errorf("invalid configuration: %w", err)
 	}

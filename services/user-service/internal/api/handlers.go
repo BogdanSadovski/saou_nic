@@ -137,7 +137,11 @@ func (h *Handler) OAuthCallback(w http.ResponseWriter, r *http.Request) {
 
 	frontendURL := os.Getenv("FRONTEND_BASE_URL")
 	if frontendURL == "" {
-		frontendURL = "http://localhost:3000"
+		publicHost := os.Getenv("PUBLIC_HOST")
+		if publicHost == "" {
+			publicHost = "localhost"
+		}
+		frontendURL = "http://" + publicHost + ":3000"
 	}
 
 	code := r.URL.Query().Get("code")

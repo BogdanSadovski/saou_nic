@@ -204,10 +204,10 @@ services:
       JWT_REFRESH_EXPIRES_IN: ${JWT_REFRESH_EXPIRES_IN:-7d}
       OAUTH_GOOGLE_CLIENT_ID: ${OAUTH_GOOGLE_CLIENT_ID:-}
       OAUTH_GOOGLE_CLIENT_SECRET: ${OAUTH_GOOGLE_CLIENT_SECRET:-}
-      OAUTH_GOOGLE_REDIRECT_URL: ${OAUTH_GOOGLE_REDIRECT_URL:-http://localhost:8000/api/auth/oauth/google/callback}
+      OAUTH_GOOGLE_REDIRECT_URL: ${OAUTH_GOOGLE_REDIRECT_URL:-http://${PUBLIC_HOST:-localhost}:8000/api/auth/oauth/google/callback}
       OAUTH_GITHUB_CLIENT_ID: ${OAUTH_GITHUB_CLIENT_ID:-}
       OAUTH_GITHUB_CLIENT_SECRET: ${OAUTH_GITHUB_CLIENT_SECRET:-}
-      OAUTH_GITHUB_REDIRECT_URL: ${OAUTH_GITHUB_REDIRECT_URL:-http://localhost:8000/api/auth/oauth/github/callback}
+      OAUTH_GITHUB_REDIRECT_URL: ${OAUTH_GITHUB_REDIRECT_URL:-http://${PUBLIC_HOST:-localhost}:8000/api/auth/oauth/github/callback}
       # Telegram-бот username (без @) — используется в deep-link
       # t.me/<bot>?start=<token> на странице Профиль.
       TG_BOT_USERNAME: ${TG_BOT_USERNAME:-RealSyncPracticeBot}

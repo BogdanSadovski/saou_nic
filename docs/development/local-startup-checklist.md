@@ -90,11 +90,17 @@ This checklist collects the minimum data and infrastructure needed to run the pl
 
 ### Frontend
 
+- `PUBLIC_HOST`
 - `VITE_API_BASE_URL`
 - `VITE_API_WS_URL`
 - `VITE_APP_NAME`
 - `VITE_APP_VERSION`
 - `VITE_ENABLE_ANALYTICS`
+
+### Deployment note
+
+- For server deploys, set `PUBLIC_HOST` once and reuse it for frontend URLs, OAuth redirect URLs, and any service that needs to redirect back to the browser.
+- Keep localhost values only for local startup and example files.
 
 ## 4. Suggested local startup order
 

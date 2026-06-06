@@ -25,10 +25,10 @@ jwt:
 oauth:
   google_client_id: ""
   google_client_secret: ""
-  google_redirect_url: "http://localhost:8000/api/auth/oauth/google/callback"
+  google_redirect_url: ""
   github_client_id: ""
   github_client_secret: ""
-  github_redirect_url: "http://localhost:8000/api/auth/oauth/github/callback"
+  github_redirect_url: ""
 
 logging:
   level: "info"
