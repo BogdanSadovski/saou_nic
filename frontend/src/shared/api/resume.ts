@@ -76,6 +76,7 @@ export type HHVacancy = {
   name: string;
   url: string;
   employer: string;
+  employer_logo?: string;
   area: string;
   experience: string;
   schedule: string;
@@ -93,6 +94,9 @@ export type HHVacanciesResponse = {
   query: string;
   area: string;
   total: number;
+  page: number;
+  pages: number;
+  per_page: number;
   items: HHVacancy[];
   cached_at: string;
 };
@@ -231,13 +235,23 @@ export const resumeApi = {
   /**
    * Fetch matching vacancies from HH.ru for a given resume report.
    * Backend builds the query from the AI-recommended role + extracted
-   * skills, then proxies HH.ru's public search API.
+   * skills (или из явного `text` — поиск по конкретному скиллу),
+   * затем проксирует официальный HH.ru API (OAuth client_credentials).
    *
-   * area defaults to 16 (Беларусь); pass "113" for Russia, "1" for
-   * Moscow, or "world" to remove the filter entirely.
+   * area defaults to 1002 (Минск); pass "16" Belarus, "113" Russia,
+   * "1" Moscow, or "world" to remove the filter entirely.
    */
-  async getMatchingVacancies(reportID: string, area = "16"): Promise<HHVacanciesResponse> {
-    const params = area ? `?area=${encodeURIComponent(area)}` : "";
+  async getMatchingVacancies(
+    reportID: string,
+    opts: { area?: string; text?: string; page?: number; perPage?: number } = {},
+  ): Promise<HHVacanciesResponse> {
+    const { area = "1002", text, page, perPage } = opts;
+    const qs = new URLSearchParams();
+    if (area) qs.set("area", area);
+    if (text) qs.set("text", text);
+    if (typeof page === "number") qs.set("page", String(page));
+    if (typeof perPage === "number") qs.set("per_page", String(perPage));
+    const params = qs.toString() ? `?${qs.toString()}` : "";
     try {
       const response = await apiClient.get<WrappedResponse<HHVacanciesResponse> | HHVacanciesResponse>(
         `/resume/vacancies/${reportID}${params}`,

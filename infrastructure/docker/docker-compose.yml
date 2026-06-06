@@ -14,8 +14,6 @@ volumes:
   kafka-data: null
   zookeeper-data: null
   minio-data: null
-  softskills_weights: null
-  softskills_hf_cache: null
 services:
   zookeeper:
     image: confluentinc/cp-zookeeper:7.5.0
@@ -206,8 +204,10 @@ services:
       JWT_REFRESH_EXPIRES_IN: ${JWT_REFRESH_EXPIRES_IN:-7d}
       OAUTH_GOOGLE_CLIENT_ID: ${OAUTH_GOOGLE_CLIENT_ID:-}
       OAUTH_GOOGLE_CLIENT_SECRET: ${OAUTH_GOOGLE_CLIENT_SECRET:-}
+      OAUTH_GOOGLE_REDIRECT_URL: ${OAUTH_GOOGLE_REDIRECT_URL:-http://localhost:8000/api/auth/oauth/google/callback}
       OAUTH_GITHUB_CLIENT_ID: ${OAUTH_GITHUB_CLIENT_ID:-}
       OAUTH_GITHUB_CLIENT_SECRET: ${OAUTH_GITHUB_CLIENT_SECRET:-}
+      OAUTH_GITHUB_REDIRECT_URL: ${OAUTH_GITHUB_REDIRECT_URL:-http://localhost:8000/api/auth/oauth/github/callback}
       # Telegram-бот username (без @) — используется в deep-link
       # t.me/<bot>?start=<token> на странице Профиль.
       TG_BOT_USERNAME: ${TG_BOT_USERNAME:-RealSyncPracticeBot}
@@ -346,6 +346,11 @@ services:
       HH_CLIENT_SECRET: ${HH_CLIENT_SECRET:-}
       HH_ACCESS_TOKEN: ${HH_ACCESS_TOKEN:-}
       HH_API_USER_AGENT: ${HH_API_USER_AGENT:-}
+      # LLM ключи — для скоринга soft-skills ответов напрямую,
+      # минуя ai-service (см. services/interview-service/.../softskills_bridge.go).
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_BASE_URL: ${LLM_BASE_URL:-https://api.deepseek.com/v1}
+      LLM_MODEL: ${LLM_MODEL:-deepseek-chat}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
@@ -428,39 +433,10 @@ services:
       retries: 3
       start_period: 30s
     restart: unless-stopped
-  softskills-service:
-    build:
-      context: ../../services/softskills-service
-      dockerfile: Dockerfile
-    environment:
-      SERVICE_NAME: softskills-service
-      PORT: 8090
-      LOG_LEVEL: ${LOG_LEVEL:-info}
-      SOFTSKILLS_EMBEDDING_MODEL: cointegrated/rubert-tiny2
-    ports:
-    - 3012:8090
-    volumes:
-    # Persist trained weights + scaler across container rebuilds so we
-    # don't retrain on every `up`. First boot writes them; subsequent
-    # boots find them and skip training.
-    - softskills_weights:/app/weights
-    - softskills_hf_cache:/cache
-    networks:
-    - backend-network
-    - frontend-network
-    healthcheck:
-      test:
-      - CMD
-      - python
-      - -c
-      - import urllib.request; urllib.request.urlopen('http://localhost:8090/health', timeout=3)
-      interval: 30s
-      timeout: 5s
-      retries: 4
-      # Training can take 3-5 minutes on cold start; give it a wide
-      # window before the orchestrator considers the service unhealthy.
-      start_period: 360s
-    restart: unless-stopped
+  # softskills-service удалён: оценка soft-skill ответов теперь идёт
+  # через основной LLM-каскад внутри interview-service (см.
+  # softskills_bridge.go). Освободили ~1.2 GB образа и 3-5 минут
+  # cold-start на тренировку PyTorch-модели.
   code-executor:
     build:
       context: ../../services/code-executor
@@ -498,7 +474,6 @@ services:
       TG_BOT_USERNAME: ${TG_BOT_USERNAME:-realsync_practice_bot}
       PG_DSN: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres_secret}@postgres:5432/user_service
       INTERVIEW_SERVICE_URL: http://interview-service:8082
-      SOFTSKILLS_SERVICE_URL: http://softskills-service:8090
       RESUME_SERVICE_URL: http://resume-service:8080
       API_GATEWAY_URL: http://api-gateway:8000
       # LLM-ключ для /news (тот же deepseek, что используется везде).
@@ -519,7 +494,6 @@ services:
     - 3014:8096
     depends_on:
     - postgres
-    - softskills-service
     networks:
     - backend-network
     restart: unless-stopped

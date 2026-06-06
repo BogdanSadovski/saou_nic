@@ -124,7 +124,7 @@ export default function ProfilePage() {
       const next = new URLSearchParams(searchParams);
       next.delete("paid");
       setSearchParams(next, { replace: true });
-    } else if (paid && paid !== "free") {
+    } else if (paid && paid !== "trial") {
       pushToast(`Тариф ${getTierTitle(paid as never)} активирован`);
       const next = new URLSearchParams(searchParams);
       next.delete("paid");
@@ -160,10 +160,13 @@ export default function ProfilePage() {
   const cells = useMemo(
     () =>
       Array.from({ length: 49 }, (_, i) => {
+        // Пустая сетка, пока пользователь не подключил GitHub — иначе
+        // новый пользователь видел бы фейковую активность.
+        if (!user.connectedGithub) return "";
         const r = ((i * 31 + 13) % 7) / 7 + ((i * 17) % 5) / 10;
         return r > 1.1 ? "l4" : r > 0.85 ? "l3" : r > 0.55 ? "l2" : r > 0.3 ? "l1" : "";
       }),
-    [],
+    [user.connectedGithub],
   );
 
   const firstName = (name || "").split(" ")[0] || "";
@@ -264,10 +267,10 @@ export default function ProfilePage() {
                   {getTierTitle(subscription.tier)}
                 </h2>
               </div>
-              {subscription.tier !== "free" ? (
+              {subscription.tier !== "trial" ? (
                 <span className="tag tag--lime">ACTIVE</span>
               ) : (
-                <span className="tag">FREE</span>
+                <span className="tag">TRIAL</span>
               )}
             </header>
 
@@ -415,7 +418,7 @@ export default function ProfilePage() {
                 <span>
                   {ghReport
                     ? `${(ghReport.charts.contribution_days || []).reduce((s, d) => s + (d.count || 0), 0)} коммитов`
-                    : "187 коммитов"}
+                    : "—"}
                 </span>
               </div>
               <div className="gh-grid">
@@ -434,8 +437,20 @@ export default function ProfilePage() {
 
             <div className="hr"></div>
 
-            <div className="grid-2" style={{ gap: 12 }}>
-              <div>
+            {/* grid-2 (50/50) обрезал длинные имена репо вроде
+                "BogdanSadovski.github.io" и одновременно зажимал блок
+                языковых чипов в 3 строки по одному тегу. Заменили на
+                «1.2fr / 1fr» — имени достаётся больше места и оно
+                переносится по словам, чипы помещаются в 1–2 ряда. */}
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "minmax(0, 1.2fr) minmax(0, 1fr)",
+                gap: 16,
+                alignItems: "start",
+              }}
+            >
+              <div style={{ minWidth: 0 }}>
                 <div
                   className="mono"
                   style={{
@@ -451,8 +466,22 @@ export default function ProfilePage() {
                   const top = ghReport?.top_repositories?.[0];
                   return top ? (
                     <>
-                      <div className="display" style={{ fontSize: 22, marginTop: 4 }}>{top.name}</div>
-                      <div className="muted" style={{ fontSize: 12 }}>
+                      <div
+                        className="display"
+                        style={{
+                          fontSize: 20,
+                          marginTop: 4,
+                          // Без overflow-wrap длинные имена ".github.io"
+                          // вылазили за пределы карточки.
+                          overflowWrap: "anywhere",
+                          wordBreak: "break-word",
+                          lineHeight: 1.15,
+                        }}
+                        title={top.name}
+                      >
+                        {top.name}
+                      </div>
+                      <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
                         {[
                           top.language,
                           `${top.stars} ⭐`,
@@ -462,13 +491,13 @@ export default function ProfilePage() {
                     </>
                   ) : (
                     <>
-                      <div className="display" style={{ fontSize: 22, marginTop: 4 }}>realsync-core</div>
-                      <div className="muted" style={{ fontSize: 12 }}>Go · 142 ⭐ · 12 contributors</div>
+                      <div className="display" style={{ fontSize: 20, marginTop: 4 }}>—</div>
+                      <div className="muted" style={{ fontSize: 12 }}>Нет данных</div>
                     </>
                   );
                 })()}
               </div>
-              <div>
+              <div style={{ minWidth: 0 }}>
                 <div
                   className="mono"
                   style={{
@@ -481,27 +510,29 @@ export default function ProfilePage() {
                   Языки
                 </div>
                 <div
-                  className="row"
-                  style={{ marginTop: 8, gap: 6, flexWrap: "wrap" }}
+                  style={{
+                    marginTop: 8,
+                    display: "flex",
+                    flexWrap: "wrap",
+                    gap: 6,
+                    alignItems: "center",
+                  }}
                 >
                   {(() => {
                     const dist = ghReport?.charts.language_distribution;
                     if (dist && dist.length) {
                       const total = dist.reduce((s, d) => s + d.value, 0) || 1;
                       return dist.slice(0, 4).map((d, i) => (
-                        <span key={d.label} className={`tag ${i === 0 ? "tag--lime" : ""}`}>
+                        <span
+                          key={d.label}
+                          className={`tag ${i === 0 ? "tag--lime" : ""}`}
+                          style={{ whiteSpace: "nowrap" }}
+                        >
                           {d.label} {Math.round((d.value / total) * 100)}%
                         </span>
                       ));
                     }
-                    return (
-                      <>
-                        <span className="tag tag--lime">Go 62%</span>
-                        <span className="tag">TS 24%</span>
-                        <span className="tag">Py 8%</span>
-                        <span className="tag">Other 6%</span>
-                      </>
-                    );
+                    return <span className="muted" style={{ fontSize: 12 }}>—</span>;
                   })()}
                 </div>
               </div>
@@ -511,8 +542,10 @@ export default function ProfilePage() {
           {/* Telegram — daily push + score через бота */}
           <TelegramConnectCard />
 
-          {/* Полная GitHub-аналитика — только когда есть импорт */}
-          {ghReport ? (
+          {/* Полная GitHub-аналитика — только когда ТЕКУЩИЙ пользователь
+              подключил GitHub. Без проверки connectedGithub кэш из
+              localStorage показывал чужой профиль новому пользователю. */}
+          {ghReport && user.connectedGithub ? (
             <section className="profile-card">
               <header className="row-between" style={{ alignItems: "baseline" }}>
                 <div>

@@ -69,6 +69,30 @@ const toMessage = (item: MessageResponse["messages"][number]): InterviewMessage 
 });
 
 export const interviewModuleApi = {
+  /**
+   * Fire-and-forget разогрев AI-стека.
+   *
+   * Free-tier LLM-провайдеры (Groq free, OpenRouter free) уходят в
+   * cold-start через ~5–10 минут простоя, и тогда первый запрос на
+   * /interviewer/next-question ждёт 20–40 секунд, пока контейнер
+   * провайдера разгоняется. Если потыкать /health на ai-service
+   * ЗАРАНЕЕ — пока пользователь только зашёл на экран настройки
+   * интервью и ещё выбирает вакансию — контейнер просыпается
+   * параллельно, и к моменту фактического старта сессии холодный
+   * запуск уже отыгран.
+   *
+   * Вызов не блокирующий и не должен ронять страницу — все ошибки
+   * глотаем тихо. Это чисто-UX-оптимизация.
+   */
+  prewarmAI(): void {
+    void apiClient
+      .get("/interviews/warmup", { timeout: 4000 })
+      .catch(() => {
+        // Если эндпоинта нет (старый билд бэка) или сеть упала —
+        // молчим: warmup не критичен.
+      });
+  },
+
   async createSession(payload: CreateSessionPayload): Promise<CreateSessionResult> {
     const { data } = await apiClient.post<Wrapped<SessionResponse>>("/interviews/sessions", {
       role: payload.role,

@@ -331,7 +331,7 @@ func (h *Handler) CreateSubscription(c *gin.Context) {
 	}
 
 	var req struct {
-		Tier domain.SubscriptionTier `json:"tier" binding:"required,oneof=free basic pro enterprise"`
+		Tier domain.SubscriptionTier `json:"tier" binding:"required,oneof=trial pro platinum"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body", "details": err.Error()})
@@ -396,7 +396,7 @@ func (h *Handler) UpdateSubscription(c *gin.Context) {
 	}
 
 	var req struct {
-		Tier      domain.SubscriptionTier `json:"tier" binding:"required,oneof=free basic pro enterprise"`
+		Tier      domain.SubscriptionTier `json:"tier" binding:"required,oneof=trial pro platinum"`
 		AutoRenew bool                    `json:"auto_renew"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -456,7 +456,7 @@ func (h *Handler) CreateMySubscription(c *gin.Context) {
 	}
 
 	var req struct {
-		Tier      domain.SubscriptionTier `json:"tier" binding:"required,oneof=free basic pro enterprise starter team"`
+		Tier      domain.SubscriptionTier `json:"tier" binding:"required,oneof=trial pro platinum"`
 		CardLast4 string                  `json:"card_last4"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {

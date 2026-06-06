@@ -91,6 +91,10 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 			respondWithError(w, http.StatusUnauthorized, err.Error())
 			return
 		}
+		if err == service.ErrAccountBlocked {
+			respondWithError(w, http.StatusForbidden, "Учётная запись заблокирована или приостановлена. Обратитесь к администратору.")
+			return
+		}
 		respondWithError(w, http.StatusInternalServerError, "failed to login")
 		return
 	}

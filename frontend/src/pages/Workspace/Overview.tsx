@@ -25,17 +25,10 @@ export default function WorkspaceOverview() {
     };
   }, []);
 
+  // Реальные данные пользователя. Никаких демо-заглушек: у нового
+  // (пустого) пользователя показываем нули и пустые состояния.
   const interviews = useMemo(() => {
     const items = report?.recent_interviews?.slice(0, 5) || [];
-    if (items.length === 0) {
-      return [
-        { role: "Backend", vac: "Backend-инженер (Go, платформа)", mode: "theory", score: 91, date: "12 мая" },
-        { role: "Backend", vac: "Backend-инженер (Go, платформа)", mode: "theory", score: 83, date: "10 мая" },
-        { role: "Backend", vac: "Backend-инженер (Go, платформа)", mode: "practice", score: 72, date: "08 мая" },
-        { role: "Backend", vac: "Backend-инженер (Go, платформа)", mode: "theory", score: 88, date: "05 мая" },
-        { role: "Backend", vac: "Backend-инженер (Go, платформа)", mode: "theory", score: 79, date: "02 мая" },
-      ];
-    }
     return items.map((it) => ({
       role: it.role,
       vac: it.vacancy_title || it.role,
@@ -45,19 +38,12 @@ export default function WorkspaceOverview() {
     }));
   }, [report]);
 
-  const recs = useMemo(() => {
-    const items = report?.top_recommendations || [];
-    if (items.length > 0) return items.slice(0, 3);
-    return [
-      "Добавлять измеримые критерии — числа, диапазоны, ограничения",
-      "Явно проговаривать trade-offs до выбора решения",
-      "Попробуйте пройти интервью заново и отвечайте на каждый вопрос хотя бы 1–2 предложениями",
-    ];
-  }, [report]);
+  const recs = useMemo(() => (report?.top_recommendations || []).slice(0, 3), [report]);
 
-  const totalInterviews = report?.totals.total_interviews ?? 28;
-  const avgScore = Math.round(report?.performance.average_score ?? 82);
-  const completionRate = Math.round(report?.totals.completion_rate ?? 89);
+  const totalInterviews = report?.totals.total_interviews ?? 0;
+  const avgScore = Math.round(report?.performance.average_score ?? 0);
+  const completionRate = Math.round(report?.totals.completion_rate ?? 0);
+  const hasData = totalInterviews > 0;
 
   return (
     <>
@@ -77,26 +63,35 @@ export default function WorkspaceOverview() {
         <div className="metric reveal reveal-1">
           <div className="metric-label">Интервью</div>
           <div className="metric-value mono"><Counter target={totalInterviews} /></div>
-          <div className="metric-delta">↑ 4 за неделю</div>
-          <div className="metric-spark">
-            <Sparkline data={[2, 3, 1, 4, 2, 5, 3, 6, 4, 5]} width={220} height={32} />
-          </div>
+          {hasData ? (
+            <div className="metric-spark">
+              <Sparkline data={[2, 3, 1, 4, 2, 5, 3, 6, 4, 5]} width={220} height={32} />
+            </div>
+          ) : (
+            <div className="metric-delta">пока нет данных</div>
+          )}
         </div>
         <div className="metric reveal reveal-2">
           <div className="metric-label">Средняя оценка</div>
           <div className="metric-value mono"><Counter target={avgScore} /><em>/100</em></div>
-          <div className="metric-delta">↑ +3.2 за месяц</div>
-          <div className="metric-spark">
-            <Sparkline data={[68, 70, 72, 74, 71, 76, 78, 80, 81, 82]} width={220} height={32} />
-          </div>
+          {hasData ? (
+            <div className="metric-spark">
+              <Sparkline data={[68, 70, 72, 74, 71, 76, 78, 80, 81, 82]} width={220} height={32} />
+            </div>
+          ) : (
+            <div className="metric-delta">пока нет данных</div>
+          )}
         </div>
         <div className="metric reveal reveal-3">
           <div className="metric-label">Совпадение резюме</div>
           <div className="metric-value mono"><Counter target={completionRate} suffix="%" /></div>
-          <div className="metric-delta">стабильно</div>
-          <div className="metric-spark">
-            <Sparkline data={[85, 86, 84, 87, 89, 88, 89, 90, 89, 89]} width={220} height={32} />
-          </div>
+          {hasData ? (
+            <div className="metric-spark">
+              <Sparkline data={[85, 86, 84, 87, 89, 88, 89, 90, 89, 89]} width={220} height={32} />
+            </div>
+          ) : (
+            <div className="metric-delta">пока нет данных</div>
+          )}
         </div>
       </div>
 
@@ -105,20 +100,26 @@ export default function WorkspaceOverview() {
           <h2>Недавние интервью</h2>
           <span className="eyebrow">за 30 дней</span>
         </header>
-        <div className="interview-list">
-          {interviews.map((it, i) => (
-            <div className="interview-item" key={i}>
-              <div className="interview-item-num mono">{String(i + 1).padStart(2, "0")}</div>
-              <div>
-                <div className="interview-item-title">{it.role} · {it.vac}</div>
-                <div className="interview-item-sub mono">{it.mode.toUpperCase()}</div>
+        {interviews.length > 0 ? (
+          <div className="interview-list">
+            {interviews.map((it, i) => (
+              <div className="interview-item" key={i}>
+                <div className="interview-item-num mono">{String(i + 1).padStart(2, "0")}</div>
+                <div>
+                  <div className="interview-item-title">{it.role} · {it.vac}</div>
+                  <div className="interview-item-sub mono">{it.mode.toUpperCase()}</div>
+                </div>
+                <div className="tag">{it.mode}</div>
+                <div className="interview-item-score">{it.score}</div>
+                <div className="interview-item-date mono">{it.date}</div>
               </div>
-              <div className="tag">{it.mode}</div>
-              <div className="interview-item-score">{it.score}</div>
-              <div className="interview-item-date mono">{it.date}</div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        ) : (
+          <p className="muted" style={{ fontSize: 14, marginTop: 12 }}>
+            Вы ещё не проходили интервью. Запустите первую сессию — здесь появится история и оценки.
+          </p>
+        )}
       </section>
 
       <section className="dash-section">
@@ -127,14 +128,20 @@ export default function WorkspaceOverview() {
             <header className="dash-section-head">
               <h2>Рекомендации</h2>
             </header>
-            <div className="recs-list">
-              {recs.map((r, i) => (
-                <div className="rec-item" key={i}>
-                  <div className="rec-bullet">{String(i + 1).padStart(2, "0")}</div>
-                  <div className="rec-text">{r}</div>
-                </div>
-              ))}
-            </div>
+            {recs.length > 0 ? (
+              <div className="recs-list">
+                {recs.map((r, i) => (
+                  <div className="rec-item" key={i}>
+                    <div className="rec-bullet">{String(i + 1).padStart(2, "0")}</div>
+                    <div className="rec-text">{r}</div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="muted" style={{ fontSize: 14 }}>
+                Персональные рекомендации появятся после первого пройденного интервью.
+              </p>
+            )}
           </div>
 
           <div>
@@ -145,7 +152,7 @@ export default function WorkspaceOverview() {
               <div className="gh-grid">
                 {Array.from({ length: 49 }).map((_, i) => {
                   const r = ((i * 31 + 13) % 7) / 7 + ((i * 17) % 5) / 10;
-                  const lv = r > 1.1 ? "l4" : r > 0.85 ? "l3" : r > 0.55 ? "l2" : r > 0.3 ? "l1" : "";
+                  const lv = hasData ? (r > 1.1 ? "l4" : r > 0.85 ? "l3" : r > 0.55 ? "l2" : r > 0.3 ? "l1" : "") : "";
                   return <div key={i} className={`gh-cell ${lv}`} style={{ animationDelay: `${i * 8}ms` }} />;
                 })}
               </div>

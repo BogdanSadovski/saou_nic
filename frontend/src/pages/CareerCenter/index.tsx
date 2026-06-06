@@ -1,30 +1,49 @@
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
+import { reportsApi } from "@/shared/api";
+import type { UserInterviewAnalyticsReport } from "@/shared/api/reports";
 import { Counter, RsIcon as Icon, Track } from "@/shared/ui/realsync";
+
+const radarHint = (val: number): string => {
+  if (val >= 80) return "Приоритетный сценарий для следующего интервью";
+  if (val >= 50) return "Хорошая зона для развития";
+  if (val >= 30) return "Глубоко добрать знания и практику";
+  return "Базовое знакомство";
+};
 
 export default function CareerCenterPage() {
   const navigate = useNavigate();
+  const [report, setReport] = useState<UserInterviewAnalyticsReport | null>(null);
 
-  const radar = [
-    { role: "Backend", val: 92, hint: "Приоритетный сценарий для следующего интервью" },
-    { role: "Frontend", val: 64, hint: "Хорошая зона для развития" },
-    { role: "DevOps", val: 41, hint: "Глубоко добрать знания и практику" },
-    { role: "ML", val: 32, hint: "Глубоко добрать знания и практику" },
-    { role: "Mobile", val: 18, hint: "Базовое знакомство" },
-  ];
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await reportsApi.getMyInterviewReport();
+        if (!cancelled) setReport(data);
+      } catch (e) {
+        const status = (e as { response?: { status?: number } })?.response?.status;
+        if (!cancelled && status === 404) setReport(reportsApi.emptyReport());
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
-  const sims = [
-    { name: "Backend", fit: 92 },
-    { name: "Frontend", fit: 64 },
-    { name: "DevOps", fit: 41 },
-  ];
+  const totalInterviews = report?.totals.total_interviews ?? 0;
+  const avgScore = Math.round(report?.performance.average_score ?? 0);
+  const completionRate = Math.round(report?.totals.completion_rate ?? 0);
+  const hasData = totalInterviews > 0;
 
-  const plan = [
-    "Разобрать слабую зону: distributed consensus (Raft, Paxos)",
-    "Добавить практику по теме: проектирование очередей и backpressure",
-    "Закрепить сильную сторону: trade-off диалоги по выбору БД",
-    "Использовать рекомендацию: добавить метрики в каждое решение",
-  ];
+  const radar = useMemo(() => {
+    const items = (report?.role_distribution || []).slice(0, 5);
+    return items.map((r) => ({ role: r.label, val: Math.round(r.value), hint: radarHint(Math.round(r.value)) }));
+  }, [report]);
+
+  const sims = useMemo(() => radar.slice(0, 3).map((r) => ({ name: r.role, fit: r.val })), [radar]);
+  const recs = useMemo(() => (report?.top_recommendations || []).slice(0, 4), [report]);
 
   return (
     <>
@@ -47,36 +66,47 @@ export default function CareerCenterPage() {
 
         <aside className="career-pulse scanline">
           <span className="eyebrow" style={{ color: "oklch(0.84 0.18 130)" }}>Career Pulse · live</span>
-          <h3>Серия 6 дней,<br />momentum растёт.</h3>
-          <div className="pulse-rows">
-            <div className="pulse-row">
-              <span className="pulse-label">Серия</span>
-              <span className="pulse-value mono">6d</span>
-            </div>
-            <div className="pulse-row">
-              <span className="pulse-label">Динамика</span>
-              <span className="pulse-value mono">+12</span>
-            </div>
-            <div className="pulse-row">
-              <span className="pulse-label">Стабильность</span>
-              <span className="pulse-value mono">87%</span>
-            </div>
-          </div>
+          {hasData ? (
+            <>
+              <h3>Аналитика по<br />{totalInterviews} интервью.</h3>
+              <div className="pulse-rows">
+                <div className="pulse-row">
+                  <span className="pulse-label">Средняя оценка</span>
+                  <span className="pulse-value mono">{avgScore}</span>
+                </div>
+                <div className="pulse-row">
+                  <span className="pulse-label">Завершение</span>
+                  <span className="pulse-value mono">{completionRate}%</span>
+                </div>
+                <div className="pulse-row">
+                  <span className="pulse-label">Пройдено</span>
+                  <span className="pulse-value mono">{totalInterviews}</span>
+                </div>
+              </div>
+            </>
+          ) : (
+            <>
+              <h3>Здесь появится<br />ваша аналитика.</h3>
+              <p className="muted" style={{ fontSize: 13, marginTop: 12 }}>
+                Пройдите первое интервью — и панель заполнится реальными показателями.
+              </p>
+            </>
+          )}
         </aside>
       </section>
 
       <section className="metric-row" style={{ marginTop: 32 }}>
         <div className="metric reveal reveal-1">
           <div className="metric-label">Средняя оценка</div>
-          <div className="metric-value mono"><Counter target={82} suffix="%" /></div>
+          <div className="metric-value mono"><Counter target={avgScore} suffix="%" /></div>
         </div>
         <div className="metric reveal reveal-2">
           <div className="metric-label">Завершение</div>
-          <div className="metric-value mono"><Counter target={94} suffix="%" /></div>
+          <div className="metric-value mono"><Counter target={completionRate} suffix="%" /></div>
         </div>
         <div className="metric reveal reveal-3">
           <div className="metric-label">Пройдено</div>
-          <div className="metric-value mono"><Counter target={28} /></div>
+          <div className="metric-value mono"><Counter target={totalInterviews} /></div>
         </div>
       </section>
 
@@ -84,81 +114,86 @@ export default function CareerCenterPage() {
         <div className="card card--hover wide reveal reveal-1">
           <span className="eyebrow">AI Career Copilot</span>
           <h3>Что делать дальше</h3>
-          <p className="body" style={{ marginTop: 12 }}>
-            Добавьте измеримые критерии в ответы о системном дизайне — задавайте границы, числа, ограничения. Это закроет основной паттерн потери баллов в последних 4 сессиях.
-          </p>
-          <div className="recs-list" style={{ marginTop: 20 }}>
-            {["Добавлять измеримые критерии", "Явно проговаривать trade-offs", "Закрепить структуру STAR в ответах", "Сократить latency ответа до 75 сек"].map((r, i) => (
-              <div className="rec-item" key={i}>
-                <div className="rec-bullet">{String(i + 1).padStart(2, "0")}</div>
-                <div className="rec-text">{r}</div>
+          {recs.length > 0 ? (
+            <>
+              <p className="body" style={{ marginTop: 12 }}>
+                Персональные рекомендации на основе ваших последних интервью.
+              </p>
+              <div className="recs-list" style={{ marginTop: 20 }}>
+                {recs.map((r, i) => (
+                  <div className="rec-item" key={i}>
+                    <div className="rec-bullet">{String(i + 1).padStart(2, "0")}</div>
+                    <div className="rec-text">{r}</div>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
+            </>
+          ) : (
+            <p className="body" style={{ marginTop: 12 }}>
+              Рекомендации появятся после первого пройденного интервью: система определит частые
+              ошибки и подскажет, что улучшить.
+            </p>
+          )}
           <div className="row" style={{ marginTop: 16 }}>
-            <button className="btn btn--accent" onClick={() => navigate("/interview")} type="button">Запустить лучший симулятор <Icon name="arrow" /></button>
+            <button className="btn btn--accent" onClick={() => navigate("/interview")} type="button">Запустить симулятор <Icon name="arrow" /></button>
           </div>
         </div>
 
         <div className="card card--hover reveal reveal-2">
           <span className="eyebrow">Карьерный радар</span>
           <h3>Сильные направления</h3>
-          <div className="radar-list">
-            {radar.map((r, i) => (
-              <div className="radar-item reveal" style={{ animationDelay: `${i * 80}ms` }} key={r.role}>
-                <div className="radar-head">
-                  <strong>{r.role}</strong>
-                  <em className="mono">{r.val}%</em>
+          {radar.length > 0 ? (
+            <div className="radar-list">
+              {radar.map((r, i) => (
+                <div className="radar-item reveal" style={{ animationDelay: `${i * 80}ms` }} key={r.role}>
+                  <div className="radar-head">
+                    <strong>{r.role}</strong>
+                    <em className="mono">{r.val}%</em>
+                  </div>
+                  <Track value={r.val} />
+                  <p className="muted" style={{ fontSize: 12 }}>{r.hint}</p>
                 </div>
-                <Track value={r.val} />
-                <p className="muted" style={{ fontSize: 12 }}>{r.hint}</p>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          ) : (
+            <p className="muted" style={{ fontSize: 14, marginTop: 12 }}>
+              Радар направлений построится по мере прохождения интервью в разных областях.
+            </p>
+          )}
         </div>
 
         <div className="card card--hover reveal reveal-3">
           <span className="eyebrow">Симулятор интервью</span>
           <h3>Быстрый старт</h3>
-          <p className="body" style={{ marginTop: 8 }}>Лучшие роли и темы из вашей аналитики.</p>
-          <div className="sim-list">
-            {sims.map((s) => (
-              <button key={s.name} className="sim-item" onClick={() => navigate("/interview")} type="button">
-                <strong>{s.name}</strong>
-                <span className="fit mono">{s.fit}%</span>
-                <Icon name="arrow" size={14} />
-              </button>
-            ))}
-          </div>
+          {sims.length > 0 ? (
+            <>
+              <p className="body" style={{ marginTop: 8 }}>Лучшие роли и темы из вашей аналитики.</p>
+              <div className="sim-list">
+                {sims.map((s) => (
+                  <button key={s.name} className="sim-item" onClick={() => navigate("/interview")} type="button">
+                    <strong>{s.name}</strong>
+                    <span className="fit mono">{s.fit}%</span>
+                    <Icon name="arrow" size={14} />
+                  </button>
+                ))}
+              </div>
+            </>
+          ) : (
+            <>
+              <p className="body" style={{ marginTop: 8 }}>Выберите направление и начните первое интервью.</p>
+              <button className="btn btn--ghost btn--sm" style={{ marginTop: 16 }} onClick={() => navigate("/interview")} type="button">Выбрать направление</button>
+            </>
+          )}
         </div>
 
         <div className="card card--hover reveal reveal-4">
           <span className="eyebrow">Лаборатория резюме</span>
-          <h3>Что улучшить в резюме</h3>
-          <div className="recs-list" style={{ marginTop: 16 }}>
-            {["Конкретизировать impact-метрики", "Добавить пример системного дизайна", "Сократить experience section"].map((r, i) => (
-              <div className="rec-item" key={i}>
-                <div className="rec-bullet">·</div>
-                <div className="rec-text">{r}</div>
-              </div>
-            ))}
-          </div>
+          <h3>Анализ резюме</h3>
+          <p className="body" style={{ marginTop: 12 }}>
+            Загрузите резюме — система выделит навыки, языки и подскажет, что улучшить для целевой роли.
+          </p>
           <button className="btn btn--ghost btn--sm" style={{ marginTop: 16 }} onClick={() => navigate("/resume")} type="button">Перейти в лабораторию</button>
         </div>
-
-        <div className="card card--hover reveal reveal-5">
-          <span className="eyebrow">План обучения</span>
-          <h3>План на 7 дней</h3>
-          <ol style={{ marginTop: 16, display: "grid", gap: 12 }}>
-            {plan.map((p, i) => (
-              <li key={i} className="row" style={{ alignItems: "baseline", gap: 14 }}>
-                <span className="mono" style={{ color: "var(--muted)", fontSize: 11 }}>{String(i + 1).padStart(2, "0")}</span>
-                <span style={{ fontSize: 14, color: "var(--ink-2)", lineHeight: 1.55 }}>{p}</span>
-              </li>
-            ))}
-          </ol>
-        </div>
-
       </section>
     </>
   );

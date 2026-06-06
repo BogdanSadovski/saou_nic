@@ -39,11 +39,13 @@ const (
 // SubscriptionTier represents the subscription plan tier.
 type SubscriptionTier string
 
+// Платформа поддерживает РОВНО три тарифа. Никаких free/basic/starter/
+// team/enterprise — они были источником рассинхрона между фронтом, gin-
+// валидацией и CHECK-констрейнтом БД (оплата падала 400 на platinum/trial).
 const (
-	TierFree     SubscriptionTier = "free"
-	TierBasic    SubscriptionTier = "basic"
+	TierTrial    SubscriptionTier = "trial"
 	TierPro      SubscriptionTier = "pro"
-	TierEnterprise SubscriptionTier = "enterprise"
+	TierPlatinum SubscriptionTier = "platinum"
 )
 
 // AuditAction represents the type of audit action performed.

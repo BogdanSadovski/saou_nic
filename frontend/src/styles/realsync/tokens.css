@@ -90,10 +90,14 @@
   --scanline: oklch(0 0 0 / 0.10);
 
   /* На тёмной теме inverse-карточки становятся СВЕТЛЫМИ, поэтому
-     текст в них должен быть ТЁМНЫМ. Переопределяем те же токены. */
-  --ink-text:  oklch(0.20 0.010 60);
-  --ink-muted: oklch(0.42 0.010 60);
-  --ink-line:  oklch(0.80 0.005 60);
+     текст в них должен быть ТЁМНЫМ. Переопределяем те же токены.
+     ink-muted ушёл с 0.42 → 0.30, а ink-line с 0.80 → 0.66 — на
+     светлой карточке внутри тёмного UI «бледно-серые» подписи
+     визуально пропадали на молочном фоне (отчёт пользователя
+     по «Карьерному центру»). */
+  --ink-text:  oklch(0.16 0.010 60);
+  --ink-muted: oklch(0.30 0.010 60);
+  --ink-line:  oklch(0.66 0.006 60);
 }
 
 /* Reset-ish */
@@ -582,11 +586,45 @@ h1 em, h2 em, h3 em, .display em,
   border: 1px solid var(--line);
   border-radius: var(--r-1);
   font-size: 15px;
+  color: var(--ink);
+  caret-color: var(--ink);
   transition: border-color var(--d-1) var(--ease-out), background var(--d-1) var(--ease-out);
+}
+.input::placeholder, .textarea::placeholder {
+  color: var(--muted);
 }
 .input:focus, .textarea:focus, .select:focus {
   outline: none;
   border-color: var(--ink);
+}
+
+/* ── Autofill override ─────────────────────────────────────
+   Chrome/Safari принудительно красят автозаполненные поля в
+   светло-кремовый (background:#FAFFBD/#E8F0FE), который на
+   тёмной теме RealSync выглядит чужеродным белым пятном с
+   тёмным текстом. Стандартный `background` нельзя — браузер
+   игнорирует. Перекрашиваем через :-webkit-autofill +
+   огромный inset box-shadow, который и есть «фон» автофилла,
+   и явно фиксируем цвет текста и caret. */
+.input:-webkit-autofill,
+.input:-webkit-autofill:hover,
+.input:-webkit-autofill:focus,
+.input:-webkit-autofill:active,
+.textarea:-webkit-autofill,
+.textarea:-webkit-autofill:hover,
+.textarea:-webkit-autofill:focus,
+.select:-webkit-autofill,
+.select:-webkit-autofill:hover,
+.select:-webkit-autofill:focus {
+  -webkit-box-shadow: 0 0 0 1000px var(--paper) inset !important;
+  box-shadow: 0 0 0 1000px var(--paper) inset !important;
+  -webkit-text-fill-color: var(--ink) !important;
+  caret-color: var(--ink) !important;
+  border: 1px solid var(--line) !important;
+  /* Анимация — единственный надёжный способ поймать момент
+     срабатывания автозаполнения для JS-листенеров; стилям не
+     мешает. */
+  transition: background-color 9999s ease-out 0s;
 }
 
 /* Grid layouts */

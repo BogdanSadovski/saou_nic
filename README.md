@@ -45,7 +45,7 @@
 |--------|-------------|
 | **Интервью (AI)** | Реальный голос интервьюера, адаптивная сложность, per-turn verdict-бейджи, пауза таймера во время мышления AI, семантическая дедупликация вопросов через embeddings |
 | **Live-coding** | Встроенный редактор с подсветкой синтаксиса (Go/Python/TS/JS/Java/Rust/C++), Tab-индентация, авто-парные скобки, line-numbers, нумерация символов, AI-проверка решений |
-| **Soft-skills** | Bank из 1420 вопросов, оценка ответа собственной PyTorch-моделью (rubert-tiny2 + регрессор) |
+| **Soft-skills** | Встроенный банк поведенческих вопросов, оценка ответа через LLM (DeepSeek) по STAR-методу — situation/task/action/result |
 | **Резюме (AI)** | Парсинг PDF/DOCX/TXT, AI-инсайты (strengths, weaknesses, action plan), языки программирования, рекомендованные позиции, треки интервью |
 | **GitHub-аналитика** | Импорт через публичный API, AI-разбор активности, рекомендованные роли с fit_score, top-репозитории, граф контрибуций |
 | **HH.ru интеграция** | Автоматический поиск подходящих вакансий по навыкам резюме, кеш в Redis 1h, фильтр регионов (Беларусь / Россия / Москва / Все) |
@@ -62,8 +62,7 @@
 
 ### Backend (микросервисная архитектура)
 - **Go 1.22+** — user / interview / scoring / report / admin / github / resume / analytics / notification / api-gateway / code-executor
-- **Python 3.11+ / FastAPI** — AI-сервисы (ai-service, softskills-service)
-- **PyTorch 2.4 + sentence-transformers 3.2** — собственная ML-модель soft-skills (rubert-tiny2 эмбеддинги + кастомный регрессор)
+- **Python 3.11+ / FastAPI** — AI-сервис (ai-service), telegram-bot, code-executor
 - **gorilla/mux, gorilla/websocket** — HTTP и WS на Go
 - **OpenAI SDK (async)** — обёртка для всех OpenAI-совместимых LLM
 - **logrus + zerolog** — структурное логирование
@@ -88,10 +87,9 @@
 - **MinIO (S3-совместимое)** — хранение резюме и аватаров
 - **Prometheus + Grafana + Loki + Alertmanager** — наблюдаемость
 
-### AI / ML
+### AI / LLM
 - **LLM-каскад из 4+ провайдеров**: Groq → OpenRouter → DeepSeek → Cerebras
-- **Custom ML model** (PyTorch) для soft-skills скоринга
-- **sentence-transformers/cointegrated/rubert-tiny2** — русскоязычные эмбеддинги (312-dim)
+- **STAR-метод** для оценки soft-skill ответов через тот же LLM
 - **Семантическая дедупликация** вопросов через косинусное сходство
 - **AI-вердикты** per-turn (correct/partial/wrong/skipped/off_topic)
 
@@ -136,8 +134,8 @@
 
 **Связи между сервисами:**
 - `interview-service` ↔ `ai-service` (HTTP, `/api/v1/interviewer/next-question`)
-- `interview-service` ↔ `softskills-service` (HTTP, `/api/v1/score`, `/api/v1/questions`)
 - `interview-service` ↔ `scoring-service` (HTTP, `/api/v1/scoring/generate`)
+- `interview-service` → LLM (прямой HTTP) — для soft-skills скоринга по STAR
 - `interview-service` ↔ `HH.ru` (HTTP, `https://api.hh.ru/vacancies`)
 - `interview-service` ↔ `GitHub` (HTTP, `https://api.github.com/...`)
 - `interview-service` ↔ `frontend` (WebSocket `/ws/sessions/{id}`)
@@ -176,72 +174,6 @@
 
 ---
 
-## 🧠 Soft-skills ML модель (собственная PyTorch разработка)
-
-Отдельный микросервис `services/softskills-service/` — **полностью самостоятельная ML-модель**, тренируется на месте, без зависимости от LLM-каскада.
-
-### Архитектура `SoftSkillRegressor`
-
-```
-Input (rubert-tiny2 embedding, 312-dim)
-    │
-    ├─→ Linear(312 → 192) + LayerNorm + GELU + Dropout(0.35)
-    │           │
-    │           └────────────────────────┐  (residual)
-    │                                    ▼
-    └─→ Linear(192 → 96) + LayerNorm + GELU + Dropout(0.20)
-                           │
-                           ▼
-                       Linear(96 → 1) + Sigmoid
-                           │
-                           ▼
-                       Score ∈ [0, 1] → × 100 → %
-```
-
-**Особенности vs оригинальная разработка:**
-- LayerNorm вместо BatchNorm (стабильнее на one-by-one inference)
-- GELU вместо ReLU (smoother gradient)
-- Residual connection hidden1 → hidden2
-- Kaiming init, Smooth L1 loss (устойчивость к шумным таргетам)
-- Cosine annealing LR scheduler + grad clipping
-
-### Датасет
-
-- **Seed:** 644 пар (вопрос, ответ, target ∈ [0,1]) — оригинальная разработка автора
-- **Augmentation:** для каждого вопроса добавляются три tier'а синтетических ответов:
-  - **Low** (target 0.05-0.18): «Не знаю», «Делаю как сказали»
-  - **Mid** (target 0.42-0.58): «Обсуждаю с командой», «Анализирую и принимаю решение»
-  - **High** (target 0.85-0.96): STAR-формулировки с конкретными цифрами и метриками
-- **Итого ~2000 примеров** после augmentation
-- **Bank вопросов:** 1420 уникальных soft-skills вопросов
-
-### Тренировка
-
-- **200 эпох** с early stopping (patience=25)
-- **Batch 32, AdamW, lr=8e-4 + cosine annealing**
-- **Split:** 80% train / 10% val / 10% test
-- На CPU 4 ядра — 5-8 минут
-- Результаты: MAE ≈ 0.05, R² ≈ 0.78 (test)
-
-### API сервиса (port 8090)
-
-| Endpoint | Описание |
-|---------|----------|
-| `GET /health` | Liveness |
-| `GET /api/v1/questions?n=5` | Случайные N вопросов из bank'а |
-| `POST /api/v1/score` | `{question, answer}` → `{score 0-100, feedback, verdict}` |
-| `POST /api/v1/score_batch` | Батч оценок |
-| `POST /api/v1/session/score` | Полная оценка сессии с per-turn + рекомендациями |
-
-### Контейнер
-
-- Веса персистятся в volume `platform_softskills_weights` → тренировка только на первом старте
-- Embedding модель кешируется в `platform_softskills_hf_cache`
-- `start_period: 360s` (даёт время на тренировку)
-- `restart: unless-stopped` — всегда онлайн
-
----
-
 ## 🔧 Описание всех микросервисов
 
 ### 1. **api-gateway** (Go, :8000)
@@ -257,7 +189,7 @@ Input (rubert-tiny2 embedding, 312-dim)
 **Особые маршруты:**
 - `/api/v1/resume/import` и `/api/v1/resume/vacancies/*` → **interview-service** (исторически)
 - `/api/billing/*` → admin-service
-- `/api/softskills/*` → softskills-service
+- `/api/sandbox/*` → code-executor
 
 ### 2. **user-service** (Go, :8080)
 
@@ -312,9 +244,9 @@ JWT HS256 с shared secret `JWT_SECRET`.
 
 #### Soft-skills bridge
 Когда `interview_mode == "softskills"` — `requestNextQuestion()` делает early-return в `buildSoftSkillsNextQuestion()`:
-1. Скорит предыдущий ответ через `softskills-service:/api/v1/score`
-2. Берёт следующий вопрос из bank'а через `/api/v1/questions?n=8`
-3. Избегает повторов
+1. Скорит предыдущий ответ прямым HTTP-вызовом LLM по STAR-методу
+2. Берёт следующий вопрос из встроенного банка (`softSkillsBank` в `softskills_bridge.go`)
+3. Избегает повторов в рамках сессии
 
 #### Pause timer during AI thinking
 Перед запросом к LLM — broadcast `session.timer.adjusted` с pause=true. После ответа — добавляет `aiCallDuration` к `session.ExpiresAt`. Кандидат не теряет время на ожидание AI.
@@ -340,11 +272,7 @@ JWT HS256 с shared secret `JWT_SECRET`.
 - Style profile per role — backend строгий по архитектуре, frontend — по производительности
 - `turn_nonce` UUID в каждом запросе — ломает кеши LLM
 
-### 5. **softskills-service** (Python FastAPI + PyTorch, :8090)
-
-См. раздел [Soft-skills ML модель](#-soft-skills-ml-модель-собственная-pytorch-разработка) выше.
-
-### 6. **scoring-service** (Go, :8080)
+### 5. **scoring-service** (Go, :8080)
 
 Считает финальный отчёт. БД `scoring_service`.
 
@@ -361,11 +289,11 @@ JWT HS256 с shared secret `JWT_SECRET`.
 
 Если нет содержательных ответов — все score=0 + recommendation «попробуйте снова, отвечайте 1-2 предложениями». Никаких фейковых оценок.
 
-### 7. **report-service** (Go, :8080)
+### 6. **report-service** (Go, :8080)
 
 История отчётов и аналитика. БД `report_service`. Получает события из Kafka.
 
-### 8. **admin-service** (Go, :8080)
+### 7. **admin-service** (Go, :8080)
 
 Биллинг + админ-панель. БД `admin_service`.
 
@@ -382,19 +310,19 @@ JWT HS256 с shared secret `JWT_SECRET`.
 - Профи — **65 Br/мес** (highlighted)
 - Команда — **159 Br/мес**
 
-### 9. **github-service** (Go, :8082)
+### 8. **github-service** (Go, :8082)
 Заглушка. Реальный импорт через interview-service.
 
-### 10. **resume-service** (Go, :8080)
+### 9. **resume-service** (Go, :8080)
 Заглушка. Реальный парсинг через interview-service.
 
-### 11. **analytics-service** (Go, :8080)
+### 10. **analytics-service** (Go, :8080)
 ETL: Kafka → ClickHouse. Подписки на dashboards.
 
-### 12. **notification-service** (Go, :8080)
+### 11. **notification-service** (Go, :8080)
 Email + SMS через RabbitMQ. SMTP / SendGrid / Twilio.
 
-### 13. **code-executor-service** (Go)
+### 12. **code-executor-service** (Go)
 Заготовка для исполнения кода в sandbox.
 
 ---
@@ -615,20 +543,19 @@ PostgreSQL 16, **отдельная БД на сервис** — изоляци�
 2. interview-service сохраняет: role="SoftSkills", mode="softskills"
 3. UI popup → WS connect
 4. generateInitialQuestion:
-   └─ buildSoftSkillsNextQuestion (LLM не вызывается)
-       ├─ GET softskills-service:/api/v1/questions?n=8
+   └─ buildSoftSkillsNextQuestion
+       ├─ pickSoftSkillsQuestion (in-process bank, без сети)
        │   ├─ Скип уже заданных (по session.Messages)
-       │   └─ Берёт первый свободный
+       │   └─ Берёт случайный свободный
        └─ Возвращает чистый вопрос
 5. Каждый ответ:
    a) UI · POST /messages
    b) buildSoftSkillsNextQuestion:
-      ├─ POST softskills-service:/api/v1/score { question, answer }
-      │   ├─ rubert-tiny2 embedding
-      │   ├─ Scaler transform
-      │   ├─ SoftSkillRegressor.forward
-      │   └─ → { score 0-100, feedback, verdict }
-      └─ Берёт следующий вопрос
+      ├─ POST LLM /chat/completions { system: STAR-prompt, user: q+a }
+      │   ├─ response_format=json_object
+      │   ├─ {score, verdict, feedback}
+      │   └─ Fallback на heuristic при недоступности LLM
+      └─ Берёт следующий вопрос из встроенного банка
 ```
 
 ---
@@ -651,10 +578,9 @@ PostgreSQL 16, **отдельная БД на сервис** — изоляци�
 - После прислания кода — **макс 1-2 follow-up** про конкретный код
 
 ### Режим SOFTSKILLS
-- LLM **не используется** вообще
-- Вопросы из bank'а 1420 вопросов (softskills-service)
-- Оценка — ML-модель (rubert-tiny2 + регрессор)
-- Никаких follow-up'ов — каждый ход новый вопрос
+- Вопросы из встроенного банка (`softSkillsBank` в `softskills_bridge.go`)
+- Оценка ответа — прямой HTTP-вызов LLM с STAR-промптом (situation/task/action/result)
+- Никаких follow-up'ов — каждый ход новый вопрос из банка
 
 ---
 
@@ -698,23 +624,10 @@ cd saou_nic
 # 3. Поднять всё
 make dev-up
 
-# 4. Дождаться первичной тренировки softskills (5-8 мин)
-docker logs -f platform-softskills-service-1
-# Должно появиться: "Application startup complete"
-
-# 5. Frontend
+# 4. Frontend
 cd frontend
 npm install
 npm run dev   # → http://localhost:3000
-```
-
-### Полное переобучение softskills модели
-
-```bash
-docker compose -f infrastructure/docker/docker-compose.yml down softskills-service
-docker volume rm platform_softskills_weights
-docker compose -f infrastructure/docker/docker-compose.yml up -d softskills-service
-docker logs -f platform-softskills-service-1
 ```
 
 ### Доступы по умолчанию
@@ -829,7 +742,7 @@ if hasattr(client, '_clients'):
 ```bash
 docker logs -f platform-interview-service-1 | grep -E "softskills|cascade|next-question"
 docker logs -f platform-ai-service-1 | grep -E "Tier|cascade|rate-limit"
-docker logs -f platform-softskills-service-1
+docker logs -f platform-telegram-bot-1
 ```
 
 ### Прямой тест soft-skills
@@ -901,20 +814,6 @@ real_ass/
 │   │   │   └── services/
 │   │   ├── requirements.txt
 │   │   └── Dockerfile
-│   └── softskills-service/            ← Python FastAPI + PyTorch ⭐ собственная ML
-│       ├── app/
-│       │   ├── main.py                ← FastAPI с /score, /questions
-│       │   ├── model.py               ← SoftSkillRegressor
-│       │   ├── dataset.py             ← seed + augmentation
-│       │   ├── train.py               ← 200 эпох, early stopping
-│       │   └── predict.py             ← lazy load
-│       ├── data/
-│       │   ├── dataset_seed.json      ← 644 примеров от автора
-│       │   └── questions_pool.json    ← 1420 вопросов
-│       ├── weights/                   ← persisted Docker volume
-│       ├── entrypoint.sh
-│       ├── requirements.txt
-│       └── Dockerfile
 ├── frontend/
 │   ├── package.json
 │   ├── vite.config.ts

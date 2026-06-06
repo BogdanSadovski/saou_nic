@@ -56,6 +56,38 @@ def _trim(data: bytes) -> str:
     return data.decode("utf-8", errors="replace")
 
 
+# Маркеры «библиотека не найдена» в stderr разных рантаймов.
+_MISSING_DEP_MARKERS = (
+    "ModuleNotFoundError",
+    "No module named",
+    "Cannot find module",
+    "cannot find package",
+    "no required module provides package",
+    "is not recognized",
+)
+
+
+def _maybe_dep_hint(spec: LanguageSpec, stderr: str) -> str:
+    """Если код упал из-за отсутствующей библиотеки — добавляем понятную
+    подсказку вместо «голого» стектрейса."""
+    if not stderr or not any(m in stderr for m in _MISSING_DEP_MARKERS):
+        return stderr
+    if spec.libs:
+        avail = ", ".join(spec.libs)
+        note = (
+            f"Похоже, используется сторонняя библиотека, недоступная в песочнице "
+            f"(контейнер без доступа в сеть). Предустановлены: {avail}. "
+            f"Решение всё равно оценивается ИИ по коду, а не по результату запуска."
+        )
+    else:
+        note = (
+            "Похоже, используется сторонняя библиотека. В песочнице этого языка "
+            "доступна только стандартная библиотека (контейнер без доступа в сеть). "
+            "Решение всё равно оценивается ИИ по коду, а не по результату запуска."
+        )
+    return f"{stderr}\n\n[Песочница] {note}"
+
+
 async def _run_subprocess(
     cmd: list[str],
     timeout: int,
@@ -175,7 +207,7 @@ async def run_in_docker(spec: LanguageSpec, code: str, stdin_data: str | None) -
         return ExecResult(
             language=spec.id,
             stdout=_trim(stdout),
-            stderr=_trim(stderr),
+            stderr=_maybe_dep_hint(spec, _trim(stderr)),
             exit_code=rc,
             duration_ms=duration_ms,
             timed_out=timed_out,

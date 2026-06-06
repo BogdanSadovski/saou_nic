@@ -63,7 +63,12 @@ async def health() -> dict[str, str]:
 async def list_languages() -> dict:
     return {
         "languages": [
-            {"id": spec.id, "label": spec.label, "in_process": spec.image == "builtin"}
+            {
+                "id": spec.id,
+                "label": spec.label,
+                "in_process": spec.image == "builtin",
+                "libs": list(spec.libs),
+            }
             for spec in LANGUAGES.values()
         ],
         "limits": {

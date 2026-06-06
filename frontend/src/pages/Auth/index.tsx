@@ -3,7 +3,6 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 
 import { useUserStore } from "@/app/store";
 import { AuthForm } from "@/features/auth/AuthForm";
-import { GithubConnectCard } from "@/features/github-connect/GithubConnectCard";
 import { useToast } from "@/shared/ui";
 
 export default function AuthPage() {
@@ -62,7 +61,7 @@ export default function AuthPage() {
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)",
+          gridTemplateColumns: "minmax(0, 560px)",
           gap: 24,
           marginTop: 32,
           alignItems: "start",
@@ -70,7 +69,6 @@ export default function AuthPage() {
         className="auth-grid"
       >
         <AuthForm />
-        <GithubConnectCard />
       </div>
     </main>
   );

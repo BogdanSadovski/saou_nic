@@ -173,17 +173,53 @@ const tierToCents = (tier: string): number => {
 let mockTransactions: BillingTransaction[] = [];
 let mockIntent: CheckoutIntent | null = null;
 
+// In-flight дедупликация: getSubscription() + listTransactions() в
+// /billing/index.tsx стартуют параллельно через Promise.all и оба
+// зовут getMine() — это давало два одинаковых GET, оба с 404
+// для пользователей без активной подписки. Если есть незавершённый
+// запрос, возвращаем тот же промис. Плюс короткое окно кэша (3 с),
+// чтобы быстрая перенавигация между Profile/Billing/Resume не
+// сыпала повторные сетевые запросы.
+let inflight: Promise<BackendSubscription | null> | null = null;
+let cachedAt = 0;
+let cached: BackendSubscription | null | undefined = undefined;
+const CACHE_TTL_MS = 3000;
+
 export const billingApi = {
   /** Сохраняемая совместимость со старым кодом. */
   async getMine(): Promise<BackendSubscription | null> {
-    try {
-      const { data } = await apiClient.get<BackendSubscription>("/billing/me/subscription");
-      return data;
-    } catch (e) {
-      const status = (e as { response?: { status?: number } })?.response?.status;
-      if (status === 404) return null;
-      throw e;
+    const now = Date.now();
+    if (cached !== undefined && now - cachedAt < CACHE_TTL_MS) {
+      return cached;
     }
+    if (inflight) return inflight;
+
+    inflight = (async () => {
+      // validateStatus трактует 404 как ВАЛИДНЫЙ ответ
+      // («подписки нет — это нормально, а не ошибка»). Без этого
+      // axios логировал в консоль красный "404 (Not Found)" даже
+      // несмотря на наш catch — потому что лог идёт из браузерной
+      // network-layer, до того как JS успевает перехватить.
+      try {
+        const resp = await apiClient.get<BackendSubscription>("/billing/me/subscription", {
+          validateStatus: (s) => (s >= 200 && s < 300) || s === 404,
+        });
+        const value = resp.status === 404 ? null : resp.data;
+        cached = value;
+        cachedAt = Date.now();
+        return value;
+      } finally {
+        inflight = null;
+      }
+    })();
+
+    return inflight;
+  },
+
+  /** Сбрасывает короткий in-memory кэш — вызывать после create/cancel. */
+  invalidateMineCache(): void {
+    cached = undefined;
+    cachedAt = 0;
   },
 
   async create(input: { tier: string; cardLast4?: string }): Promise<BackendSubscription> {
@@ -191,11 +227,13 @@ export const billingApi = {
       tier: input.tier,
       card_last4: input.cardLast4 ?? "",
     });
+    billingApi.invalidateMineCache();
     return data;
   },
 
   async cancel(): Promise<void> {
     await apiClient.delete("/billing/me/subscription");
+    billingApi.invalidateMineCache();
   },
 
   // ───── Расширенный API для страницы Billing ─────

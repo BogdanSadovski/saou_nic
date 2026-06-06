@@ -422,10 +422,10 @@ async def on_resume(message: Message) -> None:
         return
     await message.answer(
         "📄 <b>Анализ резюме через Telegram</b>\n\n"
-        "Просто пришлите мне DOCX, TXT или RTF файл с резюме. Я отправлю его "
+        "Просто пришлите мне PDF, DOCX, TXT или RTF файл с резюме. Я отправлю его "
         "в AI-сервис RealSync и пришлю краткую сводку: топ-3 сильных стороны, "
         "топ-3 зоны роста, рекомендация по позициям.\n\n"
-        "<i>PDF временно не принимается из-за нестабильного парсера.</i>",
+        "Поддерживаются PDF, DOCX, TXT, RTF до 8 МБ.",
         parse_mode="HTML",
     )
 
@@ -438,9 +438,9 @@ async def on_document(message: Message) -> None:
         return
     doc = message.document
     fname = (doc.file_name or "resume").lower()
-    if not any(fname.endswith(ext) for ext in (".docx", ".txt", ".rtf")):
+    if not any(fname.endswith(ext) for ext in (".pdf", ".docx", ".txt", ".rtf")):
         await message.answer(
-            "🛑 Принимаю только DOCX / TXT / RTF. PDF — пока нет."
+            "🛑 Принимаю PDF / DOCX / TXT / RTF."
         )
         return
     if doc.file_size and doc.file_size > 8 * 1024 * 1024:

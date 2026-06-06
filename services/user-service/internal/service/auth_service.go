@@ -17,6 +17,9 @@ var (
 	ErrInvalidCredentials = errors.New("invalid email or password")
 	ErrUserNotFound       = errors.New("user not found")
 	ErrUserAlreadyExists  = errors.New("user already exists")
+	// ErrAccountBlocked — учётная запись забанена или приостановлена
+	// администратором (status != active). Запрещаем вход и обновление токенов.
+	ErrAccountBlocked = errors.New("account is blocked or suspended")
 )
 
 type AuthService struct {
@@ -95,6 +98,11 @@ func (s *AuthService) Login(ctx context.Context, email, password string) (*jwtpk
 		return nil, ErrInvalidCredentials
 	}
 
+	// Запрет входа для заблокированных/приостановленных аккаунтов.
+	if user.Status != domain.StatusActive {
+		return nil, ErrAccountBlocked
+	}
+
 	if err := s.userRepo.UpdateLastLogin(ctx, user.ID); err != nil {
 		// Log error but don't fail the login
 		fmt.Printf("failed to update last login: %v\n", err)
@@ -117,6 +125,11 @@ func (s *AuthService) RefreshTokens(ctx context.Context, refreshToken string) (*
 	user, err := s.userRepo.GetByID(ctx, claims.UserID)
 	if err != nil {
 		return nil, fmt.Errorf("user not found: %w", err)
+	}
+
+	// Забаненный/приостановленный пользователь не должен продлевать сессию.
+	if user.Status != domain.StatusActive {
+		return nil, ErrAccountBlocked
 	}
 
 	tokens, err := s.tokenMgr.GenerateTokens(user.ID, user.Email, string(user.Role))

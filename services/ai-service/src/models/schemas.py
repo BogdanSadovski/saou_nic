@@ -93,6 +93,11 @@ class ValidateOutputRequest(BaseModel):
     session_context: Optional[str] = Field(None, max_length=5000)
     recent_topics: Optional[list[str]] = Field(default_factory=list)
     avoid_questions: Optional[list[str]] = Field(default_factory=list)
+    # Без режима валидатор не знает, можно ли в санитайзере сохранять
+    # переводы строк и не дописывать «?» (нужно для practice-блоков
+    # [FEEDBACK]/[HINT]/[NEXT_TASK] с fenced-кейсами). По умолчанию ""
+    # — старое поведение, безопасное для theory.
+    interview_mode: Optional[str] = Field(None, max_length=40)
 
 
 class PostAnalysisRequest(BaseModel):

@@ -78,10 +78,16 @@ class LLMClient:
             "HTTP-Referer": "https://github.com/BogdanSadovski/saou_nic",
             "X-Title": "RealSync Interview Platform",
         }
+        # Явный таймаут на запрос (120 с) и автоматические ретраи: при
+        # медленном ответе модели или кратковременном сбое SDK сам
+        # повторит запрос, что снижает число срабатываний fallback'а
+        # («ИИ не ответил»).
         self._client = AsyncOpenAI(
             api_key=api_key,
             base_url=base_url,
             default_headers=default_headers,
+            timeout=120.0,
+            max_retries=3,
         )
 
     async def generate(

@@ -155,10 +155,20 @@ export default function AdminPage() {
     }
   }, [reportError]);
 
+  // loadStats — стабильный (deps: []), грузим один раз при монтировании.
+  // loadUsers пересоздаётся при смене query/statusFilter; если оба
+  // были в одном эффекте, переключение фильтра тащило за собой
+  // лишний loadStats() → setStatsLoading(true) → шапка перерисовывалась,
+  // а таблица одновременно «схлопывалась» в одно слово «Загружаем…».
+  // Из-за резкого скачка высоты браузер сбрасывал scroll в начало
+  // страницы. Разделили в два независимых эффекта.
   useEffect(() => {
     void loadStats();
+  }, [loadStats]);
+
+  useEffect(() => {
     void loadUsers();
-  }, [loadStats, loadUsers]);
+  }, [loadUsers]);
 
   useEffect(() => {
     if (tab === "subscriptions" && subscriptions.length === 0) {
@@ -324,7 +334,19 @@ export default function AdminPage() {
             </div>
           </div>
 
-          <div className="admin-table">
+          <div
+            className="admin-table"
+            aria-busy={usersLoading || undefined}
+            style={{
+              // Резервируем высоту таблицы, чтобы при перезагрузке
+              // фильтра содержимое не «схлопывалось» в одну строку
+              // «Загружаем…» — иначе высота страницы резко падает и
+              // браузер сбрасывает прокрутку в начало.
+              minHeight: 360,
+              opacity: usersLoading && filteredUsers.length > 0 ? 0.55 : 1,
+              transition: "opacity 120ms ease-out",
+            }}
+          >
             <div className="admin-row head">
               <span>#</span>
               <span>Пользователь</span>
@@ -334,9 +356,9 @@ export default function AdminPage() {
               <span style={{ textAlign: "right" }}>Действия</span>
             </div>
 
-            {usersLoading ? (
+            {usersLoading && filteredUsers.length === 0 ? (
               <div className="muted" style={{ padding: 20 }}>Загружаем…</div>
-            ) : filteredUsers.length === 0 ? (
+            ) : !usersLoading && filteredUsers.length === 0 ? (
               <div className="muted" style={{ padding: 20 }}>
                 {usersTotal === 0 ? "Пока нет пользователей" : "Ничего не найдено"}
               </div>

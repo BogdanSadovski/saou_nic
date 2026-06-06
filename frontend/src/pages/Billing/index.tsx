@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 
-import { billingApi, type BillingPlan, type BillingTransaction, type CheckoutIntent, type SubscriptionSnapshot } from "@/shared/api/billing";
+import { billingApi, type BillingPlan, type BillingTransaction, type SubscriptionSnapshot } from "@/shared/api/billing";
 import { quotaApi, type QuotaSnapshot } from "@/shared/api/quota";
 import { formatBYN } from "@/shared/lib/currency";
 import { BynSign } from "@/shared/ui/BynSign";
@@ -23,6 +24,23 @@ const formatDate = (value?: string) => {
 
 const formatLimit = (limit: number | "unlimited"): string =>
   limit === "unlimited" || limit < 0 ? "∞" : String(limit);
+
+// Лимит для прогресс-бара берём из плана текущего тарифа (источник
+// правды по тарифу), а не из quota-API: счётчик quota может резолвить
+// тариф из устаревшего JWT, из-за чего на Pro показывался «∞».
+const planLimitFor = (
+  plan: BillingPlan | undefined,
+  key: "interview" | "resume" | "github_import",
+): number => {
+  if (!plan) return -1;
+  const raw =
+    key === "interview"
+      ? plan.limits.interviews_per_month
+      : key === "resume"
+        ? plan.limits.resumes_per_month
+        : plan.limits.github_imports_per_month;
+  return raw === "unlimited" ? -1 : raw;
+};
 
 const statusLabel = (status: string): string => {
   switch (status) {
@@ -47,15 +65,17 @@ const txStatusLabel = (status: string): string => {
 
 export default function BillingPage() {
   const { pushToast } = useToast();
+  const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [processing, setProcessing] = useState(false);
   const [plans, setPlans] = useState<BillingPlan[]>([]);
   const [subscription, setSubscription] = useState<SubscriptionSnapshot | null>(null);
   const [transactions, setTransactions] = useState<BillingTransaction[]>([]);
-  const [activeIntent, setActiveIntent] = useState<CheckoutIntent | null>(null);
   const [quota, setQuota] = useState<QuotaSnapshot | null>(null);
 
   const currentTier = subscription?.tier ?? "trial";
+  const currentPlan = plans.find((p) => p.tier === currentTier);
+  const isActive = subscription?.status === "active";
 
   const loadAll = async () => {
     setLoading(true);
@@ -82,38 +102,9 @@ export default function BillingPage() {
     void loadAll();
   }, []);
 
-  const startTestCheckout = async (tier: "pro" | "platinum") => {
-    setProcessing(true);
-    try {
-      const intent = await billingApi.createCheckoutIntent({
-        tier,
-        payment_method_id: "pm_test_visa_4242",
-      });
-      setActiveIntent(intent);
-      pushToast("Создан тестовый платёжный intent. Подтвердите ниже.");
-    } catch (error) {
-      console.error(error);
-      pushToast("Не удалось создать тестовый платёж");
-    } finally {
-      setProcessing(false);
-    }
-  };
-
-  const confirmTestCheckout = async () => {
-    if (!activeIntent) return;
-    setProcessing(true);
-    try {
-      const result = await billingApi.confirmCheckoutIntent(activeIntent.id);
-      setActiveIntent(result.intent);
-      setSubscription(result.subscription);
-      setTransactions((prev) => [result.transaction, ...prev]);
-      pushToast(`Тариф ${result.subscription.tier.toUpperCase()} активирован`);
-    } catch (error) {
-      console.error(error);
-      pushToast("Не удалось подтвердить тестовую оплату");
-    } finally {
-      setProcessing(false);
-    }
+  // Переход на страницу оплаты (RealPay) — карточная форма, как раньше.
+  const goToCheckout = (plan: BillingPlan) => {
+    navigate(`/billing/checkout?tier=${plan.tier}&amount=${plan.price}`);
   };
 
   const cancelSubscription = async () => {
@@ -138,7 +129,7 @@ export default function BillingPage() {
           <span className="bold">Подписка</span> <span className="ital">и оплата</span>.
         </h1>
         <span className="mono" style={{ fontSize: 11, color: "var(--muted)", letterSpacing: "0.08em" }}>
-          ● тестовый шлюз · списания не происходит
+          оплата раз в месяц · BYN
         </span>
       </header>
 
@@ -192,14 +183,16 @@ export default function BillingPage() {
                       resume: "Резюме-анализ",
                       github_import: "GitHub-импорт",
                     } as const;
-                    const isUnlimited = q.limit < 0;
-                    const pct = isUnlimited ? 100 : Math.min(100, Math.round((q.used / Math.max(1, q.limit)) * 100));
+                    // Лимит — из плана текущего тарифа, использование — из quota.
+                    const limit = planLimitFor(currentPlan, key);
+                    const isUnlimited = limit < 0;
+                    const pct = isUnlimited ? 100 : Math.min(100, Math.round((q.used / Math.max(1, limit)) * 100));
                     return (
                       <div key={key} style={{ padding: "12px 14px", border: "1px solid var(--line)", borderRadius: "var(--r-1)", background: "var(--paper-2)" }}>
                         <div className="row-between" style={{ alignItems: "baseline" }}>
                           <span style={{ fontSize: 13, fontWeight: 500 }}>{labels[key]}</span>
                           <span className="mono" style={{ fontSize: 11, color: q.allowed ? "var(--muted)" : "var(--signal)" }}>
-                            {q.used} / {formatLimit(q.limit)}
+                            {q.used} / {formatLimit(limit)}
                           </span>
                         </div>
                         <div style={{ marginTop: 8, height: 4, background: "var(--line)", borderRadius: 2, overflow: "hidden" }}>
@@ -217,7 +210,7 @@ export default function BillingPage() {
               </div>
             ) : null}
 
-            {subscription ? (
+            {isActive ? (
               <div className="row" style={{ gap: 10, marginTop: 4 }}>
                 <button
                   className="btn btn--ghost btn--sm"
@@ -232,29 +225,6 @@ export default function BillingPage() {
           </div>
         )}
       </section>
-
-      {/* Активный intent */}
-      {activeIntent ? (
-        <section className="card card--hover" style={{ marginTop: 18, padding: 20, borderColor: activeIntent.status === "succeeded" ? "var(--accent)" : "var(--line)" }}>
-          <div className="row-between" style={{ alignItems: "center", flexWrap: "wrap", gap: 12 }}>
-            <div>
-              <span className="eyebrow">Платёжный intent</span>
-              <div className="mono" style={{ fontSize: 13, marginTop: 6 }}>{activeIntent.id}</div>
-              <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
-                Сумма {formatMoney(activeIntent.amount_cents)} · статус «{activeIntent.status}» · до {formatDate(activeIntent.expires_at)}
-              </div>
-            </div>
-            <button
-              className="btn btn--primary"
-              type="button"
-              onClick={confirmTestCheckout}
-              disabled={processing || activeIntent.status !== "requires_confirmation"}
-            >
-              {activeIntent.status === "succeeded" ? "Оплачено" : "Подтвердить оплату"}
-            </button>
-          </div>
-        </section>
-      ) : null}
 
       {/* Тарифы */}
       <section style={{ marginTop: 32 }}>
@@ -323,7 +293,7 @@ export default function BillingPage() {
                   <span>github: {formatLimit(plan.limits.github_imports_per_month)}</span>
                 </div>
 
-                {isCurrent ? (
+                {isCurrent && isActive ? (
                   <button className="btn btn--ghost" type="button" disabled style={{ marginTop: 4 }}>
                     Текущий план
                   </button>
@@ -331,7 +301,7 @@ export default function BillingPage() {
                   <button
                     className="btn btn--ghost"
                     type="button"
-                    disabled={processing}
+                    disabled={processing || !isActive}
                     onClick={cancelSubscription}
                     style={{ marginTop: 4 }}
                   >
@@ -342,10 +312,10 @@ export default function BillingPage() {
                     className={isHighlight ? "btn btn--accent" : "btn btn--primary"}
                     type="button"
                     disabled={processing}
-                    onClick={() => startTestCheckout(plan.tier as "pro" | "platinum")}
+                    onClick={() => goToCheckout(plan)}
                     style={{ marginTop: 4 }}
                   >
-                    Тестово оплатить {plan.name}
+                    {isCurrent ? `Возобновить ${plan.name}` : `Оформить ${plan.name}`}
                   </button>
                 )}
               </article>

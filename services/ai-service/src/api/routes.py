@@ -23,6 +23,7 @@ from src.models.responses import (
     NextQuestionResponse,
     PostAnalysisResponse,
     QuestionGenerationResponse,
+    ResumeDistributionPoint,
     TranscriptionResponse,
     ValidateOutputResponse,
 )
@@ -197,7 +198,11 @@ _INTERVIEW_OUTPUT_SCHEMA = {
             "last_answer_reason",
         ],
         "properties": {
-            "question": {"type": "string", "minLength": 8, "maxLength": 700},
+            # 2500 чтобы вместить practice-ответ с блоками
+            # [FEEDBACK]/[HINT]/[NEXT_TASK] и 2–3 fenced-кейсами.
+            # На 700 практический формат стабильно обрезался, что и
+            # ломало генерацию ровно в practice-режиме.
+            "question": {"type": "string", "minLength": 8, "maxLength": 2500},
             "topic": {"type": "string", "minLength": 2, "maxLength": 120},
             "difficulty_delta": {"type": "integer", "minimum": -2, "maximum": 2},
             "pressure_level": {"type": "integer", "minimum": 1, "maximum": 5},
@@ -227,17 +232,37 @@ _INTERVIEW_OUTPUT_SCHEMA = {
 }
 
 
-def _sanitize_interviewer_question(text: str) -> tuple[bool, list[str], str]:
+def _sanitize_interviewer_question(text: str, mode: str = "") -> tuple[bool, list[str], str]:
+    """Sanitize the interviewer's question.
+
+    Mode-aware: practice-режим возвращает мульти-блочный текст
+    ([FEEDBACK]/[HINT]/[NEXT_TASK] + fenced ```...``` тест-кейсы).
+    Если коллапсировать любые пробелы в один и насильно дописывать
+    «?» в конец — формат разваливается, тест-кейсы склеиваются в
+    одну строку, а финальный код-блок превращается в вопрос. Поэтому
+    для practice сохраняем переводы строк и не добавляем «?», только
+    приводим лишние пустые строки к одной.
+    """
     violations: list[str] = []
     cleaned = text.strip()
-    cleaned = re.sub(r"\s+", " ", cleaned)
+    normalized_mode = (mode or "").strip().lower()
+    is_practice = normalized_mode in {"practice", "practical", "coding", "code"}
+
+    if is_practice:
+        # Удаляем только запредельные хвостовые пробелы и больше двух
+        # пустых строк подряд — структуру блоков сохраняем.
+        cleaned = re.sub(r"[ \t]+", " ", cleaned)
+        cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    else:
+        cleaned = re.sub(r"\s+", " ", cleaned)
+
     if len(cleaned) < 8:
         violations.append("too_short")
-    if len(cleaned) > 700:
-        cleaned = cleaned[:700].rstrip()
+    if len(cleaned) > 2500:
+        cleaned = cleaned[:2500].rstrip()
         violations.append("trimmed_to_max_length")
 
-    if cleaned and not cleaned.endswith("?"):
+    if not is_practice and cleaned and not cleaned.endswith("?"):
         cleaned = cleaned.rstrip(".!") + "?"
 
     is_valid = "too_short" not in violations
@@ -273,10 +298,27 @@ def _is_avoided_question(
     avoid_questions: list[str],
     role: str = "",
     strict: bool = False,
+    mode: str = "",
 ) -> bool:
-    """Check if question is too similar to avoided questions using semantic similarity."""
+    """Check if question is too similar to avoided questions using semantic similarity.
+
+    Mode-aware: концептуальные theory-вопросы по своей природе
+    семантически близки (любые два «расскажите про индексы / расскажите
+    про транзакции» дают высокий cosine), и фиксированный порог 0.77
+    приводил к тому, что после 3–4 турнов любой свежий вопрос
+    отбрасывался → 3 ретрая → 503 → «AI не подключён».
+    Для theory повышаем порог (0.86) и ограничиваем список avoid
+    последними 8 вопросами.
+    """
     if not question or not avoid_questions:
         return False
+
+    normalized_mode = (mode or "").strip().lower()
+    is_theory = normalized_mode in {"theory", "theoretical", "concept", "conceptual"}
+    if is_theory:
+        # Свежее = ценнее. Старые вопросы дают ложные срабатывания
+        # на «похожие, но не те же» концепты.
+        avoid_questions = avoid_questions[-8:]
 
     # First try exact fingerprint (fast path)
     candidate_fp = _question_fingerprint(question)
@@ -289,6 +331,10 @@ def _is_avoided_question(
         return True
 
     threshold = _semantic_threshold_for_role(role)
+    if is_theory:
+        # Поднимаем порог: theory-вопросы по природе семантически
+        # близки, и обычный 0.77 для них слишком строгий.
+        threshold = max(threshold, 0.86)
     if strict:
         threshold = max(0.70, threshold - 0.05)
 
@@ -355,7 +401,12 @@ def _classify_tutor_like_text(text: str) -> tuple[bool, float]:
 def _policy_flags_from_text(text: str) -> dict[str, bool]:
     lowered = text.lower()
     contains_solution = any(marker in lowered for marker in ["вот код", "готовый код", "final code"])
-    contains_explanation = any(marker in lowered for marker in ["потому что", "объяснение", "теория", "например"])
+    # «теория» убрана: в theory-режиме модель легитимно использует
+    # это слово в самих вопросах ("в теории графов...", "теория CAP")
+    # и каждый такой вопрос ошибочно помечался как "contains_explanation",
+    # что наводило интервью на лишние follow-up и ускоряло срабатывание
+    # avoid-фильтра.
+    contains_explanation = any(marker in lowered for marker in ["потому что", "объяснение", "например"])
     policy_violation = False
     return {
         "contains_explanation": contains_explanation,
@@ -641,7 +692,25 @@ def _interview_mode_guidance(mode: str) -> str:
             "3) Если кандидат прислал код — проверь его как код: укажи баги, edge-cases, сложность. "
             "Максимум 1-2 ФОЛЛОУ-АП по этому конкретному коду (например «что будет на пустом массиве?», "
             "«как изменится сложность для отсортированного входа?»), после чего ОБЯЗАТЕЛЬНО давай НОВУЮ задачу.\n"
-            "4) Никаких бесконечных разговоров по одной задаче. Закончил обсуждение — дай следующую задачу."
+            "4) Никаких бесконечных разговоров по одной задаче. Закончил обсуждение — дай следующую задачу.\n"
+            "5) ФОРМАТ ОТВЕТА для practice — ОБЯЗАТЕЛЬНО используй маркированные блоки в поле question:\n"
+            "   [FEEDBACK]\n"
+            "   2–3 предложения по последнему ответу кандидата (что хорошо, что неточно). "
+            "Если ответа ещё не было — короткое приветствие и постановка задачи.\n"
+            "   [HINT]\n"
+            "   1–2 предложения с конкретной подсказкой ПО ЭТОЙ задаче (не общая «проверь edge cases», "
+            "а с привязкой к алгоритму/структуре данных задачи).\n"
+            "   [NEXT_TASK]\n"
+            "   Полный текст НОВОЙ задачи: что нужно реализовать, сигнатура функции, ограничения. "
+            "В КОНЦЕ задачи ОБЯЗАТЕЛЬНО приведи 2–3 тест-кейса в fenced-блоках ```...``` (каждый — "
+            "отдельный блок), формат каждого блока:\n"
+            "      ```\n"
+            "      Вход:  <конкретный пример>\n"
+            "      Выход: <ожидаемый результат>\n"
+            "      ```\n"
+            "   Первый кейс — простой, второй — типовой, третий — граничный/стресс.\n"
+            "6) Если последний ответ был «__skip__» — в [FEEDBACK] напиши «Пропускаем задачу.», "
+            "пустой [HINT] оставь словом «—», а в [NEXT_TASK] дай новую задачу по той же или соседней теме."
         )
     if normalized in {"theory", "theoretical", "concept", "conceptual"}:
         return (
@@ -854,9 +923,39 @@ _RESUME_INSIGHTS_SCHEMA = {
             "language_insights",
             "interview_tracks",
             "recommended_positions",
+            "skills_distribution",
+            "language_distribution",
         ],
         "properties": {
             "summary": {"type": "string", "minLength": 40, "maxLength": 1400},
+            "skills_distribution": {
+                "type": "array",
+                "minItems": 0,
+                "maxItems": 12,
+                "items": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": ["label", "value"],
+                    "properties": {
+                        "label": {"type": "string", "minLength": 1, "maxLength": 40},
+                        "value": {"type": "integer", "minimum": 0, "maximum": 100},
+                    },
+                },
+            },
+            "language_distribution": {
+                "type": "array",
+                "minItems": 0,
+                "maxItems": 8,
+                "items": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": ["label", "value"],
+                    "properties": {
+                        "label": {"type": "string", "minLength": 1, "maxLength": 40},
+                        "value": {"type": "integer", "minimum": 0, "maximum": 100},
+                    },
+                },
+            },
             "strong_points": {
                 "type": "array",
                 "minItems": 2,
@@ -914,6 +1013,43 @@ def _fallback_resume_positions(request: ResumeInsightsRequest) -> list[Developer
     return base
 
 
+def _parse_distribution(raw: object, limit: int) -> list[ResumeDistributionPoint]:
+    """Coerce an LLM-produced distribution array into clean chart points.
+
+    Tolerates the usual json_schema deviations: plain strings, missing
+    values, floats, out-of-range numbers. Deduplicates by label and sorts
+    by descending weight so the chart reads top-down.
+    """
+    if not isinstance(raw, list):
+        return []
+
+    seen: set[str] = set()
+    points: list[ResumeDistributionPoint] = []
+    for idx, item in enumerate(raw):
+        if isinstance(item, str):
+            label = item.strip()
+            value = max(40, 90 - idx * 8)
+        elif isinstance(item, dict):
+            label = str(item.get("label") or item.get("name") or "").strip()
+            try:
+                value = int(round(float(item.get("value", item.get("confidence", 0)))))
+            except (TypeError, ValueError):
+                value = 0
+        else:
+            continue
+
+        if not label:
+            continue
+        key = label.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        points.append(ResumeDistributionPoint(label=label, value=max(0, min(100, value))))
+
+    points.sort(key=lambda p: p.value, reverse=True)
+    return points[:limit]
+
+
 def _build_resume_prompt(request: ResumeInsightsRequest) -> str:
     role_preferences = ", ".join(request.role_preferences or []) or "не указаны"
     skills = "\n".join(f"- {item}" for item in (request.skills or [])[:20]) or "- нет данных"
@@ -930,7 +1066,16 @@ def _build_resume_prompt(request: ResumeInsightsRequest) -> str:
         "Пиши только на русском языке.\n"
         "Не выдумывай факты: опирайся на входные данные и фрагмент резюме.\n"
         "Дай: сильные стороны, зоны роста, конкретный план улучшения и рекомендации для интервью.\n"
-        "Добавь language_insights и interview_tracks, где первый track — лучший старт для кандидата.\n\n"
+        "Добавь language_insights и interview_tracks, где первый track — лучший старт для кандидата.\n"
+        "ВАЖНО: сам проанализируй текст резюме и определи реальные навыки и языки "
+        "программирования кандидата (не копируй вслепую списки ниже — они лишь подсказка "
+        "от простого парсера и могут быть неполными или ошибочными).\n"
+        "skills_distribution: до 12 ключевых технических навыков/технологий с оценкой "
+        "уверенности владения 0-100 на основе того, насколько глубоко навык подтвержден "
+        "в резюме (частота, контекст, проекты, длительность опыта). Сортируй по убыванию.\n"
+        "language_distribution: до 8 языков программирования с оценкой владения 0-100 "
+        "по тем же критериям. Если язык упомянут лишь вскользь — ставь низкий вес. "
+        "Если языков программирования в резюме нет — верни пустой массив.\n\n"
         f"Файл: {request.file_name}\n"
         f"Content-Type: {request.content_type or 'нет'}\n"
         f"Предпочтительные роли: {role_preferences}\n"
@@ -1115,6 +1260,20 @@ async def resume_insights(
                 "но требует усиления конкретными достижениями и метриками результатов."
             )
 
+        skills_distribution = _parse_distribution(raw.get("skills_distribution"), 12)
+        language_distribution = _parse_distribution(raw.get("language_distribution"), 8)
+
+        # If the LLM omitted distributions, derive a sensible chart from the
+        # AI-detected language_insights (confidence already 0-100) so the UI
+        # still shows AI-driven data instead of falling back to the parser.
+        if not language_distribution and language_insights:
+            language_distribution = [
+                ResumeDistributionPoint(label=item.language, value=item.confidence)
+                for item in language_insights[:8]
+            ]
+        if not skills_distribution and language_distribution:
+            skills_distribution = list(language_distribution[:12])
+
         return ResumeInsightsResponse(
             summary=summary,
             strong_points=strong_points[:8],
@@ -1123,6 +1282,8 @@ async def resume_insights(
             language_insights=language_insights[:6],
             interview_tracks=interview_tracks[:4],
             recommended_positions=positions[:5],
+            skills_distribution=skills_distribution,
+            language_distribution=language_distribution,
         )
     except Exception as exc:
         logger.exception("resume insights generation failed, fallback will be used")
@@ -1181,6 +1342,8 @@ async def resume_insights(
                 )
             ],
             recommended_positions=positions,
+            skills_distribution=_parse_distribution(request.skills, 12),
+            language_distribution=_parse_distribution(request.languages, 8),
         )
 
 
@@ -1506,6 +1669,11 @@ async def interviewer_next_question(
         interview_mode=request.interview_mode or "practice",
         mode_guidance=_interview_mode_guidance(request.interview_mode),
         session_context=_build_session_context(request),
+        # Раньше шаблон содержал плейсхолдер $recent_topics, но
+        # вызов format() его не передавал. safe_substitute оставлял
+        # буквальную строку «$recent_topics» в системном промпте,
+        # что путало LLM и иногда приводило к невалидному JSON.
+        recent_topics=_format_list_block(request.recent_topics or []),
         answer_guidance=_answer_guidance(last_answer, request.current_topic or request.role),
         response_policy=_response_policy(last_answer, request.current_topic or request.role),
         practice_focus=_format_list_block(request.practice_focus or []),
@@ -1579,7 +1747,9 @@ async def interviewer_next_question(
             else:
                 llm_flags = {}
 
-            is_valid, violations, sanitized = _sanitize_interviewer_question(question)
+            is_valid, violations, sanitized = _sanitize_interviewer_question(
+                question, request.interview_mode or "practice"
+            )
             derived_flags = _policy_flags_from_text(question)
             merged_flags = {
                 "contains_explanation": bool(llm_flags.get("contains_explanation", False) or derived_flags["contains_explanation"]),
@@ -1587,7 +1757,12 @@ async def interviewer_next_question(
                 "policy_violation": bool(llm_flags.get("policy_violation", False) or derived_flags["policy_violation"]),
             }
 
-            if _is_avoided_question(sanitized, request.avoid_questions or [], request.role):
+            if _is_avoided_question(
+                sanitized,
+                request.avoid_questions or [],
+                request.role,
+                mode=request.interview_mode or "practice",
+            ):
                 is_valid = False
                 violations.append("duplicate_from_avoid_list")
 
@@ -1672,8 +1847,11 @@ async def interviewer_validate_output(
     request: ValidateOutputRequest,
 ) -> ValidateOutputResponse:
     """Validate interviewer output by format, size, and anti-repeat rules."""
+    # Достаём режим, если он есть на запросе (frontend всегда шлёт), —
+    # без него тех-же practice-блоки склеиваются в одну строку.
+    request_mode = getattr(request, "interview_mode", "") or ""
     is_valid, violations, sanitized = _sanitize_interviewer_question(
-        request.draft_response
+        request.draft_response, request_mode
     )
 
     if _is_avoided_question(
@@ -1681,6 +1859,7 @@ async def interviewer_validate_output(
         request.avoid_questions or [],
         request.role or "",
         strict=True,
+        mode=request_mode,
     ):
         is_valid = False
         violations.append("semantic_duplicate")

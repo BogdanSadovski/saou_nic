@@ -31,10 +31,13 @@ func NewSubscriptionService(
 
 // CreateSubscription creates a new subscription for a user.
 func (s *SubscriptionService) CreateSubscription(ctx context.Context, userID uuid.UUID, tier domain.SubscriptionTier, adminID uuid.UUID) (*domain.Subscription, error) {
-	// Verify user exists
-	user, err := s.userRepo.GetByID(ctx, userID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get user: %w", err)
+	// Подписки оформляют обычные пользователи платформы, которые живут в
+	// user-service, а НЕ в admin_service.users (там только админы). Поэтому
+	// отсутствие юзера в локальной таблице — норма: не валим запрос, просто
+	// используем user_id как подпись в аудите.
+	userEmail := userID.String()
+	if user, err := s.userRepo.GetByID(ctx, userID); err == nil && user != nil {
+		userEmail = user.Email
 	}
 
 	// Check if user already has an active subscription
@@ -67,8 +70,8 @@ func (s *SubscriptionService) CreateSubscription(ctx context.Context, userID uui
 	}
 
 	// Log the action
-	s.logAudit(ctx, adminID, user.Email, domain.ActionCreate, "subscription", &subscription.ID,
-		fmt.Sprintf("Created %s subscription for user %s", tier, user.Email), "")
+	s.logAudit(ctx, adminID, userEmail, domain.ActionCreate, "subscription", &subscription.ID,
+		fmt.Sprintf("Created %s subscription for user %s", tier, userEmail), "")
 
 	return subscription, nil
 }
@@ -132,6 +135,11 @@ func (s *SubscriptionService) CancelSubscription(ctx context.Context, id uuid.UU
 		return fmt.Errorf("failed to get subscription: %w", err)
 	}
 
+	// Идемпотентно: повторная отмена уже отменённой подписки — не ошибка,
+	// просто no-op (фронт мог дёрнуть DELETE дважды / по уже отменённой).
+	if sub.Status == domain.SubscriptionCanceled {
+		return nil
+	}
 	if sub.Status != domain.SubscriptionActive {
 		return fmt.Errorf("subscription is not active")
 	}
@@ -252,13 +260,11 @@ func (s *SubscriptionService) logAudit(ctx context.Context, adminID uuid.UUID, a
 // user sees on the checkout page.
 func tierMonthlyPriceUSD(tier domain.SubscriptionTier) float64 {
 	switch tier {
-	case domain.TierBasic, "starter":
-		return 9
 	case domain.TierPro:
 		return 19
-	case domain.TierEnterprise, "team":
+	case domain.TierPlatinum:
 		return 49
-	default:
+	default: // trial / неизвестный
 		return 0
 	}
 }
@@ -266,45 +272,33 @@ func tierMonthlyPriceUSD(tier domain.SubscriptionTier) float64 {
 // Tier configuration helpers
 func tierMaxUsers(tier domain.SubscriptionTier) int {
 	switch tier {
-	case domain.TierFree:
-		return 1
-	case domain.TierBasic:
-		return 5
 	case domain.TierPro:
 		return 25
-	case domain.TierEnterprise:
+	case domain.TierPlatinum:
 		return -1 // Unlimited
-	default:
+	default: // trial
 		return 1
 	}
 }
 
 func tierMaxStorage(tier domain.SubscriptionTier) int {
 	switch tier {
-	case domain.TierFree:
-		return 1
-	case domain.TierBasic:
-		return 10
 	case domain.TierPro:
 		return 100
-	case domain.TierEnterprise:
+	case domain.TierPlatinum:
 		return -1 // Unlimited
-	default:
+	default: // trial
 		return 1
 	}
 }
 
 func tierFeatures(tier domain.SubscriptionTier) []string {
 	switch tier {
-	case domain.TierFree:
-		return []string{"basic_access"}
-	case domain.TierBasic:
-		return []string{"basic_access", "priority_support", "custom_branding"}
 	case domain.TierPro:
-		return []string{"basic_access", "priority_support", "custom_branding", "api_access", "analytics"}
-	case domain.TierEnterprise:
-		return []string{"basic_access", "priority_support", "custom_branding", "api_access", "analytics", "sso", "dedicated_support", "sla"}
-	default:
-		return []string{}
+		return []string{"basic_access", "priority_support", "api_access", "analytics"}
+	case domain.TierPlatinum:
+		return []string{"basic_access", "priority_support", "api_access", "analytics", "custom_scenarios", "priority_llm", "personal_manager"}
+	default: // trial
+		return []string{"basic_access"}
 	}
 }

@@ -239,6 +239,16 @@ func main() {
 		return singleJoiningSlash("/api/v1", stripPrefix("/api")(path))
 	}))
 
+	// Subscription quota ("осталось N интервью") живёт в interview-service
+	// под /api/v1/quota/*. Без этого роута фронт получал 404 на /api/quota/me
+	// и /api/v1/quota/me (см. quota.ts fallback).
+	mux.Handle("/api/quota/", rewriteAndProxy(interviewProxy, func(path string) string {
+		return singleJoiningSlash("/api/v1", stripPrefix("/api")(path))
+	}))
+	mux.Handle("/api/v1/quota/", rewriteAndProxy(interviewProxy, func(path string) string {
+		return path
+	}))
+
 	// GitHub profile import is implemented in interview-service.
 	mux.Handle("/api/github/import", rewriteAndProxy(interviewProxy, func(string) string {
 		return "/api/v1/github/import"
@@ -322,11 +332,9 @@ func main() {
 		return singleJoiningSlash("/api/v1/scoring", stripPrefix("/api/scoring")(path))
 	}))
 
-	// Soft-skills ML scorer — separate Python+PyTorch service on :8090.
-	softSkillsProxy := makeProxy(mustURL(getEnv("SOFTSKILLS_SERVICE_URL", "http://softskills-service:8090")))
-	mux.Handle("/api/softskills/", rewriteAndProxy(softSkillsProxy, func(path string) string {
-		return singleJoiningSlash("/api/v1", stripPrefix("/api/softskills")(path))
-	}))
+	// Soft-skills scoring больше не имеет отдельного сервиса — оценка
+	// идёт через основной LLM-каскад внутри interview-service. Прокси
+	// /api/softskills/ удалён.
 
 	server := &http.Server{
 		Addr:              ":" + port,

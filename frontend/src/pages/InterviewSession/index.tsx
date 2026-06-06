@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
 import { interviewModuleApi } from "@/features/interview-module/api";
-import { PracticeCodeWorkspace } from "@/features/interview-module/components";
+import { PracticeCodeWorkspace, InterviewerPreparing } from "@/features/interview-module/components";
 import { env } from "@/shared/config/env";
 import {
   useChatStore,
@@ -429,7 +429,7 @@ export default function InterviewSessionPage() {
           </>
         )}
         {interviewMode === "softskills" && (
-          <span><span className="k">scorer</span><span className="v">rubert-tiny2 + ml</span></span>
+          <span><span className="k">scorer</span><span className="v">deepseek · star</span></span>
         )}
         <span><span className="k">messages</span><span className="v">{messages.length}</span></span>
       </div>
@@ -458,6 +458,13 @@ export default function InterviewSessionPage() {
               </div>
             </div>
           ))}
+          {/* «AI готовит первый вопрос» — заметная анимированная плашка
+              для самых первых секунд, пока бэкенд просыпается и ещё не
+              успел прислать ни ai.typing.started, ни message.ai. Раньше
+              в этом окне у пользователя был просто пустой экран. */}
+          {messages.length === 0 && !aiTyping && (
+            <InterviewerPreparing variant="chat" mode={interviewMode} />
+          )}
           {aiTyping && (
             <div className="msg ai">
               <div className="msg-avatar">AI</div>
@@ -465,7 +472,9 @@ export default function InterviewSessionPage() {
                 <div className="msg-bubble">
                   <span className="typing-dot"><i></i><i></i><i></i></span>
                 </div>
-                <div className="msg-meta">генерирует ответ…</div>
+                <div className="msg-meta">
+                  {messages.length === 0 ? "формулирует первый вопрос…" : "генерирует ответ…"}
+                </div>
               </div>
             </div>
           )}
@@ -489,6 +498,15 @@ export default function InterviewSessionPage() {
               if ((e.metaKey || e.ctrlKey) && e.key === "Enter") void sendMessage(input);
             }}
           />
+          <button
+            className="btn btn--ghost composer-skip"
+            onClick={() => void sendMessage("__skip__")}
+            disabled={!wsConnected || aiTyping}
+            title="Пропустить вопрос — ИИ задаст следующий без оценки текущего"
+            type="button"
+          >
+            Пропустить
+          </button>
           <button className="btn btn--accent composer-send" onClick={() => void sendMessage(input)} type="button">
             Отправить <Icon name="arrow" size={14} />
           </button>

@@ -58,6 +58,18 @@ export default function InterviewSetupPage() {
     }
   }, [searchParams]);
 
+  // Будим AI-стек заранее. Пользователь обычно проводит ≥5 секунд
+  // на этом экране (выбор вакансии/уровня/длительности), и за это
+  // время free-tier LLM-провайдер успевает выйти из cold-start.
+  // Без этого первый вопрос интервью прилетал через 25–40 секунд
+  // молчанки. Повторяем пинг каждые 30 секунд: бесплатные провайдеры
+  // быстро уходят обратно в сон, и одиночного пинга на mount мало.
+  useEffect(() => {
+    interviewModuleApi.prewarmAI();
+    const id = window.setInterval(() => interviewModuleApi.prewarmAI(), 30_000);
+    return () => window.clearInterval(id);
+  }, []);
+
   const filtered = useMemo(
     () =>
       VACANCY_OPTIONS.filter(
@@ -73,10 +85,9 @@ export default function InterviewSetupPage() {
     setLoading(true);
     setError(null);
     try {
-      // For the soft-skills mode the role/level/vacancy fields are
-      // unused by the backend (the question source is the dedicated
-      // softskills-service ML model). Pass innocuous placeholders so
-      // the existing session API contract isn't broken.
+      // Для soft-skills mode role/level/vacancy не используются на бэке —
+      // вопросы берутся из встроенного банка, оценка идёт через LLM по
+      // STAR-методу. Шлём placeholders, чтобы не ломать контракт API.
       const isSoftSkills = mode === "softskills";
       const role = isSoftSkills ? "SoftSkills" : selected.category;
       const effectiveLevel: InterviewLevel = isSoftSkills ? "Middle" : level;
@@ -175,7 +186,7 @@ export default function InterviewSetupPage() {
                 ? "Открытые вопросы о фундаментальных концепциях. Без кодинга, но с обсуждением trade-offs."
                 : mode === "practice"
                 ? "Кодинг-задачи в встроенном workspace + обсуждение решений. Готовьтесь писать код live."
-                : "Вопросы о коммуникации, командной работе и поведении в сложных ситуациях. Отдельная ML-модель (rubert-tiny2 + регрессор) оценивает каждый ответ по шкале 0–100."}
+                : "Вопросы о коммуникации, командной работе и поведении в сложных ситуациях. AI оценивает каждый ответ по STAR-структуре (situation/task/action/result) и выдаёт скор 0–100."}
             </p>
           </div>
 
@@ -263,7 +274,7 @@ export default function InterviewSetupPage() {
               {mode === "softskills" ? (
                 <>
                   <div className="summary-row"><span>Режим</span><span>Софт-скиллы (только теория)</span></div>
-                  <div className="summary-row"><span>Оценка</span><span style={{ fontFamily: "var(--f-mono)", fontSize: 11 }}>ML-модель (rubert-tiny2)</span></div>
+                  <div className="summary-row"><span>Оценка</span><span style={{ fontFamily: "var(--f-mono)", fontSize: 11 }}>AI · STAR-метод</span></div>
                   <div className="summary-row"><span>Длительность</span><span>{duration} мин</span></div>
                   <div className="summary-row"><span>Вопросов</span><span>≈ {Math.max(3, Math.round(duration / 2))}</span></div>
                   <div className="summary-row"><span>Темы</span><span style={{ fontFamily: "var(--f-mono)", fontSize: 11 }}>коммуникация, командная работа, конфликты, лидерство</span></div>

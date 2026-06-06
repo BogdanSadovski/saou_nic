@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 
 import { VACANCY_OPTIONS } from "@/features/interview-module/vacancies";
 import { resumeApi } from "@/shared/api/resume";
-import type { ResumeImportResponse } from "@/shared/api/resume";
+import type { HHVacancy, ResumeImportResponse } from "@/shared/api/resume";
 import { ResumeUploader } from "@/features/upload-resume/ResumeUploader";
 import { Counter, RsIcon as Icon, Track } from "@/shared/ui/realsync";
 
@@ -30,14 +30,21 @@ export default function ResumePage() {
   const [result, setResult] = useState<ResumeImportResponse | null>(null);
   const [history, setHistory] = useState<ResumeImportResponse[]>([]);
   const [activeIdx, setActiveIdx] = useState(0);
-  // Вместо API-интеграции с HH/rabota.by (требует OAuth-приложение,
-  // лимиты, анти-бот) — формируем deep-links на /search/vacancy
-  // с предзаполненным text=. Юзер кликает по карточке, открывается
-  // родной поиск выбранного агрегатора с готовым запросом.
-  //
-  // Источник переключается вручную:
-  //   rabota — белорусский, hh — международный (Россия/СНГ/мир).
-  const [vacancySource, setVacancySource] = useState<"rabota" | "hh">("rabota");
+  // HH.ru интеграция через официальный API (OAuth client_credentials,
+  // ключи в .env: HH_CLIENT_ID/HH_CLIENT_SECRET). Реальная выдача
+  // вакансий, фильтр региона, поиск по конкретному скиллу, пагинация.
+  const [vacancies, setVacancies] = useState<HHVacancy[]>([]);
+  const [vacTotal, setVacTotal] = useState(0);
+  const [vacPages, setVacPages] = useState(0);
+  const [vacPage, setVacPage] = useState(0);
+  const [vacLoading, setVacLoading] = useState(false);
+  const [vacLoadingMore, setVacLoadingMore] = useState(false);
+  const [vacError, setVacError] = useState<string | null>(null);
+  const [vacArea, setVacArea] = useState("1002"); // Минск по умолчанию
+  // activeSkill = null → авто-запрос (роль+скиллы из резюме);
+  // строка → поиск по конкретному скиллу/роли.
+  const [activeSkill, setActiveSkill] = useState<string | null>(null);
+  const [vacQueryEcho, setVacQueryEcho] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -63,32 +70,6 @@ export default function ResumePage() {
   // Уровень (junior/middle/senior) в подборе вакансий НЕ используется —
   // пользователь явно попросил их убрать. Карточки ведут на чистый
   // поиск по тексту без фильтра по experience.
-
-  // Убирает упоминания стажёрства/intern И уровней из отображаемого
-  // тайтла. ВАЖНО: JS `\b` работает только для ASCII, поэтому
-  // `\bстажер\b` фактически не совпадает с «Стажер» в кириллице.
-  // Используем Unicode-aware lookarounds через \p{L} с флагом `u`.
-  const cleanRoleTitle = (raw: string): string => {
-    const NOT_LETTER_BEFORE = "(?<![\\p{L}\\d])";
-    const NOT_LETTER_AFTER = "(?![\\p{L}\\d])";
-    const internWords = "стажёр|стажер|стажирующийся|стажировка|intern(?:ship)?|trainee";
-    const levelWords = "junior|middle|senior|lead|staff|principal|джун|мидл|сеньор|сеньер|младший|старший|ведущий";
-    const reIntern = new RegExp(`${NOT_LETTER_BEFORE}(?:${internWords})${NOT_LETTER_AFTER}`, "giu");
-    const reLevel = new RegExp(`${NOT_LETTER_BEFORE}(?:${levelWords})\\+?${NOT_LETTER_AFTER}`, "giu");
-    let cleaned = raw
-      .replace(reIntern, " ")
-      .replace(reLevel, " ")
-      .replace(/\(\s*\)/g, "")            // пустые скобки после чистки
-      .replace(/\s*\/\s*/g, " / ")
-      .replace(/\s+/g, " ")
-      .trim();
-    // обрезаем висящие слеши/тире в начале и конце
-    cleaned = cleaned
-      .replace(/^[/\-–—\s]+/, "")
-      .replace(/[/\-–—\s]+$/, "")
-      .trim();
-    return cleaned || raw;
-  };
 
   // Упрощаем сложные тайтлы из AI до коротких запросов, которые
   // агрегаторы реально понимают. AI любит формулировать роли как
@@ -146,55 +127,82 @@ export default function ResumePage() {
     return first.trim() || raw;
   };
 
-  // Карточки-«пробросы» в поиск агрегатора — собираем из AI-рекомендаций
-  // (recommended_positions[].role) плюс топ-скиллов резюме. Никаких
-  // сетевых запросов: каждая карточка — это просто
-  // https://<source>/search/vacancy?text=<query>&experience=<bucket>.
-  const vacancyShortcuts = useMemo(() => {
-    if (!result) {
-      return [] as Array<{ id: string; title: string; subtitle?: string; query: string; tags?: string[] }>;
-    }
-    const seenQueries = new Set<string>();
-    const tops: Array<{ id: string; title: string; subtitle?: string; query: string; tags?: string[] }> = [];
+  // Фильтр-чипы для поиска по отдельным скиллам/ролям. Собираются из
+  // AI-рекомендованных ролей (упрощённых) + топ-скиллов резюме.
+  // Клик по чипу → активный поиск по этому слову через HH API.
+  const skillChips = useMemo(() => {
+    if (!result) return [] as Array<{ label: string; query: string }>;
+    const seen = new Set<string>();
+    const chips: Array<{ label: string; query: string }> = [];
     (result.ai_insights.recommended_positions || [])
       .filter((p) => p.role.trim())
-      .slice(0, 5)
-      .forEach((p, i) => {
+      .slice(0, 4)
+      .forEach((p) => {
         const query = simplifyRoleQuery(p.role);
         const key = query.toLowerCase();
-        if (seenQueries.has(key)) return;
-        seenQueries.add(key);
-        tops.push({
-          id: `role-${i}`,
-          title: cleanRoleTitle(p.role),
-          subtitle: p.rationale?.slice(0, 140),
-          query,
-          tags: (result.extracted_skills || []).slice(0, 3),
-        });
+        if (seen.has(key)) return;
+        seen.add(key);
+        chips.push({ label: query, query });
       });
-    // Плюс карточки «по топ-скиллам» — для прямого поиска по стеку.
-    const skillsTop = (result.extracted_skills || []).slice(0, 4);
-    skillsTop.forEach((skill, i) => {
+    (result.extracted_skills || []).slice(0, 8).forEach((skill) => {
       const key = skill.toLowerCase();
-      if (seenQueries.has(key)) return;
-      seenQueries.add(key);
-      tops.push({
-        id: `skill-${i}`,
-        title: `Поиск по навыку: ${skill}`,
-        subtitle: `Все вакансии, где упомянут ${skill}`,
-        query: skill,
-        tags: skillsTop.filter((s) => s !== skill).slice(0, 2),
-      });
+      if (seen.has(key)) return;
+      seen.add(key);
+      chips.push({ label: skill, query: skill });
     });
-    return tops.slice(0, 6);
+    return chips.slice(0, 10);
   }, [result]);
 
-  const buildVacancyURL = (query: string, source: "rabota" | "hh") => {
-    const domain = source === "rabota" ? "rabota.by" : "hh.ru";
-    const params = new URLSearchParams();
-    params.set("text", query);
-    params.set("order_by", "relevance");
-    return `https://${domain}/search/vacancy?${params.toString()}`;
+  // Загрузка реальных вакансий из HH API.
+  const loadVacancies = async (opts: { append?: boolean; page?: number } = {}) => {
+    if (!result) return;
+    const append = opts.append ?? false;
+    const page = opts.page ?? 0;
+    if (append) setVacLoadingMore(true);
+    else { setVacLoading(true); setVacError(null); }
+    try {
+      const data = await resumeApi.getMatchingVacancies(result.report_id, {
+        area: vacArea,
+        text: activeSkill ?? undefined,
+        page,
+        perPage: 20,
+      });
+      setVacQueryEcho(data.query || "");
+      setVacTotal(data.total || 0);
+      setVacPages(data.pages || 0);
+      setVacPage(data.page || page);
+      setVacancies((prev) => (append ? [...prev, ...data.items] : data.items));
+    } catch (e) {
+      const status = (e as { response?: { status?: number } })?.response?.status;
+      const serverMsg = (e as { response?: { data?: { error?: string } } })?.response?.data?.error;
+      const parts: string[] = [];
+      if (status) parts.push(`HTTP ${status}`);
+      if (serverMsg) parts.push(serverMsg);
+      if (!append) {
+        setVacError(parts.length ? parts.join(" · ") : "Не удалось загрузить вакансии");
+        setVacancies([]);
+      }
+    } finally {
+      setVacLoading(false);
+      setVacLoadingMore(false);
+    }
+  };
+
+  // Авто-загрузка при смене резюме / региона / активного скилла.
+  useEffect(() => {
+    if (!result) return;
+    void loadVacancies({ page: 0 });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [result?.report_id, vacArea, activeSkill]);
+
+  const formatVacancySalary = (v: HHVacancy): string | null => {
+    const cur = (v.salary_currency || "").toUpperCase();
+    const symbol = cur === "BYR" || cur === "BYN" ? "Br" : cur === "RUR" || cur === "RUB" ? "₽" : cur === "USD" ? "$" : cur === "EUR" ? "€" : cur;
+    const fmt = (n: number) => n.toLocaleString("ru-RU");
+    if (v.salary_from && v.salary_to) return `${fmt(v.salary_from)}–${fmt(v.salary_to)} ${symbol}`;
+    if (v.salary_from) return `от ${fmt(v.salary_from)} ${symbol}`;
+    if (v.salary_to) return `до ${fmt(v.salary_to)} ${symbol}`;
+    return null;
   };
 
   const goToInterviewTrack = (role: string, mode: string, level: string, durationMinutes: number) => {
@@ -412,7 +420,6 @@ export default function ResumePage() {
         <h1 className="expr-headline" style={{ fontSize: 72 }}>
           <span className="bold">Анализ</span> <span className="ital">резюме</span>.
         </h1>
-        <button className="btn btn--ghost" type="button"><Icon name="download" size={14} /> Экспорт PDF-отчёта</button>
       </header>
 
       <div className="resume-grid">
@@ -532,105 +539,165 @@ export default function ResumePage() {
             </ol>
           </section>
 
-          <section>
+          <section className="vac-feature">
             <header className="dash-section-head" style={{ gap: 16, flexWrap: "wrap" }}>
-              <h2 style={{ fontSize: 28 }}>
-                Подбор вакансий{" "}
-                <span className="mono" style={{ fontSize: 12, color: "var(--muted)", letterSpacing: "0.06em" }}>
-                  · {vacancySource === "rabota" ? "rabota.by" : "hh.ru"}
-                </span>
-              </h2>
-              <div className="segmented" style={{ fontSize: 11, flexWrap: "wrap" }}>
-                {[
-                  { v: "rabota" as const, label: "rabota.by", hint: "🇧🇾 Беларусь" },
-                  { v: "hh" as const, label: "hh.ru", hint: "🌍 Международный" },
-                ].map((opt) => (
-                  <button
-                    key={opt.v}
-                    type="button"
-                    className={vacancySource === opt.v ? "is-active" : ""}
-                    onClick={() => setVacancySource(opt.v)}
-                    title={opt.hint}
-                  >
-                    {opt.label}
-                    <span className="mono" style={{ marginLeft: 6, fontSize: 9, opacity: 0.7 }}>
-                      {opt.hint}
-                    </span>
-                  </button>
-                ))}
+              <div>
+                <span className="eyebrow">Карьерный матчинг</span>
+                <h2 style={{ fontSize: 32, marginTop: 4 }}>
+                  Подходящие <span className="ital">вакансии</span>
+                </h2>
+              </div>
+              <div style={{ textAlign: "right" }}>
+                <div className="mono" style={{ fontSize: 11, color: "var(--muted)", letterSpacing: "0.06em" }}>
+                  ● hh.ru API · live
+                </div>
+                {vacTotal > 0 ? (
+                  <div className="mono" style={{ fontSize: 20, fontWeight: 600, marginTop: 2 }}>
+                    {vacTotal.toLocaleString("ru-RU")} <span style={{ fontSize: 12, color: "var(--muted)" }}>найдено</span>
+                  </div>
+                ) : null}
               </div>
             </header>
 
-            <p className="muted" style={{ fontSize: 13, marginBottom: 14 }}>
-              Карточки ниже открывают{" "}
-              <strong>{vacancySource === "rabota" ? "rabota.by" : "hh.ru"}</strong>
-              {" "}с подготовленным запросом — кликаешь и сразу видишь живую
-              выдачу с актуальными вакансиями.
-              {" "}<span className="muted">rabota.by — белорусский агрегатор, hh.ru — международный.</span>
-            </p>
+            {/* Регион */}
+            <div className="vac-region-row">
+              {[
+                { v: "1002", label: "Минск" },
+                { v: "16", label: "Беларусь" },
+                { v: "113", label: "Россия" },
+                { v: "1", label: "Москва" },
+                { v: "world", label: "Весь мир" },
+              ].map((opt) => (
+                <button
+                  key={opt.v}
+                  type="button"
+                  className={`vac-chip ${vacArea === opt.v ? "is-active" : ""}`}
+                  onClick={() => setVacArea(opt.v)}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
 
-            {vacancyShortcuts.length === 0 ? (
-              <p className="muted" style={{ fontSize: 14 }}>
-                После загрузки и анализа резюме здесь появятся карточки с
-                AI-подобранными ролями и быстрыми ссылками на поиск.
-              </p>
-            ) : (
-              <div style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))" }}>
-                {vacancyShortcuts.map((card) => {
-                  const url = buildVacancyURL(card.query, vacancySource);
-                  return (
-                    <a
-                      key={card.id}
-                      href={url}
-                      target="_blank"
-                      rel="noreferrer"
-                      style={{
-                        display: "grid",
-                        gap: 10,
-                        padding: "16px 18px",
-                        border: "1px solid var(--line)",
-                        borderRadius: "var(--r-2)",
-                        background: "var(--paper)",
-                        textDecoration: "none",
-                        color: "var(--ink)",
-                        transition: "border-color 180ms ease, transform 180ms ease, background 180ms ease",
-                      }}
-                      onMouseEnter={(e) => {
-                        (e.currentTarget as HTMLAnchorElement).style.borderColor = "var(--ink)";
-                        (e.currentTarget as HTMLAnchorElement).style.transform = "translateY(-2px)";
-                      }}
-                      onMouseLeave={(e) => {
-                        (e.currentTarget as HTMLAnchorElement).style.borderColor = "var(--line)";
-                        (e.currentTarget as HTMLAnchorElement).style.transform = "translateY(0)";
-                      }}
-                    >
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
-                        <strong style={{ fontSize: 16, lineHeight: 1.3 }}>{card.title}</strong>
-                        <span className="mono" style={{ fontSize: 10, color: "var(--muted)", whiteSpace: "nowrap" }}>↗</span>
-                      </div>
-                      {card.subtitle ? (
-                        <p className="muted" style={{ fontSize: 12, lineHeight: 1.5, margin: 0, display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
-                          {card.subtitle}
-                        </p>
-                      ) : null}
-                      {card.tags && card.tags.length > 0 ? (
-                        <div className="row mono" style={{ gap: 6, flexWrap: "wrap", fontSize: 10 }}>
-                          {card.tags.map((t) => <span key={t} className="tag">{t}</span>)}
-                        </div>
-                      ) : null}
-                      <span className="mono" style={{ fontSize: 11, color: "var(--ink)", marginTop: 4 }}>
-                        Поиск: «{card.query}» · {vacancySource === "rabota" ? "rabota.by" : "hh.ru"} →
-                      </span>
-                    </a>
-                  );
-                })}
+            {/* Фильтр по скиллам/ролям */}
+            {skillChips.length > 0 ? (
+              <div className="vac-skill-row">
+                <button
+                  type="button"
+                  className={`vac-chip vac-chip--accent ${activeSkill === null ? "is-active" : ""}`}
+                  onClick={() => setActiveSkill(null)}
+                  title="Авто-запрос из роли и навыков резюме"
+                >
+                  ✦ По резюме
+                </button>
+                {skillChips.map((chip) => (
+                  <button
+                    key={chip.query}
+                    type="button"
+                    className={`vac-chip ${activeSkill === chip.query ? "is-active" : ""}`}
+                    onClick={() => setActiveSkill(chip.query)}
+                  >
+                    {chip.label}
+                  </button>
+                ))}
               </div>
+            ) : null}
+
+            {vacQueryEcho ? (
+              <p className="mono" style={{ fontSize: 11, color: "var(--muted)", margin: "10px 0 4px", letterSpacing: "0.04em" }}>
+                запрос: «{vacQueryEcho}»
+              </p>
+            ) : null}
+
+            {/* Состояния */}
+            {vacLoading ? (
+              <div className="vac-grid">
+                {Array.from({ length: 6 }).map((_, i) => (
+                  <div key={i} className="vac-card vac-card--skeleton" />
+                ))}
+              </div>
+            ) : vacError ? (
+              <div className="vac-empty">
+                <p style={{ fontSize: 14, color: "var(--signal)" }}>⚠ {vacError}</p>
+                <p className="muted" style={{ fontSize: 13, marginTop: 6 }}>
+                  Проверьте, что в <code>.env</code> заданы <code>HH_CLIENT_ID</code> и{" "}
+                  <code>HH_CLIENT_SECRET</code>, и перезапустите interview-service.
+                </p>
+                <button className="btn btn--ghost btn--sm" style={{ marginTop: 12 }} onClick={() => void loadVacancies({ page: 0 })} type="button">
+                  Повторить
+                </button>
+              </div>
+            ) : vacancies.length === 0 ? (
+              <div className="vac-empty">
+                <p className="muted" style={{ fontSize: 14 }}>
+                  По текущему запросу вакансий не найдено. Попробуйте другой
+                  регион или выберите конкретный навык выше.
+                </p>
+              </div>
+            ) : (
+              <>
+                <div className="vac-grid">
+                  {vacancies.map((v) => {
+                    const salary = formatVacancySalary(v);
+                    return (
+                      <a
+                        key={v.id}
+                        href={v.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="vac-card"
+                      >
+                        <div className="vac-card-head">
+                          {v.employer_logo ? (
+                            <img src={v.employer_logo} alt={v.employer} className="vac-logo" loading="lazy" />
+                          ) : (
+                            <div className="vac-logo vac-logo--ph">{(v.employer || "?").charAt(0).toUpperCase()}</div>
+                          )}
+                          <div style={{ minWidth: 0 }}>
+                            <strong className="vac-title">{v.name}</strong>
+                            <div className="vac-employer">{v.employer || "—"}</div>
+                          </div>
+                        </div>
+
+                        {salary ? (
+                          <div className="vac-salary">{salary}{v.salary_gross ? " (gross)" : ""}</div>
+                        ) : (
+                          <div className="vac-salary vac-salary--none">з/п не указана</div>
+                        )}
+
+                        {v.snippet ? (
+                          <p className="vac-snippet" dangerouslySetInnerHTML={{ __html: v.snippet }} />
+                        ) : null}
+
+                        <div className="vac-tags">
+                          {v.area ? <span className="vac-tag">📍 {v.area}</span> : null}
+                          {v.experience ? <span className="vac-tag">{v.experience}</span> : null}
+                          {v.schedule ? <span className="vac-tag">{v.schedule}</span> : null}
+                        </div>
+
+                        <span className="vac-open">Открыть на hh.ru →</span>
+                      </a>
+                    );
+                  })}
+                </div>
+
+                {vacPage + 1 < vacPages ? (
+                  <div style={{ textAlign: "center", marginTop: 20 }}>
+                    <button
+                      className="btn btn--ghost"
+                      type="button"
+                      disabled={vacLoadingMore}
+                      onClick={() => void loadVacancies({ append: true, page: vacPage + 1 })}
+                    >
+                      {vacLoadingMore ? "Загружаем…" : `Показать ещё (${vacancies.length} из ${vacTotal.toLocaleString("ru-RU")})`}
+                    </button>
+                  </div>
+                ) : null}
+              </>
             )}
 
-            <div className="mono" style={{ fontSize: 10, color: "var(--muted)", marginTop: 14, letterSpacing: "0.04em" }}>
-              Поиск формируется на стороне агрегатора, без обращения к их API.
-              Фильтры опыта/уровня настраиваются вручную в интерфейсе выбранного
-              сайта.
+            <div className="mono" style={{ fontSize: 10, color: "var(--muted)", marginTop: 16, letterSpacing: "0.04em" }}>
+              Источник: hh.ru через официальный API · OAuth client_credentials · кеш 1 час
             </div>
           </section>
 

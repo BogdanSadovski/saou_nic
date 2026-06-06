@@ -5,7 +5,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import os
+from dataclasses import dataclass, replace
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -25,6 +26,10 @@ class LanguageSpec:
     memory_limit: str | None = None
     wall_timeout_sec: int | None = None
     cpu_limit: str | None = None
+    # Предустановленные сторонние библиотеки (запечены в образ). Песочница
+    # без сети, поэтому доустановить ничего нельзя — список фиксирован.
+    # Показывается пользователю в редакторе и в подсказке при ошибке импорта.
+    libs: tuple[str, ...] = ()
 
 
 # Алиасы для frontend'а — он шлёт "go", "python", "js", ...
@@ -32,9 +37,14 @@ LANGUAGES: dict[str, LanguageSpec] = {
     "python": LanguageSpec(
         id="python",
         label="Python 3.12",
-        image="python:3.12-alpine",
+        # Кастомный образ с предустановленными библиотеками (см.
+        # sandbox-images/python/Dockerfile). Переопределяется env
+        # PYTHON_SANDBOX_IMAGE — если образ не собран, поставьте
+        # обратно "python:3.12-slim".
+        image="realsync-sandbox-python:latest",
         filename="main.py",
         run_cmd=["python", "/sandbox/main.py"],
+        libs=("numpy", "pandas", "requests", "sortedcontainers"),
     ),
     "go": LanguageSpec(
         id="go",
@@ -81,6 +91,14 @@ LANGUAGES: dict[str, LanguageSpec] = {
         run_cmd=[],
     ),
 }
+
+
+# Позволяем переопределить образ Python-песочницы через окружение
+# (например, вернуть стандартный python:3.12-slim, если кастомный образ
+# с библиотеками ещё не собран).
+_py_image_override = os.getenv("PYTHON_SANDBOX_IMAGE", "").strip()
+if _py_image_override:
+    LANGUAGES["python"] = replace(LANGUAGES["python"], image=_py_image_override)
 
 
 class Settings(BaseSettings):

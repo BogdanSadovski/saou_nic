@@ -31,6 +31,20 @@ export const useUserStore = create<UserState>((set) => ({
 
     try {
       const user = await userApi.getProfile();
+      // Бэкенд не возвращает флаг подключения GitHub, поэтому при каждой
+      // ре-гидрации (смена вкладки, навигация) он сбрасывался в false.
+      // Сохраняем флаг из локального кэша ТОГО ЖЕ пользователя.
+      try {
+        const rawPrev = localStorage.getItem(USER_KEY);
+        if (rawPrev) {
+          const prev = JSON.parse(rawPrev) as User;
+          if (prev.id === user.id && prev.connectedGithub) {
+            user.connectedGithub = true;
+          }
+        }
+      } catch {
+        /* corrupt cache — ignore */
+      }
       localStorage.setItem(USER_KEY, JSON.stringify(user));
       localStorage.setItem("realsync_user_id", user.id);
       set({ user });

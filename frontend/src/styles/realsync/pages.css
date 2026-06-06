@@ -266,24 +266,50 @@
 .career-pulse {
   padding: 24px;
   background: var(--ink);
-  color: var(--bg);
+  /* Прямая привязка к ink-text вместо --bg даёт чуть более тёмный
+     основной текст на светлой карточке (в dark-теме --bg = пол-чёрного,
+     но при чтении подписей это даёт серый, а не насыщенно-чёрный). */
+  color: var(--ink-text);
   border-radius: var(--r-2);
   display: grid;
   gap: 18px;
 }
-.career-pulse h3 { font-family: var(--f-display); font-size: 28px; font-weight: 500; line-height: 1.05; }
+.career-pulse h3 {
+  font-family: var(--f-display);
+  font-size: 28px;
+  font-weight: 600;
+  line-height: 1.05;
+  color: var(--ink-text);
+}
 .pulse-rows { display: grid; gap: 0; }
 .pulse-row {
   display: grid;
   grid-template-columns: 1fr auto;
   align-items: baseline;
   gap: 12px;
-  padding: 10px 0;
+  padding: 12px 0;
   border-top: 1px solid var(--ink-line);
 }
 .pulse-row:last-child { border-bottom: 1px solid var(--ink-line); }
-.pulse-label { font-family: var(--f-mono); font-size: 12.5px; color: var(--ink-muted); letter-spacing: 0.08em; text-transform: uppercase; }
-.pulse-value { font-family: var(--f-display); font-size: 28px; color: var(--accent); }
+.pulse-label {
+  font-family: var(--f-mono);
+  font-size: 12.5px;
+  /* Было var(--ink-muted) — на молочно-белом фоне карточки в dark
+     теме оно превращалось в едва заметный серый. Подняли контраст
+     через ink-text + opacity: остаётся «приглушённой» подписью, но
+     уверенно читается. */
+  color: var(--ink-text);
+  opacity: 0.72;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-weight: 500;
+}
+.pulse-value {
+  font-family: var(--f-display);
+  font-size: 30px;
+  color: var(--accent-ink);
+  font-weight: 600;
+}
 
 .career-modules {
   display: grid;
@@ -509,12 +535,12 @@
   padding: 14px 18px;
   border-radius: var(--r-2);
   background: var(--paper-2);
-  border: 1px solid var(--line);
+  border: none;
   font-size: 14px;
   line-height: 1.6;
   max-width: 78ch;
 }
-.msg.user .msg-bubble { background: var(--ink); color: var(--bg); border-color: var(--ink); grid-column: 1; justify-self: end; }
+.msg.user .msg-bubble { background: var(--ink); color: var(--bg); grid-column: 1; justify-self: end; }
 .msg-meta { font-family: var(--f-mono); font-size: 11.5px; color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; margin-top: 6px; }
 .msg.user .msg-meta { text-align: right; color: var(--ink-muted); }
 .typing-dot {
@@ -529,6 +555,58 @@
 @keyframes dot {
   0%, 100% { opacity: 0.3; transform: translateY(0); }
   50% { opacity: 1; transform: translateY(-3px); }
+}
+
+/* ── AI Preparing (первые секунды интервью) ─────────────────
+   В чате — рендерим как обычный AI-msg, но с пульсирующим
+   обводом, чтобы было ясно: это пока не вопрос, а индикатор
+   подготовки. В карточке practice — отдельная плашка.
+   ─────────────────────────────────────────────────────────── */
+.prep-msg .msg-bubble {
+  position: relative;
+  background: var(--paper-2);
+  border: 1px solid var(--line);
+  animation: prep-pulse 2.4s var(--ease-in-out) infinite;
+}
+@keyframes prep-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 oklch(0.84 0.18 130 / 0.0); }
+  50%      { box-shadow: 0 0 0 3px oklch(0.84 0.18 130 / 0.18); }
+}
+
+.prep-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-top: 10px;
+  padding: 18px 20px;
+  background: var(--paper-2);
+  border: 1px dashed var(--line);
+  border-radius: var(--r-1);
+  animation: prep-pulse 2.4s var(--ease-in-out) infinite;
+}
+.prep-card-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.prep-card-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--ink);
+  color: var(--bg);
+  font-family: var(--f-mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+}
+.prep-card-hint {
+  color: var(--muted);
+  font-size: 13px;
+  margin-top: 2px;
 }
 
 .composer {
@@ -1847,4 +1925,257 @@
   animation-iteration-count: 1 !important;
   transition-duration: 0.01ms !important;
   scroll-behavior: auto !important;
+}
+
+/* ───────────────────────────────────────────────────────────
+   Vacancies feature (HH.ru live API) — карточки, чипы, скелетоны
+   ─────────────────────────────────────────────────────────── */
+.vac-feature { margin-top: 8px; }
+
+.vac-region-row,
+.vac-skill-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+}
+.vac-skill-row { margin-top: 10px; }
+
+.vac-chip {
+  font-family: var(--f-mono);
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  padding: 7px 14px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--line);
+  background: var(--paper);
+  color: var(--ink-2);
+  cursor: pointer;
+  transition: border-color 160ms ease, background 160ms ease, color 160ms ease, transform 160ms ease;
+  white-space: nowrap;
+}
+.vac-chip:hover { border-color: var(--ink); transform: translateY(-1px); }
+.vac-chip.is-active {
+  background: var(--ink);
+  color: var(--bg);
+  border-color: var(--ink);
+}
+.vac-chip--accent.is-active {
+  background: var(--accent);
+  color: oklch(0.20 0.10 130);
+  border-color: var(--accent);
+}
+
+.vac-grid {
+  display: grid;
+  gap: 14px;
+  margin-top: 16px;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+}
+
+.vac-card {
+  display: grid;
+  gap: 12px;
+  align-content: start;
+  padding: 18px 20px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-2);
+  background: var(--paper);
+  text-decoration: none;
+  color: var(--ink);
+  transition: border-color 180ms ease, transform 180ms ease, box-shadow 180ms ease;
+  min-height: 180px;
+}
+.vac-card:hover {
+  border-color: var(--ink);
+  transform: translateY(-3px);
+  box-shadow: 0 18px 44px -22px oklch(0 0 0 / 0.4);
+}
+
+.vac-card--skeleton {
+  pointer-events: none;
+  background: linear-gradient(100deg, var(--paper) 30%, var(--hover) 50%, var(--paper) 70%);
+  background-size: 220% 100%;
+  animation: vac-shimmer 1.3s ease-in-out infinite;
+  border-color: var(--line-2);
+}
+@keyframes vac-shimmer {
+  from { background-position: 180% 0; }
+  to   { background-position: -40% 0; }
+}
+
+.vac-card-head {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+.vac-logo {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  object-fit: contain;
+  background: var(--paper-2);
+  border: 1px solid var(--line);
+  flex: 0 0 auto;
+  padding: 4px;
+}
+.vac-logo--ph {
+  display: grid;
+  place-items: center;
+  font-family: var(--f-display);
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--accent-ink, var(--ink));
+  background: var(--ink);
+  color: var(--accent);
+}
+.vac-title {
+  font-size: 15px;
+  line-height: 1.3;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.vac-employer {
+  font-size: 12.5px;
+  color: var(--muted);
+  margin-top: 3px;
+}
+.vac-salary {
+  font-family: var(--f-mono);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--accent-ink, var(--ink));
+}
+.vac-salary--none { font-weight: 400; color: var(--muted); font-size: 12px; }
+.vac-snippet {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--ink-2);
+  margin: 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.vac-snippet :is(b, strong) { color: var(--ink); font-weight: 600; }
+.vac-tags {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.vac-tag {
+  font-family: var(--f-mono);
+  font-size: 10px;
+  letter-spacing: 0.03em;
+  padding: 3px 8px;
+  border-radius: var(--r-pill);
+  background: var(--paper-2);
+  border: 1px solid var(--line);
+  color: var(--muted);
+}
+.vac-open {
+  font-family: var(--f-mono);
+  font-size: 11px;
+  color: var(--ink);
+  margin-top: 2px;
+}
+.vac-card:hover .vac-open { color: var(--accent-ink, var(--ink)); }
+
+.vac-empty {
+  margin-top: 16px;
+  padding: 28px 24px;
+  border: 1px dashed var(--line);
+  border-radius: var(--r-2);
+  background: var(--paper-2);
+  text-align: center;
+}
+
+@media (max-width: 720px) {
+  .vac-grid { grid-template-columns: 1fr; }
+}
+
+/* ============================================================
+   OAuth-вход (Google / GitHub) на форме авторизации
+   ============================================================ */
+.oauth-buttons {
+  margin-top: 20px;
+}
+
+.oauth-buttons__label {
+  position: relative;
+  margin: 0 0 14px;
+  text-align: center;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+.oauth-buttons__label::before,
+.oauth-buttons__label::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  width: calc(50% - 78px);
+  height: 1px;
+  background: var(--line);
+}
+.oauth-buttons__label::before { left: 0; }
+.oauth-buttons__label::after { right: 0; }
+
+.oauth-buttons__list {
+  display: flex;
+  gap: 12px;
+}
+
+.oauth-button {
+  flex: 1 1 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 11px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-1, 8px);
+  background: var(--paper);
+  color: var(--ink);
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1;
+  cursor: pointer;
+  transition: border-color 0.18s var(--ease-out), background 0.18s var(--ease-out), transform 0.12s var(--ease-out);
+}
+.oauth-button:hover {
+  border-color: var(--ink);
+  background: var(--paper-2);
+}
+.oauth-button:active {
+  transform: translateY(1px);
+}
+.oauth-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.oauth-button__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 18px;
+  width: 18px;
+  height: 18px;
+}
+.oauth-button__icon svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.oauth-button__text {
+  line-height: 1;
+}
+
+@media (max-width: 480px) {
+  .oauth-buttons__list { flex-direction: column; }
 }

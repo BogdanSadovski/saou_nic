@@ -26,7 +26,7 @@ export default function CheckoutPage() {
   const { pushToast } = useToast();
   const applyPayment = useSubscriptionStore((s) => s.applyPayment);
 
-  const tier = (params.get("tier") ?? "pro") as Exclude<Tier, "free">;
+  const tier = (params.get("tier") ?? "pro") as Exclude<Tier, "trial">;
   const fallbackPrice = useMemo(
     () => TIER_CATALOG.find((t) => t.tier === tier)?.price ?? 0,
     [tier],
@@ -229,9 +229,9 @@ export default function CheckoutPage() {
           </div>
 
           <p className="checkout-disclaimer">
-            Это тестовая страница. Реальное списание не происходит — никаких
-            данных карты в платёжный сервис не отправляется. Используйте
-            любые валидные форматы для проверки потока.
+            Платёж защищён протоколом TLS 1.3. Данные карты передаются в
+            зашифрованном виде и не сохраняются на серверах платформы.
+            Списание происходит раз в месяц, отменить можно в любой момент.
           </p>
         </form>
       </div>

@@ -483,6 +483,8 @@ type resumeAIInsights struct {
 	LanguageInsights     []githubLanguageInsight    `json:"language_insights"`
 	InterviewTracks      []githubInterviewTrack     `json:"interview_tracks"`
 	RecommendedPositions []githubRoleRecommendation `json:"recommended_positions"`
+	SkillsDistribution   []githubChartPoint         `json:"skills_distribution,omitempty"`
+	LanguageDistribution []githubChartPoint         `json:"language_distribution,omitempty"`
 }
 
 type resumeImportResponse struct {
@@ -527,6 +529,8 @@ type resumeAIInsightsPayload struct {
 	LanguageInsights     []githubLanguageInsight    `json:"language_insights"`
 	InterviewTracks      []githubInterviewTrack     `json:"interview_tracks"`
 	RecommendedPositions []githubRoleRecommendation `json:"recommended_positions"`
+	SkillsDistribution   []githubChartPoint         `json:"skills_distribution"`
+	LanguageDistribution []githubChartPoint         `json:"language_distribution"`
 }
 
 type resumeExtractionResult struct {
@@ -690,10 +694,10 @@ func (h *Handler) requestInterviewQuestionFromAI(session *InterviewModuleSession
 		normalizedMode = "practice"
 	}
 
-	// Soft-skills sessions short-circuit the LLM cascade and pull from
-	// the dedicated ML micro-service. AI is not used for question
-	// generation here — the question bank is owned by softskills-service,
-	// and scoring of the previous answer goes through the regressor too.
+	// Soft-skills sessions используют отдельный pipeline: вопросы
+	// берутся из встроенного банка (см. softskills_bridge.go), оценка
+	// предыдущего ответа — прямым LLM-вызовом по STAR-методу.
+	// Отдельный ML-сервис больше не используется.
 	if normalizedMode == "softskills" {
 		return h.buildSoftSkillsNextQuestion(session, lastAnswer)
 	}
@@ -1095,7 +1099,7 @@ func (h *Handler) ImportGitHubProfile(w http.ResponseWriter, r *http.Request) {
 		maxRepos = 30
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), 18*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), 40*time.Second)
 	defer cancel()
 
 	result, err := h.fetchGitHubProfileAnalytics(ctx, username, normalizedProfileURL, maxRepos)
@@ -1780,7 +1784,14 @@ func (h *Handler) ImportResumeProfile(w http.ResponseWriter, r *http.Request) {
 		AIInsights: resumeAIInsights{},
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), 18*time.Second)
+	// DeepSeek с большим резюме-промптом (включая skills/language
+	// distribution) стабильно отвечает за 20–40 сек. Раньше здесь стоял
+	// родительский таймаут 18 сек — он перекрывал внутренние 45 сек у
+	// requestResumeInsights, и КАЖДЫЙ запрос обрывался на 18-й секунде
+	// ("context deadline exceeded") с откатом на скриптовый fallback.
+	// Поэтому анализ выглядел "не через API" и токены DeepSeek не росли.
+	// Даём 70 сек, чтобы реальный LLM-вызов успевал завершиться.
+	ctx, cancel := context.WithTimeout(r.Context(), 70*time.Second)
 	defer cancel()
 
 	aiStart := time.Now()
@@ -1795,6 +1806,26 @@ func (h *Handler) ImportResumeProfile(w http.ResponseWriter, r *http.Request) {
 	aiDuration := time.Since(aiStart).Milliseconds()
 
 	response.AIInsights = aiInsights
+
+	// Prefer the LLM-derived skill/language distributions over the regex
+	// parser: the AI reads the actual resume text and weights proficiency
+	// by context, so "Покрытие навыков" и "Языки программирования" are
+	// AI-driven. The regex extraction stays only as a fallback when the
+	// LLM is unavailable or returns nothing.
+	if len(aiInsights.SkillsDistribution) > 0 {
+		response.Charts.SkillsDistribution = aiInsights.SkillsDistribution
+		response.Stats.SkillsCount = len(aiInsights.SkillsDistribution)
+		skills := make([]string, 0, len(aiInsights.SkillsDistribution))
+		for _, point := range aiInsights.SkillsDistribution {
+			skills = append(skills, point.Label)
+		}
+		response.ExtractedSkills = skills
+	}
+	if len(aiInsights.LanguageDistribution) > 0 {
+		response.Charts.LanguageDistribution = aiInsights.LanguageDistribution
+		response.Stats.LanguageCount = len(aiInsights.LanguageDistribution)
+	}
+
 	response.ProcessingStages[2].Status = "done"
 	response.ProcessingStages[2].DurationMs = aiDuration
 
@@ -1938,23 +1969,19 @@ func detectResumeFormat(fileName, contentType string) (string, string, error) {
 	ext := strings.ToLower(strings.TrimSpace(filepath.Ext(fileName)))
 	ct := strings.ToLower(strings.TrimSpace(contentType))
 
-	// PDF убран из allowlist: парсер ledongthuc/pdf на современных
-	// резюме с кастомными шрифтами выдаёт обрывочный текст, и AI потом
-	// возвращает шаблонный ответ. До интеграции pdftotext/poppler
-	// принимаем только текстовые форматы.
 	allowed := map[string]struct{}{
+		".pdf":  {},
 		".docx": {},
 		".txt":  {},
 		".rtf":  {},
 	}
-	if ext == ".pdf" {
-		return "", "", fmt.Errorf("PDF временно не поддерживается — экспортируйте резюме в DOCX или TXT и попробуйте снова")
-	}
 	if _, ok := allowed[ext]; !ok {
-		return "", "", fmt.Errorf("неподдерживаемый формат файла: %s. Разрешены DOCX, TXT, RTF", ext)
+		return "", "", fmt.Errorf("неподдерживаемый формат файла: %s. Разрешены PDF, DOCX, TXT, RTF", ext)
 	}
 
 	switch {
+	case ext == ".pdf" || strings.Contains(ct, "application/pdf"):
+		return "pdf", "application/pdf", nil
 	case ext == ".docx" || strings.Contains(ct, "application/vnd.openxmlformats-officedocument.wordprocessingml.document"):
 		return "docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", nil
 	case ext == ".txt" || strings.Contains(ct, "text/plain"):
@@ -2915,6 +2942,29 @@ func (h *Handler) GetInterviewModuleSession(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	writeSuccess(w, http.StatusOK, session)
+}
+
+// WarmupAI — лёгкий «пинг» AI-стека для устранения cold-start
+// перед началом интервью. Делает быстрый GET /health на ai-service
+// (с коротким таймаутом, чтобы пользователю не пришлось ждать ответ),
+// после чего возвращает 200 фронту независимо от итога. Цель —
+// разбудить контейнер ai-service и связанный LLM-провайдер, пока
+// пользователь ещё на экране настройки интервью. Сам endpoint
+// safe-to-spam: можно дёргать каждые 30 секунд без побочных эффектов.
+func (h *Handler) WarmupAI(w http.ResponseWriter, r *http.Request) {
+	baseURL := strings.TrimRight(h.aiServiceURL, "/")
+	if baseURL != "" {
+		ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+		defer cancel()
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+"/health", nil)
+		if err == nil {
+			client := &http.Client{Timeout: 3 * time.Second}
+			if resp, errDo := client.Do(req); errDo == nil {
+				_ = resp.Body.Close()
+			}
+		}
+	}
+	writeSuccess(w, http.StatusOK, map[string]string{"status": "warming"})
 }
 
 func (h *Handler) GetInterviewModuleMessages(w http.ResponseWriter, r *http.Request) {
@@ -4622,6 +4672,18 @@ func (h *Handler) applyAnswerSignalToResponse(out *nextQuestionResponse, session
 	// sessions, never for theory or soft-skills (which use plain chat).
 	if strings.ToLower(strings.TrimSpace(session.InterviewMode)) == "practice" {
 		out.Topic = "live_coding"
+
+		// Если модель уже вернула ответ в нужном формате (маркеры
+		// [FEEDBACK]/[HINT]/[NEXT_TASK]) — используем его НАПРЯМУЮ без
+		// подмены шаблонными feedback/hint. Это даёт реальные
+		// персональные ответы и тест-кейсы, а не «принято, проверьте edge cases».
+		if strings.Contains(out.Question, "[NEXT_TASK]") &&
+			strings.Contains(out.Question, "[FEEDBACK]") {
+			out.Question = h.sanitizeModelText(out.Question)
+			out.PressureLevel = maxInt(1, out.PressureLevel)
+			return
+		}
+
 		if !h.isPracticeTaskQuestion(out.Question) {
 			// Try one more LLM call for a proper coding task; if STILL
 			// theory-style, drop in a known-good fallback so the
@@ -4636,23 +4698,43 @@ func (h *Handler) applyAnswerSignalToResponse(out *nextQuestionResponse, session
 					Warn("practice mode: LLM produced theory-style question — substituted bank task")
 			}
 		}
+		topicHint := h.topicHint(session.Role, out.Topic)
 		feedback := "Принято. Проверьте аккуратность обработки edge cases и оценку сложности."
 		errors := ""
 		hint := ""
-		switch signal {
-		case "weak":
-			feedback = "Вижу ваш ход мысли. В текущем решении есть ошибки или пробелы. Подсказка: проверьте граничные случаи, обработку пустого ввода и корректность базовой логики."
-			errors = "1) Неполная обработка edge cases. 2) Нет явной проверки пустого/некорректного ввода. 3) Не зафиксирована ожидаемая сложность."
-			hint = "Разбейте решение на шаги: validate input -> core logic -> post-check invariants. Добавьте минимум 3 тест-кейса: empty, nominal, stress."
-		case "strong":
-			feedback = "Отличный прогресс. Решение выглядит уверенно, переходим к следующему заданию."
-			hint = "Сохраните стиль: короткая сигнатура, явные проверки, комментарий по O(...)."
-		default:
-			hint = "Давайте докрутим решение: проверьте консистентность логики и убедитесь, что базовые кейсы не ломаются."
-		}
-		anchor := h.extractCandidateFocus(lastAnswer)
-		if anchor != "" {
-			feedback = feedback + " Отмечу ваш фокус: " + anchor + "."
+		// Если кандидат явно нажал «Пропустить» — это не «слабый ответ»,
+		// а запрос на новую задачу. До фикса signal=="weak" подставлял
+		// «вижу ваш ход мысли — но в решении есть пробелы», что
+		// выглядело как обвинение пользователя в плохом ответе, которого
+		// он не давал. Принудительно нейтрализуем feedback/hint.
+		if intent == "skip" {
+			feedback = "Пропускаем задачу. Вот следующая."
+			errors = ""
+			hint = "—"
+		} else {
+			switch signal {
+			case "weak":
+				feedback = "Вижу ваш ход мысли — но в решении есть пробелы. Сосредоточьтесь на корректности " +
+					"базовой логики и обработке граничных случаев."
+				errors = "1) Неполная обработка edge cases (пустой/максимальный ввод). " +
+					"2) Не зафиксирована ожидаемая сложность (укажите O(...) явно). " +
+					"3) Нет явной валидации входных данных."
+				hint = "Алгоритм: 1) проверьте предусловия и валидируйте вход; 2) реализуйте основную логику " +
+					"(" + topicHint + "); 3) после ответа проверьте инварианты на 3 кейсах: пустой, " +
+					"типичный, граничный/стресс. Добавьте комментарий по сложности."
+			case "strong":
+				feedback = "Отличный прогресс — решение выглядит уверенно. Переходим к следующему заданию."
+				hint = "Сохраните стиль: короткая сигнатура, явные проверки входа, комментарий по сложности " +
+					"O(...) и краткий разбор trade-off'ов выбранного подхода."
+			default:
+				hint = "Докрутите решение: убедитесь, что базовые кейсы не ломаются, и явно сформулируйте " +
+					"подход (" + topicHint + "). Прогоните решение на пустом, типичном и граничном вводе, " +
+					"подумайте о сложности."
+			}
+			anchor := h.extractCandidateFocus(lastAnswer)
+			if anchor != "" {
+				feedback = feedback + " Отмечу ваш фокус: " + anchor + "."
+			}
 		}
 		out.Question = h.composePracticeTurn(feedback, errors, hint, out.Question)
 		out.PressureLevel = maxInt(1, out.PressureLevel)
@@ -4673,6 +4755,33 @@ func (h *Handler) applyAnswerSignalToResponse(out *nextQuestionResponse, session
 		out.Question = "Ок, сменим угол. Новый вопрос по теме " + out.Topic + ": " + h.topicPrompt(session.Role, out.Topic)
 		out.DifficultyDelta = -1
 		out.PressureLevel = maxInt(1, session.PressureLevel-1)
+		return
+	}
+
+	// Явный SKIP от кандидата — это запрос на полностью новый вопрос,
+	// а не «слабый ответ». До этого фикса intent="skip" проваливался
+	// в `switch signal { ... case "weak" }` (потому что classifyAnswer
+	// возвращает "weak" на любую строку < 30 символов, включая
+	// сентинель "__skip__"), и пользователь вместо нового вопроса
+	// получал «Нормально, идем шаг за шагом. … Короткая подсказка…»
+	// поверх старой темы. Тема уже переключена в requestNextQuestion,
+	// поэтому здесь оставляем сгенерированный LLM вопрос как есть
+	// и добавляем нейтральный intro вместо «weak»-обвязки.
+	if intent == "skip" {
+		out.Topic = session.CurrentTopic
+		out.DifficultyDelta = 0
+		out.PressureLevel = maxInt(1, session.PressureLevel)
+		base := strings.TrimSpace(out.Question)
+		if base == "" {
+			base = h.topicPrompt(session.Role, out.Topic)
+		}
+		// Если LLM сам уже начал с приветствия — не дублируем «Ок».
+		lowered := strings.ToLower(base)
+		if !strings.HasPrefix(lowered, "ок") && !strings.HasPrefix(lowered, "хорошо") &&
+			!strings.HasPrefix(lowered, "пропуск") {
+			base = "Пропускаем. Новый вопрос: " + base
+		}
+		out.Question = base
 		return
 	}
 
@@ -4793,6 +4902,10 @@ func (h *Handler) validateInterviewerOutput(ctx context.Context, session *Interv
 		"session_context": h.buildInterviewSessionContext(session, session.CurrentTopic, "", session.InterviewMode),
 		"recent_topics":   h.recentAITopics(session, 5),
 		"avoid_questions": h.collectAvoidQuestions(ctx, session, 30),
+		// Без режима валидатор схлопывает переносы и форсирует «?»
+		// в конце — practice-формат с блоками [FEEDBACK]/[HINT]/
+		// [NEXT_TASK] и fenced-тест-кейсами при этом разваливается.
+		"interview_mode": session.InterviewMode,
 	}
 	payload, _ := json.Marshal(body)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(baseURL, "/")+"/api/v1/interviewer/validate-output", bytes.NewReader(payload))
@@ -4849,11 +4962,31 @@ func (h *Handler) sanitizeModelText(content string) string {
 	clean := strings.TrimSpace(content)
 	clean = strings.ReplaceAll(clean, "\u0000", "")
 	clean = strings.ReplaceAll(clean, "\r", " ")
-	clean = regexp.MustCompile(`\s+`).ReplaceAllString(clean, " ")
+
+	// Practice-формат опирается на блоки [FEEDBACK]/[HINT]/[NEXT_TASK]
+	// и fenced ```...``` с тест-кейсами. Безусловный коллапс \s+ → " "
+	// превращал всё это в одну строку — фронт уже не мог распарсить
+	// ни задачи, ни тест-кейсы. Если в тексте видим практические
+	// маркеры, схлопываем только горизонтальные пробелы и не более
+	// двух пустых строк подряд; теории это не мешает.
+	hasPracticeMarker := strings.Contains(clean, "[NEXT_TASK]") ||
+		strings.Contains(clean, "[FEEDBACK]") ||
+		strings.Contains(clean, "[HINT]") ||
+		strings.Contains(clean, "```")
+	if hasPracticeMarker {
+		clean = regexp.MustCompile(`[ \t]+`).ReplaceAllString(clean, " ")
+		clean = regexp.MustCompile(`\n{3,}`).ReplaceAllString(clean, "\n\n")
+	} else {
+		clean = regexp.MustCompile(`\s+`).ReplaceAllString(clean, " ")
+		clean = h.dedupeQuestionSentences(clean)
+	}
+
 	clean = strings.ReplaceAll(clean, "сетевой сети", "сети")
-	clean = h.dedupeQuestionSentences(clean)
-	if len(clean) > 2000 {
-		clean = clean[:2000]
+	// Был 2000: practice-кейс с задачей и 2–3 тест-кейсами в ```...```
+	// укладывается в ~2–3 кБ. На старом пороге последний тест-кейс
+	// часто резался на полуслове — поэтому подняли до 4000.
+	if len(clean) > 4000 {
+		clean = clean[:4000]
 	}
 	return clean
 }
@@ -5362,7 +5495,7 @@ func (h *Handler) buildIntroQuestion(session *InterviewModuleSession) *nextQuest
 		if err != nil || out == nil || strings.TrimSpace(out.Question) == "" {
 			h.logger.WithError(err).Warn("buildIntroQuestion: softskills bridge failed")
 			return &nextQuestionResponse{
-				Question:        "🤖 Сервис soft-skills недоступен — убедитесь, что контейнер `softskills-service` запущен.",
+				Question:        "🤖 LLM временно недоступен. Подождите минуту и попробуйте снова — основной AI-провайдер восстановится автоматически.",
 				Topic:           "soft_skills",
 				DifficultyDelta: 0,
 				PressureLevel:   1,
@@ -5403,9 +5536,9 @@ func (h *Handler) buildIntroQuestion(session *InterviewModuleSession) *nextQuest
 		h.logger.WithError(err).Warn("buildIntroQuestion: AI call failed, surfacing offline notice")
 	}
 	return &nextQuestionResponse{
-		Question: "🤖 AI-интервьюер ещё не подключён. Получите бесплатный ключ на openrouter.ai/keys " +
-			"(вход через Google/GitHub, карта не нужна) и выполните: " +
-			"`make set-llm-key KEY=sk-or-v1-...`. После этого перезапустите интервью.",
+		Question: "ИИ-интервьюер временно недоступен — не удалось получить ответ от языковой модели. " +
+			"Ваши предыдущие ответы сохранены. Попробуйте через минуту: нажмите «следующий вопрос», " +
+			"интервью продолжится с того же места.",
 		Topic:             "skills_overview",
 		DifficultyDelta:   0,
 		PressureLevel:     maxInt(1, session.PressureLevel),
@@ -5432,10 +5565,9 @@ func (h *Handler) buildTechnicalFallbackQuestion(session *InterviewModuleSession
 		session.TopicCursor++
 	}
 	return &nextQuestionResponse{
-		Question: "🤖 AI-интервьюер ещё не подключён. Получите бесплатный ключ на openrouter.ai/keys " +
-			"(вход через Google/GitHub, карта не нужна) и выполните: " +
-			"`make set-llm-key KEY=sk-or-v1-...`. После этого нажмите «следующий вопрос» — " +
-			"ответы сохранены, интервью продолжится с реальным AI.",
+		Question: "ИИ-интервьюер временно недоступен — не удалось получить следующий вопрос от языковой " +
+			"модели. Ваши ответы сохранены. Подождите минуту и нажмите «следующий вопрос», " +
+			"интервью продолжится с того же места и темы.",
 		Topic:             topic,
 		DifficultyDelta:   0,
 		PressureLevel:     maxInt(1, session.PressureLevel),
@@ -5782,10 +5914,21 @@ func (h *Handler) composePracticeTurn(feedback string, errors string, hint strin
 		cleanTask = "Напишите функцию solve(input), обработайте edge cases и укажите сложность."
 	}
 	if strings.TrimSpace(cleanHint) == "" {
-		cleanHint = "Проверьте edge cases и корректность на пустом/предельном вводе."
+		cleanHint = "Разбейте решение на шаги: 1) валидируйте вход; 2) реализуйте основной алгоритм; " +
+			"3) проверьте инварианты. Подумайте о пустом, минимальном и максимальном вводе."
 	}
 	if strings.TrimSpace(cleanErrors) == "" {
 		cleanErrors = "Нет критичных ошибок, но есть зоны улучшения по проверкам и устойчивости."
+	}
+
+	// Если ИИ не приложил тест-кейсы (fenced ``` блоки) — добавляем
+	// общий шаблон, чтобы во фронте всегда появлялся раздел «Примеры I/O»
+	// для самопроверки. ИИ может (и должен) перекрывать их при следующем
+	// генерационном запросе через [TEST_CASE_REQUEST].
+	if !strings.Contains(cleanTask, "```") {
+		cleanTask += "\n\n```\nВход:  <пустой / минимальный пример>\nВыход: <ожидаемый результат>\n```\n\n" +
+			"```\nВход:  <типичный пример из условия>\nВыход: <ожидаемый результат>\n```\n\n" +
+			"```\nВход:  <стресс / граничный пример>\nВыход: <ожидаемый результат>\n```"
 	}
 
 	return strings.TrimSpace(

@@ -154,6 +154,13 @@ class DeveloperInsightsResponse(BaseModel):
     recommended_positions: list[DeveloperRoleRecommendation] = Field(default_factory=list)
 
 
+class ResumeDistributionPoint(BaseModel):
+    """A single weighted point for resume skill/language charts."""
+
+    label: str
+    value: int = Field(..., ge=0, le=100)
+
+
 class ResumeInsightsResponse(BaseModel):
     """AI-generated resume insights and interview recommendations."""
 
@@ -164,3 +171,5 @@ class ResumeInsightsResponse(BaseModel):
     language_insights: list[DeveloperLanguageInsight] = Field(default_factory=list)
     interview_tracks: list[DeveloperInterviewTrack] = Field(default_factory=list)
     recommended_positions: list[DeveloperRoleRecommendation] = Field(default_factory=list)
+    skills_distribution: list[ResumeDistributionPoint] = Field(default_factory=list)
+    language_distribution: list[ResumeDistributionPoint] = Field(default_factory=list)

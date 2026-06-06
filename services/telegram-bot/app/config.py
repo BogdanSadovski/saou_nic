@@ -30,10 +30,9 @@ class Settings(BaseSettings):
         "http://interview-service:8082",
         description="Где живёт soft-skills-score endpoint и список вопросов.",
     )
-    softskills_service_url: str = Field(
-        "http://softskills-service:8090",
-        description="Прямой URL ML-сервиса soft-skills.",
-    )
+    # softskills_service_url убран — оценка soft-skills теперь идёт
+    # через основной LLM (см. app/scoring.py), отдельный ML-сервис
+    # больше не используется.
 
     # Daily push
     daily_push_default_hour_utc: int = Field(

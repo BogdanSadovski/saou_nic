@@ -191,7 +191,7 @@ export function AuthForm() {
           свою очередь редиректит на Google/GitHub. По окончании
           callback бэк возвращает пользователя на /auth с токенами в URL. */}
       <div style={{ marginTop: 22 }}>
-        <OAuthButtons providers={["Google", "GitHub"]} />
+        <OAuthButtons providers={["GitHub"]} />
       </div>
     </section>
   );

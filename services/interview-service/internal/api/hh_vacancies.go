@@ -139,6 +139,7 @@ type HHVacancy struct {
 	Name            string  `json:"name"`
 	URL             string  `json:"url"`
 	Employer        string  `json:"employer"`
+	EmployerLogo    string  `json:"employer_logo,omitempty"`
 	Area            string  `json:"area"`
 	Experience      string  `json:"experience"`
 	Schedule        string  `json:"schedule"`
@@ -157,6 +158,9 @@ type HHVacanciesResponse struct {
 	Query    string      `json:"query"`
 	Area     string      `json:"area"`
 	Total    int         `json:"total"`
+	Page     int         `json:"page"`
+	Pages    int         `json:"pages"`
+	PerPage  int         `json:"per_page"`
 	Items    []HHVacancy `json:"items"`
 	CachedAt time.Time   `json:"cached_at"`
 }
@@ -164,8 +168,11 @@ type HHVacanciesResponse struct {
 // ---------------------------- HH raw shapes ----------------------------
 
 type hhRawResponse struct {
-	Items []hhRawVacancy `json:"items"`
-	Found int            `json:"found"`
+	Items   []hhRawVacancy `json:"items"`
+	Found   int            `json:"found"`
+	Page    int            `json:"page"`
+	Pages   int            `json:"pages"`
+	PerPage int            `json:"per_page"`
 }
 
 type hhRawVacancy struct {
@@ -183,7 +190,13 @@ type hhRawVacancy struct {
 }
 
 type hhRawEmployer struct {
-	Name string `json:"name"`
+	Name     string          `json:"name"`
+	LogoURLs *hhRawLogoURLs  `json:"logo_urls"`
+}
+type hhRawLogoURLs struct {
+	Size90  string `json:"90"`
+	Size240 string `json:"240"`
+	Original string `json:"original"`
 }
 type hhRawNamed struct {
 	Name string `json:"name"`
@@ -270,12 +283,24 @@ func buildHHQuery(role string, skills []string) string {
 
 // ---------------------------- HTTP fetch ----------------------------
 
-func (h *Handler) fetchHHVacancies(ctx context.Context, query, area string) (*HHVacanciesResponse, error) {
+func (h *Handler) fetchHHVacancies(ctx context.Context, query, area string, page, perPage int) (*HHVacanciesResponse, error) {
+	if perPage <= 0 || perPage > 50 {
+		perPage = hhRequestPerPag
+	}
+	if page < 0 {
+		page = 0
+	}
 	params := url.Values{}
 	params.Set("text", query)
-	params.Set("per_page", strconv.Itoa(hhRequestPerPag))
+	params.Set("per_page", strconv.Itoa(perPage))
+	params.Set("page", strconv.Itoa(page))
 	params.Set("order_by", "relevance")
 	params.Set("only_with_salary", "false")
+	// ВАЖНО: без host+locale HH-API отдаёт 403 forbidden даже с
+	// валидным OAuth-токеном (их роутинг/анти-бот требует явного
+	// указания сайта). С ними поиск работает.
+	params.Set("host", "hh.ru")
+	params.Set("locale", "RU")
 	if area != "" && area != "world" {
 		params.Set("area", area)
 	}
@@ -299,41 +324,81 @@ func (h *Handler) fetchHHVacancies(ctx context.Context, query, area string) (*HH
 		h.logger.WithError(tokErr).Warn("hh: token fetch failed, falling back to anonymous mode")
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fullURL, nil)
-	if err != nil {
-		return nil, fmt.Errorf("hh: build request: %w", err)
-	}
-	req.Header.Set("User-Agent", userAgent)
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("Accept-Language", "ru-BY,ru;q=0.9,en;q=0.5")
-	if accessToken != "" {
-		req.Header.Set("Authorization", "Bearer "+accessToken)
-	}
+	// Retry-with-backoff: HH-анти-бот на /vacancies частотный — при
+	// всплеске запросов с одного IP отдаёт временный 403, но после
+	// паузы 1-2с запрос проходит. Делаем до 3 попыток с нарастающей
+	// задержкой. 401 (истёкший токен) тоже ретраим — но сначала
+	// сбрасываем кеш токена.
+	client := &http.Client{Timeout: 12 * time.Second}
+	backoff := []time.Duration{0, 1200 * time.Millisecond, 3000 * time.Millisecond}
+	var resp *http.Response
+	var lastBody string
+	var lastStatus int
+	for attempt, wait := range backoff {
+		if wait > 0 {
+			select {
+			case <-time.After(wait):
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		}
 
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("hh: do request: %w", err)
-	}
-	defer resp.Body.Close()
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, fullURL, nil)
+		if err != nil {
+			return nil, fmt.Errorf("hh: build request: %w", err)
+		}
+		req.Header.Set("User-Agent", userAgent)
+		req.Header.Set("Accept", "application/json")
+		req.Header.Set("Accept-Language", "ru-RU,ru;q=0.9,en;q=0.5")
+		if accessToken != "" {
+			req.Header.Set("Authorization", "Bearer "+accessToken)
+		}
 
-	if resp.StatusCode >= 400 {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
-		hint := ""
-		switch resp.StatusCode {
-		case 401:
-			hint = " (HH_ACCESS_TOKEN истёк/невалиден — проверьте HH_CLIENT_ID/HH_CLIENT_SECRET в .env)"
-			// сбрасываем кеш, чтобы следующий запрос обновил токен
+		r, err := client.Do(req)
+		if err != nil {
+			lastStatus = 0
+			lastBody = err.Error()
+			continue
+		}
+		if r.StatusCode < 400 {
+			resp = r
+			break
+		}
+		// Ошибочный статус — читаем тело, закрываем, решаем про retry.
+		b, _ := io.ReadAll(io.LimitReader(r.Body, 1024))
+		_ = r.Body.Close()
+		lastStatus = r.StatusCode
+		lastBody = string(b)
+
+		if r.StatusCode == 401 {
+			// токен протух — сбросим кеш и обновим на следующей попытке
 			hhToken.mu.Lock()
 			hhToken.token = ""
 			hhToken.mu.Unlock()
+			if t, e := fetchHHAccessToken(ctx, userAgent); e == nil {
+				accessToken = t
+			}
+		}
+		// retry только на 401/403/429/5xx; на прочих 4xx смысла нет
+		if r.StatusCode != 401 && r.StatusCode != 403 && r.StatusCode != 429 && r.StatusCode < 500 {
+			break
+		}
+		_ = attempt
+	}
+
+	if resp == nil {
+		hint := ""
+		switch lastStatus {
+		case 401:
+			hint = " (токен невалиден — проверьте HH_CLIENT_ID/HH_CLIENT_SECRET)"
 		case 403:
-			hint = " (приложение не зарегистрировано или e-mail в UA не совпадает с dev.hh.ru/admin)"
+			hint = " (HH временно блокирует IP по анти-боту; кешированные запросы работают, либо смените egress-IP/подождите)"
 		case 429:
 			hint = " (rate-limit; повторите через минуту)"
 		}
-		return nil, fmt.Errorf("hh: status %d%s: %s", resp.StatusCode, hint, string(body))
+		return nil, fmt.Errorf("hh: status %d%s: %s", lastStatus, hint, lastBody)
 	}
+	defer resp.Body.Close()
 
 	var raw hhRawResponse
 	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
@@ -344,8 +409,14 @@ func (h *Handler) fetchHHVacancies(ctx context.Context, query, area string) (*HH
 		Query:    query,
 		Area:     area,
 		Total:    raw.Found,
+		Page:     raw.Page,
+		Pages:    raw.Pages,
+		PerPage:  raw.PerPage,
 		Items:    make([]HHVacancy, 0, len(raw.Items)),
 		CachedAt: time.Now(),
+	}
+	if out.PerPage == 0 {
+		out.PerPage = perPage
 	}
 	for i, item := range raw.Items {
 		v := HHVacancy{
@@ -356,6 +427,17 @@ func (h *Handler) fetchHHVacancies(ctx context.Context, query, area string) (*HH
 		}
 		if item.Employer != nil {
 			v.Employer = item.Employer.Name
+			if item.Employer.LogoURLs != nil {
+				// предпочитаем 90px-логотип, fallback на 240/original
+				logo := item.Employer.LogoURLs.Size90
+				if logo == "" {
+					logo = item.Employer.LogoURLs.Size240
+				}
+				if logo == "" {
+					logo = item.Employer.LogoURLs.Original
+				}
+				v.EmployerLogo = logo
+			}
 		}
 		if item.Area != nil {
 			v.Area = item.Area.Name
@@ -422,6 +504,26 @@ func (h *Handler) GetMatchingVacancies(w http.ResponseWriter, r *http.Request) {
 		area = hhDefaultArea
 	}
 
+	// Пагинация.
+	page := 0
+	if p := strings.TrimSpace(r.URL.Query().Get("page")); p != "" {
+		if parsed, perr := strconv.Atoi(p); perr == nil && parsed >= 0 {
+			page = parsed
+		}
+	}
+	perPage := hhRequestPerPag
+	if pp := strings.TrimSpace(r.URL.Query().Get("per_page")); pp != "" {
+		if parsed, perr := strconv.Atoi(pp); perr == nil && parsed > 0 && parsed <= 50 {
+			perPage = parsed
+		}
+	}
+
+	// `text` override — если фронт явно передал поисковый запрос
+	// (например, клик по конкретному скиллу), используем его вместо
+	// авто-сборки из роли+скиллов. Это и есть «поиск по отдельным
+	// скиллам».
+	textOverride := strings.TrimSpace(r.URL.Query().Get("text"))
+
 	// Look up the report.
 	h.resumeMu.RLock()
 	history := h.resumeHistory[userID]
@@ -438,15 +540,20 @@ func (h *Handler) GetMatchingVacancies(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Build query from the AI-recommended role + extracted skills.
-	role := ""
-	if len(found.AIInsights.RecommendedPositions) > 0 {
-		role = found.AIInsights.RecommendedPositions[0].Role
+	var query string
+	if textOverride != "" {
+		query = textOverride
+	} else {
+		// Build query from the AI-recommended role + extracted skills.
+		role := ""
+		if len(found.AIInsights.RecommendedPositions) > 0 {
+			role = found.AIInsights.RecommendedPositions[0].Role
+		}
+		query = buildHHQuery(role, found.ExtractedSkills)
 	}
-	query := buildHHQuery(role, found.ExtractedSkills)
 
-	// Redis cache lookup.
-	cacheKey := fmt.Sprintf("hh:vacancies:%s:%s", area, hashStr(query))
+	// Redis cache lookup (ключ учитывает area+query+page+perPage).
+	cacheKey := fmt.Sprintf("hh:vac:%s:%s:p%d:n%d", area, hashStr(query), page, perPage)
 	if h.redis != nil {
 		if cached, err := h.redis.Get(r.Context(), cacheKey).Result(); err == nil && cached != "" {
 			var resp HHVacanciesResponse
@@ -457,7 +564,7 @@ func (h *Handler) GetMatchingVacancies(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	resp, err := h.fetchHHVacancies(r.Context(), query, area)
+	resp, err := h.fetchHHVacancies(r.Context(), query, area, page, perPage)
 	if err != nil {
 		h.logger.WithError(err).Warn("hh: fetch failed")
 		writeError(w, http.StatusBadGateway, "hh.ru unavailable: "+err.Error())

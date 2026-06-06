@@ -67,6 +67,14 @@ func (r *Router) setupRoutes() {
 
 	// Interview routes
 	interviews := protected.PathPrefix("/interviews").Subrouter()
+	// Тонкий разогрев AI-стека. Фронт зовёт этот эндпоинт пока
+	// пользователь ещё выбирает вакансию — это будит контейнер
+	// ai-service и опосредованно сам LLM-провайдер, чтобы первый
+	// вопрос интервью прилетал не через 30+ секунд cold-start, а
+	// почти сразу. Сам обработчик не блокирует пользователя:
+	// internally делает короткий GET /health на ai-service с
+	// маленьким таймаутом и возвращает 200 в любом случае.
+	interviews.HandleFunc("/warmup", r.handler.WarmupAI).Methods(http.MethodGet)
 	interviews.HandleFunc("/me/report", r.handler.GetMyInterviewAnalyticsReport).Methods(http.MethodGet)
 	interviews.HandleFunc("", r.handler.CreateInterview).Methods(http.MethodPost)
 	interviews.HandleFunc("", r.handler.ListInterviews).Methods(http.MethodGet)

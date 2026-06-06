@@ -81,6 +81,28 @@ func LoadConfig(path string) (*Config, error) {
 		cfg.JWT.Secret = jwtSecret
 	}
 
+	// OAuth-настройки задаются через окружение (compose/.env), а не
+	// зашиваются в образ. Без этого блока ключи из .env игнорировались
+	// и вход через Google/GitHub отдавал 404.
+	if v := os.Getenv("OAUTH_GOOGLE_CLIENT_ID"); v != "" {
+		cfg.OAuth.GoogleClientID = v
+	}
+	if v := os.Getenv("OAUTH_GOOGLE_CLIENT_SECRET"); v != "" {
+		cfg.OAuth.GoogleClientSecret = v
+	}
+	if v := os.Getenv("OAUTH_GOOGLE_REDIRECT_URL"); v != "" {
+		cfg.OAuth.GoogleRedirectURL = v
+	}
+	if v := os.Getenv("OAUTH_GITHUB_CLIENT_ID"); v != "" {
+		cfg.OAuth.GitHubClientID = v
+	}
+	if v := os.Getenv("OAUTH_GITHUB_CLIENT_SECRET"); v != "" {
+		cfg.OAuth.GitHubClientSecret = v
+	}
+	if v := os.Getenv("OAUTH_GITHUB_REDIRECT_URL"); v != "" {
+		cfg.OAuth.GitHubRedirectURL = v
+	}
+
 	if err := cfg.validate(); err != nil {
 		return nil, fmt.Errorf("invalid configuration: %w", err)
 	}

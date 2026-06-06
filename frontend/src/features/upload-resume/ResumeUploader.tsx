@@ -10,11 +10,7 @@ type ResumeUploaderProps = {
   onAnalyzed: (payload: ResumeImportResponse) => void;
 };
 
-// PDF убран: парсер `extractPDFText` на бэкенде использует RE2-pdf-парсер
-// (ledongthuc/pdf), который теряет текст у современных PDF-резюме с
-// кастомными шрифтами и сжатыми стримами. Лучше отказаться, чем выдать
-// мусорный extract → шаблонный AI-ответ.
-const ALLOWED_EXTENSIONS = ["docx", "txt", "rtf"];
+const ALLOWED_EXTENSIONS = ["pdf", "docx", "txt", "rtf"];
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 
 export function ResumeUploader({ onAnalyzed }: ResumeUploaderProps) {
@@ -47,7 +43,7 @@ export function ResumeUploader({ onAnalyzed }: ResumeUploaderProps) {
 
     const ext = selectedFile.name.split(".").pop()?.toLowerCase() || "";
     if (!ALLOWED_EXTENSIONS.includes(ext)) {
-      pushToast("Неподдерживаемый формат. Разрешены только DOCX, TXT, RTF.");
+      pushToast("Неподдерживаемый формат. Разрешены PDF, DOCX, TXT, RTF.");
       return;
     }
     if (selectedFile.size > MAX_FILE_SIZE) {
@@ -109,7 +105,7 @@ export function ResumeUploader({ onAnalyzed }: ResumeUploaderProps) {
         <div className="resume-upload-icon" aria-hidden="true">↑</div>
         <h4>Загрузить резюме</h4>
         <p className="muted" style={{ fontSize: 13, marginBottom: 14 }}>
-          DOCX, TXT, RTF до 10 МБ — перетащите файл сюда или
+          PDF, DOCX, TXT, RTF до 10 МБ — перетащите файл сюда или
         </p>
         <button
           className="btn btn--primary btn--sm"
@@ -123,7 +119,7 @@ export function ResumeUploader({ onAnalyzed }: ResumeUploaderProps) {
         </button>
         <input
           ref={inputRef}
-          accept=".docx,.txt,.rtf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,application/rtf,text/rtf"
+          accept=".pdf,.docx,.txt,.rtf,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,application/rtf,text/rtf"
           onChange={(event) => {
             const file = event.target.files?.[0];
             setSelectedFile(file ?? null);

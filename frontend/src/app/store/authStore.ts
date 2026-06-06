@@ -60,6 +60,12 @@ export const useAuthStore = create<AuthState>((set) => ({
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(REFRESH_TOKEN_KEY);
     localStorage.removeItem("realsync_user_id");
+    // Чистим per-user кэш, иначе следующий пользователь на этом же
+    // браузере увидит чужие данные (GitHub-аналитику, подписку, профиль).
+    localStorage.removeItem("realsync_github_report");
+    localStorage.removeItem("realsync_github_username");
+    localStorage.removeItem("realsync_subscription");
+    localStorage.removeItem("realsync_user");
     set({ isAuthenticated: false, token: null, isInitialized: true });
   },
 }));

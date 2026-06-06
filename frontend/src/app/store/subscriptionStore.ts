@@ -19,10 +19,12 @@ import type { BackendSubscription } from "@/shared/api/billing";
 
 const KEY = "realsync_subscription";
 
-export type Tier = "free" | "starter" | "pro" | "team";
+// Ровно три тарифа на всей платформе — совпадают с PLAN_CATALOGUE
+// в shared/api/billing.ts и с бэкендом (admin-service).
+export type Tier = "trial" | "pro" | "platinum";
 
 export type PaidIntent = {
-  tier: Exclude<Tier, "free">;
+  tier: Exclude<Tier, "trial">;
   /** Amount in BYN whole units. UI displays as "Br" — see
    *  shared/lib/currency formatBYN. Backend historical amounts may
    *  still be denominated in USD; the type is tolerant for that. */
@@ -39,7 +41,7 @@ export type Subscription = {
 };
 
 const DEFAULT: Subscription = {
-  tier: "free",
+  tier: "trial",
   intent: null,
 };
 
@@ -52,7 +54,7 @@ const load = (): Subscription => {
     if (!parsed || typeof parsed.tier !== "string") return DEFAULT;
     // Auto-downgrade expired subscriptions on hydration.
     if (parsed.intent && new Date(parsed.intent.expiresAt) < new Date()) {
-      return { tier: "free", intent: null };
+      return { tier: "trial", intent: null };
     }
     return parsed;
   } catch {
@@ -71,7 +73,7 @@ type State = Subscription & {
   hydrate: () => Promise<void>;
   /** Mark a successful checkout — POSTs to backend, then caches. */
   applyPayment: (intent: PaidIntent) => Promise<void>;
-  /** Cancel current paid plan (revert to free). */
+  /** Cancel current paid plan (revert to trial). */
   cancel: () => Promise<void>;
   /** Re-read localStorage (used after Checkout pushes to it). */
   refresh: () => void;
@@ -79,15 +81,14 @@ type State = Subscription & {
 
 const fromBackend = (sub: BackendSubscription | null): Subscription => {
   if (!sub) return DEFAULT;
-  // Map the wider backend tier set down to the UI's tier vocabulary.
-  // Anything not matching a paid tier falls back to free.
+  // Map any tier (incl. legacy free/basic/starter/team/enterprise) down to
+  // the canonical three-tier vocabulary.
   const tier: Tier = (() => {
-    if (sub.tier === "starter" || sub.tier === "pro" || sub.tier === "team") return sub.tier;
-    if (sub.tier === "basic") return "starter";
-    if (sub.tier === "enterprise") return "team";
-    return "free";
+    if (sub.tier === "pro" || sub.tier === "basic" || sub.tier === "starter") return "pro";
+    if (sub.tier === "platinum" || sub.tier === "team" || sub.tier === "enterprise") return "platinum";
+    return "trial";
   })();
-  if (tier === "free") return DEFAULT;
+  if (tier === "trial") return DEFAULT;
 
   // Pricing isn't stored on the backend Subscription record yet — derive
   // it from the catalog so the Profile renders matching numbers.
@@ -146,48 +147,38 @@ export const useSubscriptionStore = create<State>((set, get) => ({
 }));
 
 export const TIER_CATALOG: Array<{
-  tier: Exclude<Tier, "free">;
+  tier: Exclude<Tier, "trial">;
   title: string;
   price: number;
   perks: string[];
   highlight?: boolean;
 }> = [
   {
-    tier: "starter",
-    title: "Стартовый",
-    price: 29, // BYN/мес — отображается через formatBYN ("Br")
-    perks: [
-      "До 5 интервью в месяц",
-      "Базовые AI-вопросы",
-      "Текстовые отчёты",
-    ],
-  },
-  {
     tier: "pro",
-    title: "Профи",
-    price: 65,
+    title: "Pro",
+    price: 65, // BYN/мес — отображается через formatBYN ("Br")
     highlight: true,
     perks: [
-      "До 30 интервью в месяц",
-      "Адаптивная сложность и live-coding",
-      "Графическая аналитика и тренды",
-      "Резюме-инсайты от AI",
+      "30 интервью в месяц",
+      "Безлимит резюме-анализа",
+      "AI-вердикты + PDF-отчёты",
+      "Полная GitHub-аналитика",
     ],
   },
   {
-    tier: "team",
-    title: "Команда",
+    tier: "platinum",
+    title: "Platinum",
     price: 159,
     perks: [
-      "Без лимита интервью",
-      "Все режимы (theory + practice)",
-      "Командные отчёты и экспорт",
-      "Приоритетная поддержка",
+      "Безлимит интервью и резюме",
+      "Приоритетная очередь LLM",
+      "Кастомные сценарии интервью",
+      "Personal manager",
     ],
   },
 ];
 
 export const getTierTitle = (tier: Tier): string => {
-  if (tier === "free") return "Бесплатный";
+  if (tier === "trial") return "Trial";
   return TIER_CATALOG.find((t) => t.tier === tier)?.title ?? tier;
 };

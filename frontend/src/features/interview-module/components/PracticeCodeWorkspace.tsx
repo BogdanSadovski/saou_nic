@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { sandboxApi, type SandboxExecuteResponse } from "@/shared/api";
 
 import type { InterviewMessage } from "../types";
+import { InterviewerPreparing } from "./InterviewerPreparing";
 
 type Props = {
   disabled?: boolean;
@@ -33,6 +34,9 @@ type Language = {
    *  сравниваем токены без учёта регистра. По умолчанию false —
    *  Go/Python/JS требуют точного совпадения. */
   caseInsensitive?: boolean;
+  /** Предустановленные сторонние библиотеки в песочнице. Пусто —
+   *  доступна только стандартная библиотека. */
+  libs?: string[];
 };
 
 const LANGUAGES: Language[] = [
@@ -53,6 +57,7 @@ const LANGUAGES: Language[] = [
     comment: "#",
     keywords: ["def", "class", "import", "from", "as", "if", "elif", "else", "for", "while", "return", "yield", "lambda", "try", "except", "finally", "raise", "with", "pass", "break", "continue", "and", "or", "not", "in", "is", "None", "True", "False", "async", "await"],
     builtins: ["print", "len", "range", "list", "dict", "tuple", "set", "str", "int", "float", "bool", "type", "isinstance", "enumerate", "zip", "map", "filter", "sorted", "sum", "min", "max", "abs"],
+    libs: ["numpy", "pandas", "requests", "sortedcontainers"],
   },
   {
     id: "typescript",
@@ -238,11 +243,10 @@ const highlightCode = (src: string, lang: Language): string => {
   const slots: string[] = [];
   const placeholder = (kind: string, content: string) => {
     slots.push(`<span class="tk-${kind}">${escape(content)}</span>`);
-    return ` ${slots.length - 1} `;
+    return `\uE000${slots.length - 1}\uE001`;
   };
 
-  let s = escape(src);
-  s = src; // re-use raw for regex matching; we'll re-escape at the end
+  let s = src; // работаем с сырым кодом, финально экранируем ниже
 
   // Strings (single, double, backtick) — non-greedy
   s = s.replace(/("(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'|`(?:[^`\\]|\\.)*`)/g, (m) =>
@@ -254,7 +258,7 @@ const highlightCode = (src: string, lang: Language): string => {
   // Block comments /* ... */ (for languages that have them)
   s = s.replace(/\/\*[\s\S]*?\*\//g, (m) => placeholder("com", m));
   // Numbers
-  s = s.replace(/\b\d+(?:\.\d+)?\b/g, (m) => placeholder("num", m));
+  s = s.replace(/(?<!\uE000)\b\d+(?:\.\d+)?\b(?!\uE001)/g, (m) => placeholder("num", m));
 
   // Now escape what's left and re-apply tokens.
   s = escape(s);
@@ -275,7 +279,7 @@ const highlightCode = (src: string, lang: Language): string => {
   });
 
   // Restore slot placeholders.
-  s = s.replace(/ (\d+) /g, (_, i: string) => slots[Number(i)] ?? "");
+  s = s.replace(/\uE000(\d+)\uE001/g, (_, i: string) => slots[Number(i)] ?? "");
   return s;
 };
 
@@ -303,7 +307,6 @@ export function PracticeCodeWorkspace({ disabled = false, aiTyping, messages, on
     () => splitTaskExamples(latestTurn.task),
     [latestTurn.task],
   );
-  const lastErrors = latestTurn.errors;
   const lastHint = latestTurn.hint;
 
   const lastFeedback = useMemo(() => {
@@ -431,19 +434,46 @@ export function PracticeCodeWorkspace({ disabled = false, aiTyping, messages, on
         });
       }
     }
-    // Auto-pair brackets and quotes
-    const pairs: Record<string, string> = { "(": ")", "[": "]", "{": "}", "\"": "\"", "'": "'", "`": "`" };
-    if (pairs[event.key] && event.currentTarget.selectionStart === event.currentTarget.selectionEnd) {
-      const el = event.currentTarget;
-      const pos = el.selectionStart;
-      // For quotes — only auto-pair if not closing existing
-      if (["\"", "'", "`"].includes(event.key) && code[pos - 1] === event.key) return;
+    // Авто-парные скобки и кавычки (общая логика для всех языков).
+    const el = event.currentTarget;
+    const pos = el.selectionStart;
+    const hasSelection = el.selectionStart !== el.selectionEnd;
+    const openers: Record<string, string> = { "(": ")", "[": "]", "{": "}" };
+    const quotes = ["\"", "'", "`"];
+    const closers = [")", "]", "}"];
+    const moveCaret = (to: number) => requestAnimationFrame(() => {
+      el.selectionStart = el.selectionEnd = to;
+    });
+
+    // 1) «Проскок»: вводим закрывающую скобку/кавычку, которая уже стоит
+    //    сразу после курсора → просто перешагиваем её, не дублируя.
+    if (!hasSelection && (closers.includes(event.key) || quotes.includes(event.key)) && code[pos] === event.key) {
       event.preventDefault();
-      const next = code.slice(0, pos) + event.key + pairs[event.key] + code.slice(pos);
-      setCode(next);
-      requestAnimationFrame(() => {
-        el.selectionStart = el.selectionEnd = pos + 1;
-      });
+      moveCaret(pos + 1);
+      return;
+    }
+
+    // 2) Открывающая скобка → вставляем пару, курсор внутрь.
+    if (!hasSelection && openers[event.key]) {
+      event.preventDefault();
+      setCode(code.slice(0, pos) + event.key + openers[event.key] + code.slice(pos));
+      moveCaret(pos + 1);
+      return;
+    }
+
+    // 3) Кавычка → авто-пара только в осмысленном контексте: не после
+    //    буквы/цифры (апостроф в don't), не перед буквой/такой же кавычкой.
+    if (!hasSelection && quotes.includes(event.key)) {
+      const prev = code[pos - 1] ?? "";
+      const nextCh = code[pos] ?? "";
+      const prevIsWord = /[A-Za-z0-9_]/.test(prev);
+      const nextBlocks = /[A-Za-z0-9_]/.test(nextCh) || nextCh === event.key;
+      if (!prevIsWord && !nextBlocks) {
+        event.preventDefault();
+        setCode(code.slice(0, pos) + event.key + event.key + code.slice(pos));
+        moveCaret(pos + 1);
+      }
+      return;
     }
   };
 
@@ -478,6 +508,12 @@ export function PracticeCodeWorkspace({ disabled = false, aiTyping, messages, on
       if (runResult.stderr) {
         payloadChunks.push("• stderr:", "```", runResult.stderr, "```");
       }
+      payloadChunks.push(
+        "",
+        "Примечание: песочница работает без доступа в сеть и со стандартным окружением. " +
+          "Ошибки из-за отсутствия сторонних библиотек или особенностей окружения НЕ должны " +
+          "снижать оценку — оценивай корректность и качество самого решения (логику, сложность, стиль).",
+      );
     }
 
     const payload = payloadChunks.join("\n");
@@ -557,20 +593,33 @@ export function PracticeCodeWorkspace({ disabled = false, aiTyping, messages, on
           <h2>Задание</h2>
           {aiTyping ? <span className="practice-status">Проверяем и готовим следующий шаг...</span> : null}
         </header>
-        <pre className="practice-task-text">{currentTask}</pre>
-        {examples.length > 0 ? (
-          <div className="practice-examples">
-            <div className="practice-examples-label">Примеры I/O</div>
-            {examples.map((ex, i) => (
-              <pre key={i} className="practice-example-block">{ex}</pre>
-            ))}
-          </div>
-        ) : null}
-        <div className="practice-task-actions">
-          <button className="practice-secondary-btn" onClick={() => void copyTask()} type="button">
-            {copiedTask ? "Скопировано" : "Копировать задание"}
-          </button>
-        </div>
+        {/* До первого AI-сообщения у нас НЕТ задания (parsePracticeTurn
+            возвращает пустую строку, и <pre> рендерится в безмолвный
+            пустой блок). Чтобы пользователь не видел зияющую дыру
+            «карточка с заголовком + пустота» — показываем
+            анимированный preparing-баблик, который сам сменяет фазы.
+            Как только прилетит первый message.ai, currentTask станет
+            непустым и баблик исчезнет. */}
+        {currentTask.trim() ? (
+          <>
+            <pre className="practice-task-text">{currentTask}</pre>
+            {examples.length > 0 ? (
+              <div className="practice-examples">
+                <div className="practice-examples-label">Примеры I/O</div>
+                {examples.map((ex, i) => (
+                  <pre key={i} className="practice-example-block">{ex}</pre>
+                ))}
+              </div>
+            ) : null}
+            <div className="practice-task-actions">
+              <button className="practice-secondary-btn" onClick={() => void copyTask()} type="button">
+                {copiedTask ? "Скопировано" : "Копировать задание"}
+              </button>
+            </div>
+          </>
+        ) : (
+          <InterviewerPreparing variant="card" mode="practice" />
+        )}
       </article>
 
       <article className="practice-editor-card">
@@ -593,6 +642,11 @@ export function PracticeCodeWorkspace({ disabled = false, aiTyping, messages, on
 
         <div className="practice-editor-toolbar">
           <span className="mono">{code.length} симв · {lineCount} строк</span>
+          <span className="mono" title="Сторонние библиотеки, доступные в песочнице (без доступа в сеть)">
+            {language.libs && language.libs.length > 0
+              ? `биб-ки: ${language.libs.join(", ")}`
+              : "только стандартная библиотека"}
+          </span>
           <span className="mono">{saveState === "saved" ? "● черновик сохранён" : "○ не сохранён"}</span>
         </div>
 
@@ -649,6 +703,15 @@ export function PracticeCodeWorkspace({ disabled = false, aiTyping, messages, on
           </button>
           <button className="practice-submit-btn" disabled={!canSubmit} onClick={() => void submit()} type="button">
             {submitting ? "Проверка…" : "Отправить на проверку"}
+          </button>
+          <button
+            className="practice-secondary-btn"
+            disabled={disabled || submitting || aiTyping}
+            onClick={() => void onSubmitCode("__skip__")}
+            title="Пропустить задачу — ИИ выдаст следующую без оценки текущей"
+            type="button"
+          >
+            Пропустить задачу
           </button>
         </div>
 
@@ -753,12 +816,9 @@ export function PracticeCodeWorkspace({ disabled = false, aiTyping, messages, on
         </article>
       ) : null}
 
-      {lastErrors ? (
-        <article className="practice-feedback-card practice-feedback-error">
-          <h3>Найденные ошибки</h3>
-          <p>{lastErrors}</p>
-        </article>
-      ) : null}
+      {/* Блок «Найденные ошибки» удалён: AI указывает на проблемы прямо
+          в «Ответе интервьюера», отдельный красный блок дублировал
+          сообщение и часто содержал только шаблонную заглушку. */}
 
       {lastHint ? (
         <article className="practice-feedback-card">

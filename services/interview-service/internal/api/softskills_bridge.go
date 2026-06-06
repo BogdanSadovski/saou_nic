@@ -5,98 +5,230 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math/rand"
 	"net/http"
 	"os"
 	"strings"
 	"time"
 )
 
-// softskills-service is a separate Python+PyTorch micro-service that
-// hosts the candidate's personal ML model (rubert-tiny2 embeddings +
-// custom regressor). interview-service talks to it when a session's
-// interview_mode == "softskills" instead of calling the LLM cascade.
+// Soft-skills режим интервью — без отдельного ML-сервиса.
+//
+// Раньше тут был HTTP-клиент к services/softskills-service (PyTorch
+// rubert-tiny2 + custom regressor). Этот сервис был удалён — оценка
+// и выбор вопроса теперь идут через основной LLM-каскад (DeepSeek и
+// т.п.), что:
+//   • убирает отдельный 1.2GB-контейнер из стека
+//   • даёт более «человечный» фидбэк (полный текст, не только score)
+//   • использует те же fallback-тиры, что и весь остальной интервью-пайплайн
 
-func softSkillsServiceURL() string {
-	v := os.Getenv("SOFTSKILLS_SERVICE_URL")
-	if strings.TrimSpace(v) == "" {
-		return "http://softskills-service:8090"
+// Встроенный банк soft-skill вопросов. Раньше жил в softskills-service.
+// Не выносим в JSON-файл, чтобы избежать копий и rebuild'ов — список
+// меняется крайне редко.
+var softSkillsBank = []string{
+	"Расскажите о ситуации, когда вы конструктивно разрешили конфликт в команде. Какие шаги вы предприняли?",
+	"Опишите случай, когда вам пришлось работать с дедлайном и неполной информацией. Как вы расставляли приоритеты?",
+	"Приведите пример, когда вы получили жёсткий feedback. Как отреагировали и что изменили?",
+	"Расскажите про самый сложный проект за последний год. В чём заключалась главная трудность и как вы её преодолели?",
+	"Опишите случай, когда вам нужно было убедить коллегу или менеджера принять ваше техническое решение.",
+	"Расскажите, как вы делегируете задачи, когда работаете с менее опытным разработчиком.",
+	"Опишите, как вы выходите из тупика, когда отладка занимает слишком много времени и непонятно, куда копать.",
+	"Расскажите, как вы балансируете между скоростью доставки и качеством кода.",
+	"Опишите ситуацию, когда вы ошиблись в production. Как реагировали, что починили, какие выводы сделали?",
+	"Приведите пример эффективной коммуникации с не-техническим стейкхолдером (продакт, бизнес, клиент).",
+	"Расскажите про самую полезную книгу/курс/выступление по soft-skills за последние 2 года. Что применяете в работе?",
+	"Опишите, как вы готовитесь к сложному 1-on-1 с менеджером или подчинённым.",
+	"Расскажите про моменты профессионального выгорания и что помогло из него выйти.",
+	"Опишите, как вы оцениваете технические долги и аргументируете время на их выплату перед продактом.",
+	"Приведите пример успешного code-review, который сильно улучшил решение коллеги без обид.",
+}
+
+// pickSoftSkillsQuestion выбирает вопрос, которого ещё не было в сессии.
+func pickSoftSkillsQuestion(session *InterviewModuleSession) string {
+	asked := map[string]struct{}{}
+	if session != nil {
+		for _, m := range session.Messages {
+			if m.Sender == "ai" {
+				asked[strings.TrimSpace(m.Content)] = struct{}{}
+			}
+		}
 	}
-	return strings.TrimRight(v, "/")
+	// Перемешиваем индексы и берём первый не-дубликат.
+	indices := rand.Perm(len(softSkillsBank))
+	for _, i := range indices {
+		q := softSkillsBank[i]
+		if _, dup := asked[q]; !dup {
+			return q
+		}
+	}
+	// Все спрошены — отдаём случайный (поведение «после полного круга»).
+	return softSkillsBank[rand.Intn(len(softSkillsBank))]
 }
 
-// softSkillsScoreRequest is the JSON we send to /api/v1/score.
-type softSkillsScoreRequest struct {
-	Question string `json:"question"`
-	Answer   string `json:"answer"`
-}
-
+// softSkillsScore — DTO, который раньше отдавал отдельный ML-сервис.
+// Сохраняем структуру для бинарной совместимости с остальным кодом.
 type softSkillsScoreResponse struct {
 	Score    float64 `json:"score"`
 	Feedback string  `json:"feedback"`
 	Verdict  string  `json:"verdict"`
 }
 
-type softSkillsQuestionsResponse struct {
-	Questions []string `json:"questions"`
-}
-
-// fetchSoftSkillsQuestions pulls N random soft-skill questions from the
-// ML service. Falls back to an empty slice if the service is down —
-// caller decides how to recover.
-func (h *Handler) fetchSoftSkillsQuestions(ctx context.Context, n int) ([]string, error) {
-	if n <= 0 {
-		n = 5
-	}
-	url := fmt.Sprintf("%s/api/v1/questions?n=%d", softSkillsServiceURL(), n)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return nil, err
-	}
-	client := &http.Client{Timeout: 8 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("softskills-service: status %d", resp.StatusCode)
-	}
-	var out softSkillsQuestionsResponse
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		return nil, err
-	}
-	return out.Questions, nil
-}
-
-// scoreSoftSkillsAnswer asks the ML service to rate a single
-// question/answer pair. Returns score in [0, 100] plus a short
-// feedback string and a verdict bucket (correct/partial/wrong/skipped).
+// scoreSoftSkillsAnswer — LLM-оценка soft-skill ответа.
+//
+// Использует тот же LLM-ключ/URL, что и весь стек (LLM_API_KEY,
+// LLM_BASE_URL — DeepSeek по умолчанию). Прямой HTTP-вызов в
+// OpenAI-совместимый /chat/completions с response_format=json_object.
+//
+// Раньше тут был callAIWithFailover, но он dereferences session.*
+// (которое у нас nil для standalone-скоринга) → panic. Прямой
+// вызов проще и не зависит от внутренних структур интервью.
 func (h *Handler) scoreSoftSkillsAnswer(ctx context.Context, question, answer string) (*softSkillsScoreResponse, error) {
-	body, _ := json.Marshal(softSkillsScoreRequest{Question: question, Answer: answer})
-	url := softSkillsServiceURL() + "/api/v1/score"
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	apiKey := strings.TrimSpace(os.Getenv("LLM_API_KEY"))
+	apiURL := strings.TrimRight(strings.TrimSpace(os.Getenv("LLM_BASE_URL")), "/")
+	model := strings.TrimSpace(os.Getenv("LLM_MODEL"))
+	if model == "" {
+		model = "deepseek-chat"
+	}
+	if apiKey == "" || apiURL == "" {
+		// Без LLM нечем оценивать — отдадим heuristic.
+		return &softSkillsScoreResponse{
+			Score:    heuristicScore(answer),
+			Verdict:  heuristicVerdict(answer),
+			Feedback: "LLM не настроен, использована резервная эвристика по длине ответа.",
+		}, nil
+	}
+
+	systemPrompt := "Ты опытный карьерный коуч / интервьюер. Оцени ответ кандидата " +
+		"на поведенческий (soft-skills) вопрос по шкале 0..100. Учитывай: " +
+		"STAR-структуру (situation/task/action/result), конкретику и метрики, " +
+		"рефлексию, краткость без воды. Верни строго JSON: " +
+		"{\"score\": <0-100>, \"verdict\": \"correct|partial|wrong|skipped|off_topic\", " +
+		"\"feedback\": \"<2-3 фразы по-русски: что сильно, что улучшить>\"}."
+
+	body := map[string]any{
+		"model": model,
+		"messages": []map[string]string{
+			{"role": "system", "content": systemPrompt},
+			{"role": "user", "content": fmt.Sprintf("ВОПРОС:\n%s\n\nОТВЕТ КАНДИДАТА:\n%s",
+				strings.TrimSpace(question), strings.TrimSpace(answer))},
+		},
+		"response_format": map[string]string{"type": "json_object"},
+		"max_tokens":      400,
+		"temperature":     0.3,
+	}
+	payload, _ := json.Marshal(body)
+
+	reqCtx, cancel := context.WithTimeout(ctx, 25*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, apiURL+"/chat/completions", bytes.NewReader(payload))
 	if err != nil {
 		return nil, err
 	}
+	req.Header.Set("Authorization", "Bearer "+apiKey)
 	req.Header.Set("Content-Type", "application/json")
-	client := &http.Client{Timeout: 12 * time.Second}
+
+	client := &http.Client{Timeout: 25 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("softskills-service score: status %d", resp.StatusCode)
+		return &softSkillsScoreResponse{
+			Score:    heuristicScore(answer),
+			Verdict:  heuristicVerdict(answer),
+			Feedback: fmt.Sprintf("LLM вернул %d, использована эвристика.", resp.StatusCode),
+		}, nil
 	}
-	var out softSkillsScoreResponse
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+
+	var raw struct {
+		Choices []struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+		} `json:"choices"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
 		return nil, err
 	}
-	return &out, nil
+	if len(raw.Choices) == 0 {
+		return nil, fmt.Errorf("softskills LLM: empty choices")
+	}
+	score, verdict, feedback := parseScoreJSON(raw.Choices[0].Message.Content)
+	if verdict == "" {
+		verdict = heuristicVerdict(answer)
+	}
+	if feedback == "" {
+		feedback = "Без подробного комментария."
+	}
+	return &softSkillsScoreResponse{
+		Score:    score,
+		Verdict:  verdict,
+		Feedback: feedback,
+	}, nil
 }
 
-// isSoftSkillsSession is a small helper so handlers can branch
-// without sprinkling string comparisons everywhere.
+// parseScoreJSON пытается достать score/verdict/feedback из произвольного
+// LLM-output. Поддерживает «грязный» JSON, обёрнутый в ```json``` блоки.
+func parseScoreJSON(raw string) (float64, string, string) {
+	// Удаляем markdown-fence и BOM.
+	clean := strings.TrimSpace(raw)
+	clean = strings.TrimPrefix(clean, "```json")
+	clean = strings.TrimPrefix(clean, "```")
+	clean = strings.TrimSuffix(clean, "```")
+	clean = strings.TrimSpace(clean)
+
+	// Ищем первую JSON-фигурную скобку.
+	start := strings.Index(clean, "{")
+	end := strings.LastIndex(clean, "}")
+	if start < 0 || end <= start {
+		return 0, "", ""
+	}
+	var parsed struct {
+		Score    float64 `json:"score"`
+		Verdict  string  `json:"verdict"`
+		Feedback string  `json:"feedback"`
+	}
+	if err := json.Unmarshal([]byte(clean[start:end+1]), &parsed); err != nil {
+		return 0, "", ""
+	}
+	return parsed.Score, strings.ToLower(strings.TrimSpace(parsed.Verdict)), parsed.Feedback
+}
+
+// heuristicVerdict — резерв, если LLM не отдал structured ответ.
+// Не пытается быть умным; просто проверяет, что ответ непустой и
+// содержит хоть какую-то длину.
+func heuristicVerdict(answer string) string {
+	a := strings.TrimSpace(answer)
+	if a == "" {
+		return "skipped"
+	}
+	if len(a) < 40 {
+		return "wrong"
+	}
+	if len(a) < 200 {
+		return "partial"
+	}
+	return "correct"
+}
+
+// heuristicScore — числовой эквивалент того же эвристического
+// разбиения. Используется ТОЛЬКО когда LLM недоступен.
+func heuristicScore(answer string) float64 {
+	switch heuristicVerdict(answer) {
+	case "correct":
+		return 75
+	case "partial":
+		return 55
+	case "wrong":
+		return 25
+	default:
+		return 0
+	}
+}
+
+// isSoftSkillsSession — helper, чтобы handlers ветвились без
+// размытых string-сравнений.
 func isSoftSkillsSession(session *InterviewModuleSession) bool {
 	if session == nil {
 		return false
@@ -104,21 +236,16 @@ func isSoftSkillsSession(session *InterviewModuleSession) bool {
 	return strings.EqualFold(strings.TrimSpace(session.InterviewMode), "softskills")
 }
 
-// buildSoftSkillsNextQuestion is the soft-skills equivalent of
-// `requestNextQuestion`. It scores the previous answer via the ML
-// regressor, then pulls the next question from the same service. If
-// the service is unreachable, returns a transparent system message
-// so the user knows to start the softskills-service container.
+// buildSoftSkillsNextQuestion — soft-skills эквивалент requestNextQuestion.
+// Оценивает предыдущий ответ через LLM, выбирает следующий вопрос из
+// локального банка. Без отдельного ML-контейнера.
 func (h *Handler) buildSoftSkillsNextQuestion(
 	session *InterviewModuleSession,
 	lastAnswer string,
 ) (*nextQuestionResponse, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
 
-	// 1. Score the previous answer (if any) — drives the verdict badge.
-	//    The "current question" for the previous turn is the most
-	//    recent AI message in the chat history.
 	verdict := "none"
 	reason := ""
 	prevQuestion := ""
@@ -132,49 +259,13 @@ func (h *Handler) buildSoftSkillsNextQuestion(
 	if strings.TrimSpace(lastAnswer) != "" && prevQuestion != "" {
 		if res, err := h.scoreSoftSkillsAnswer(ctx, prevQuestion, lastAnswer); err == nil && res != nil {
 			verdict = res.Verdict
-			reason = fmt.Sprintf("%s · %.0f%%", res.Feedback, res.Score)
+			if res.Feedback != "" {
+				reason = fmt.Sprintf("%s · %.0f%%", res.Feedback, res.Score)
+			}
 		}
 	}
 
-	// 2. Pull next question from the bank, avoiding repeats within
-	//    the session by asking for a small pool and skipping any
-	//    we've already shown.
-	questions, err := h.fetchSoftSkillsQuestions(ctx, 8)
-	if err != nil || len(questions) == 0 {
-		return &nextQuestionResponse{
-			Question: "🤖 Сервис soft-skills недоступен. Убедитесь, что контейнер `softskills-service` запущен " +
-				"(`docker compose ... up -d softskills-service`). После запуска нажмите «Следующий вопрос».",
-			Topic:             "soft_skills",
-			DifficultyDelta:   0,
-			PressureLevel:     1,
-			ShouldEnd:         false,
-			LastAnswerVerdict: "skipped",
-			LastAnswerReason:  "softskills-service offline",
-		}, nil
-	}
-
-	asked := map[string]struct{}{}
-	for _, m := range session.Messages {
-		if m.Sender == "ai" {
-			asked[strings.TrimSpace(m.Content)] = struct{}{}
-		}
-	}
-	picked := ""
-	for _, q := range questions {
-		q = strings.TrimSpace(q)
-		if q == "" {
-			continue
-		}
-		if _, dup := asked[q]; dup {
-			continue
-		}
-		picked = q
-		break
-	}
-	if picked == "" {
-		picked = strings.TrimSpace(questions[0])
-	}
-
+	picked := pickSoftSkillsQuestion(session)
 	return &nextQuestionResponse{
 		Question:          picked,
 		Topic:             "soft_skills",
