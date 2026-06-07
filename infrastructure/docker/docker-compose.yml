@@ -202,12 +202,22 @@ services:
       JWT_SECRET: ${JWT_SECRET:-super_secret_jwt_key_change_in_production}
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-24h}
       JWT_REFRESH_EXPIRES_IN: ${JWT_REFRESH_EXPIRES_IN:-7d}
-      OAUTH_GOOGLE_CLIENT_ID: ${OAUTH_GOOGLE_CLIENT_ID:-}
-      OAUTH_GOOGLE_CLIENT_SECRET: ${OAUTH_GOOGLE_CLIENT_SECRET:-}
-      OAUTH_GOOGLE_REDIRECT_URL: ${OAUTH_GOOGLE_REDIRECT_URL:-http://${PUBLIC_HOST:-localhost}:8000/api/auth/oauth/google/callback}
+      # Google OAuth убран из UI — пустые переменные не пробрасываем.
+      # Если решишь вернуть, добавь обратно OAUTH_GOOGLE_* и redirect URL.
       OAUTH_GITHUB_CLIENT_ID: ${OAUTH_GITHUB_CLIENT_ID:-}
       OAUTH_GITHUB_CLIENT_SECRET: ${OAUTH_GITHUB_CLIENT_SECRET:-}
-      OAUTH_GITHUB_REDIRECT_URL: ${OAUTH_GITHUB_REDIRECT_URL:-http://${PUBLIC_HOST:-localhost}:8000/api/auth/oauth/github/callback}
+      # Публичный callback URL — фронт+API на 80 порту, без :8000 (внутри
+      # docker nginx сам проксирует /api/* на api-gateway). По умолчанию
+      # подставится PUBLIC_BASE_URL (http://realsync.ddns.net в проде или
+      # http://localhost локально).
+      OAUTH_GITHUB_REDIRECT_URL: ${OAUTH_GITHUB_REDIRECT_URL:-${PUBLIC_BASE_URL:-http://localhost}/api/auth/oauth/github/callback}
+      # Для редиректа в UI после OAuth (handlers.go: FRONTEND_BASE_URL).
+      # Фронт на том же домене и порту, что и API.
+      FRONTEND_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost}
+      # Совместимость со старым переменным `PUBLIC_HOST` (legacy fallback
+      # в user-service/internal/config). Берём хост из PUBLIC_BASE_URL.
+      PUBLIC_HOST: ${PUBLIC_HOST:-localhost}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost}
       # Telegram-бот username (без @) — используется в deep-link
       # t.me/<bot>?start=<token> на странице Профиль.
       TG_BOT_USERNAME: ${TG_BOT_USERNAME:-RealSyncPracticeBot}
@@ -769,4 +779,35 @@ services:
       timeout: 5s
       retries: 3
       start_period: 30s
+    restart: unless-stopped
+
+  # ──────────────────────────────────────────────────────────────
+  # Фронтенд (nginx + react-build).
+  # Это единственный публичный сервис на хосте: слушает 80 порт,
+  # отдаёт SPA-статику и проксирует /api/* и WebSocket на
+  # api-gateway:8000 во внутренней docker-сети. Поэтому
+  # пользователю достаточно открыть http://realsync.ddns.net
+  # и AWS-инстансу нужен открытым только TCP/80.
+  # ──────────────────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ../../frontend
+      dockerfile: Dockerfile
+    ports:
+    - "${HTTP_PORT:-80}:80"
+    depends_on:
+    - api-gateway
+    networks:
+    - frontend-network
+    healthcheck:
+      test:
+      - CMD
+      - wget
+      - --spider
+      - -q
+      - http://localhost/nginx-health
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
     restart: unless-stopped

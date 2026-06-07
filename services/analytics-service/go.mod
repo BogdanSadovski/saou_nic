@@ -1,6 +1,6 @@
 module analytics-service
 
-go 1.21
+go 1.22
 
 require (
 	github.com/ClickHouse/clickhouse-go/v2 v2.29.0

@@ -28,6 +28,14 @@ logs/
 .env.*
 !.env.example
 !.env.*.example
+# Production env шипуется в репозиторий, чтобы деплой на AWS
+# был одной командой (./deploy.sh после git clone). Это допустимо
+# для дипломной демо-инсталляции; для реальной публикации репо
+# вынеси секреты в GitHub Secrets / Vault и убери это исключение.
+!infrastructure/docker/.env.production
+# frontend/.env.production не содержит секретов (только VITE_API_BASE_URL=/api
+# и подобное), но нужен Vite внутри Dockerfile при `npm run build`.
+!frontend/.env.production
 
 *.key
 *.pem
