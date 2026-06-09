@@ -145,11 +145,72 @@ docker compose --env-file .env up -d
 
 ## 8. Когда придёт время HTTPS
 
-1. В compose добавить `certbot` (или поднять Let’s Encrypt отдельным контейнером).
-2. В `frontend/nginx.conf`: добавить `listen 443 ssl;` + пути к сертификатам.
-3. В `.env.production` поменять `PUBLIC_BASE_URL=https://realsync.ddns.net`.
-4. Обновить GitHub OAuth callback URL на `https://…`.
-5. Перезапустить: `docker compose up -d --build`.
+Заготовка уже в репо: `infrastructure/docker/docker-compose.https.yml` +
+`frontend/nginx.https.conf`.
+
+```bash
+# 1. AWS Security Group → открыть TCP 443
+# 2. поставить certbot и выдать сертификат
+sudo apt update && sudo apt install -y certbot
+cd ~/real_ass/infrastructure/docker
+docker compose stop frontend
+sudo certbot certonly --standalone -d realsync.ddns.net \
+  --non-interactive --agree-tos --email bogdan.minsk@icloud.com
+
+# 3. подменить nginx.conf на HTTPS-вариант
+cp ~/real_ass/frontend/nginx.https.conf ~/real_ass/frontend/nginx.conf
+
+# 4. .env: переключить URL'ы на https://
+sed -i 's|^PUBLIC_BASE_URL=.*|PUBLIC_BASE_URL=https://realsync.ddns.net|' .env
+sed -i 's|^FRONTEND_BASE_URL=.*|FRONTEND_BASE_URL=https://realsync.ddns.net|' .env
+sed -i 's|^OAUTH_GITHUB_REDIRECT_URL=.*|OAUTH_GITHUB_REDIRECT_URL=https://realsync.ddns.net/api/auth/oauth/github/callback|' .env
+
+# 5. поднять с HTTPS-override
+docker compose -f docker-compose.yml -f docker-compose.https.yml \
+  --env-file .env up -d --build --force-recreate frontend
+
+# 6. в GitHub OAuth-приложении обновить callback URL на https://
+# 7. (опционально) cron на auto-renew
+echo '0 3 * * * certbot renew --quiet --pre-hook "docker stop platform-frontend-1" --post-hook "docker start platform-frontend-1"' | sudo crontab -
+```
 
 Фронт сам подхватит — он реагирует на `window.location.protocol` и
 переключит `ws://` → `wss://`.
+
+---
+
+## 9. SEO и красивые превью ссылок
+
+В репо уже лежат:
+- `frontend/index.html` — Open Graph + Twitter Card + JSON-LD
+- `frontend/public/og-cover.png` — баннер 1200×1200
+- `frontend/public/robots.txt`
+- `frontend/public/sitemap.xml`
+- `frontend/public/google023d82ba69f6f2e3.html` — Google Search Console verification
+
+Что делает на свежем деплое: после `docker compose up -d --build frontend`
+все эти файлы автоматически доступны:
+- https://realsync.ddns.net/og-cover.png
+- https://realsync.ddns.net/sitemap.xml
+- https://realsync.ddns.net/robots.txt
+- https://realsync.ddns.net/google023d82ba69f6f2e3.html
+
+Что нужно сделать руками после деплоя:
+1. Открыть [Google Search Console](https://search.google.com/search-console) →
+   Add property → URL prefix → `https://realsync.ddns.net/` → Verify.
+2. В разделе Sitemaps добавить `sitemap.xml`.
+3. В Telegram: бот `@WebpageBot` → отправить URL → кеш Telegram сбросится.
+
+---
+
+## 10. Демо-данные
+
+Один SQL-сидер `seed_demo_user.sql` (в корне репо) заполняет пользователя
+`demo_user_test@realsnc.com` синтетикой: профиль, резюме, 3 интервью,
+GitHub-кеш, биллинг. Запуск:
+
+```bash
+docker compose exec -T postgres psql -U postgres < ~/real_ass/seed_demo_user.sql
+```
+
+Идемпотентно — повторный запуск ничего не сломает.

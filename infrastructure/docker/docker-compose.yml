@@ -400,6 +400,10 @@ services:
       LLM_API_KEY: ${LLM_API_KEY}
       LLM_MODEL: ${LLM_MODEL}
       LLM_BASE_URL: ${LLM_BASE_URL:-}
+      # Бамп с дефолта 2048: DeepSeek-V4-flash обрезал крупные JSON
+      # ответы (resume insights, post-analysis), фронт получал
+      # "Failed to parse LLM JSON" и fallback на скриптованный текст.
+      LLM_MAX_TOKENS: ${LLM_MAX_TOKENS:-8192}
       # Tier 2 — secondary provider (e.g. OpenRouter free Llama).
       LLM_SECONDARY_API_KEY: ${LLM_SECONDARY_API_KEY:-}
       LLM_SECONDARY_BASE_URL: ${LLM_SECONDARY_BASE_URL:-}

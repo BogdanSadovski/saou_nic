@@ -1,0 +1,27 @@
+# =====================================================================
+# HTTPS override-файл.
+#
+# Применяется поверх docker-compose.yml ТОЛЬКО когда хочешь HTTPS:
+#     docker compose -f docker-compose.yml -f docker-compose.https.yml \
+#       --env-file .env up -d --build --force-recreate frontend
+#
+# Предусловия:
+#   1) Сертификат уже выпущен certbot и лежит в
+#      /etc/letsencrypt/live/realsync.ddns.net/{fullchain,privkey}.pem
+#   2) В .env обновлено:
+#        PUBLIC_BASE_URL=https://realsync.ddns.net
+#        FRONTEND_BASE_URL=https://realsync.ddns.net
+#        OAUTH_GITHUB_REDIRECT_URL=https://.../api/auth/oauth/github/callback
+#   3) frontend/nginx.conf переключён на HTTPS-вариант (с server 443 ssl)
+#   4) В AWS Security Group открыт TCP 443
+#
+# См. инструкцию в infrastructure/docker/DEPLOY.md → раздел «HTTPS».
+# =====================================================================
+
+services:
+  frontend:
+    ports:
+      - "${HTTPS_PORT:-443}:443"
+    volumes:
+      # Сертификат letsencrypt подмонтирован read-only внутрь nginx-контейнера.
+      - /etc/letsencrypt:/etc/letsencrypt:ro

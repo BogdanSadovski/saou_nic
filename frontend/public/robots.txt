@@ -1,0 +1,6 @@
+User-agent: *
+Allow: /
+Disallow: /workspace/admin
+Disallow: /api/
+
+Sitemap: https://realsync.ddns.net/sitemap.xml

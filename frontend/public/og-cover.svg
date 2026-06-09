@@ -1,0 +1,101 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 1200" width="1200" height="1200" role="img" aria-label="RealSync — AI-интервьюер">
+  <title>RealSync · AI-интервьюер для IT-собеседований</title>
+
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="oklch(0.135 0.005 60)"/>
+      <stop offset="100%" stop-color="oklch(0.18 0.012 60)"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="oklch(0.84 0.18 130)"/>
+      <stop offset="100%" stop-color="oklch(0.72 0.17 135)"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.4" r="0.5">
+      <stop offset="0%" stop-color="oklch(0.84 0.18 130)" stop-opacity="0.25"/>
+      <stop offset="100%" stop-color="oklch(0.84 0.18 130)" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- Тёмный фон без белого -->
+  <rect width="1200" height="1200" fill="url(#bg)"/>
+
+  <!-- Свечение по центру -->
+  <ellipse cx="600" cy="500" rx="500" ry="380" fill="url(#glow)"/>
+
+  <!-- Точки-декор по углам -->
+  <g fill="oklch(0.32 0.010 60)" opacity="0.45">
+    <circle cx="80"   cy="80" r="3"/>
+    <circle cx="160"  cy="80" r="3"/>
+    <circle cx="240"  cy="80" r="3"/>
+    <circle cx="960"  cy="80" r="3"/>
+    <circle cx="1040" cy="80" r="3"/>
+    <circle cx="1120" cy="80" r="3"/>
+    <circle cx="80"   cy="1120" r="3"/>
+    <circle cx="160"  cy="1120" r="3"/>
+    <circle cx="240"  cy="1120" r="3"/>
+    <circle cx="960"  cy="1120" r="3"/>
+    <circle cx="1040" cy="1120" r="3"/>
+    <circle cx="1120" cy="1120" r="3"/>
+  </g>
+
+  <!-- ── Иконка по центру сверху ──────────────────────────────── -->
+  <g transform="translate(490 200)">
+    <rect width="220" height="220" rx="46" fill="oklch(0.18 0.012 60)"/>
+    <g transform="translate(40 40) scale(0.71)">
+      <rect x="0"   y="0"   width="28" height="28" rx="3" fill="oklch(0.32 0.010 60)"/>
+      <rect x="34"  y="0"   width="28" height="28" rx="3" fill="oklch(0.45 0.010 60)"/>
+      <rect x="68"  y="0"   width="28" height="28" rx="3" fill="oklch(0.32 0.010 60)"/>
+      <rect x="102" y="0"   width="28" height="28" rx="3" fill="oklch(0.45 0.010 60)"/>
+      <rect x="0"   y="34"  width="28" height="28" rx="3" fill="oklch(0.45 0.010 60)"/>
+      <rect x="102" y="34"  width="28" height="28" rx="3" fill="oklch(0.32 0.010 60)"/>
+      <rect x="0"   y="68"  width="28" height="28" rx="3" fill="oklch(0.32 0.010 60)"/>
+      <rect x="102" y="68"  width="28" height="28" rx="3" fill="oklch(0.45 0.010 60)"/>
+      <rect x="0"   y="102" width="28" height="28" rx="3" fill="oklch(0.45 0.010 60)"/>
+      <rect x="34"  y="102" width="28" height="28" rx="3" fill="oklch(0.32 0.010 60)"/>
+      <rect x="68"  y="102" width="28" height="28" rx="3" fill="oklch(0.45 0.010 60)"/>
+      <rect x="102" y="102" width="28" height="28" rx="3" fill="oklch(0.32 0.010 60)"/>
+    </g>
+    <polygon points="110,62 152,86 152,134 110,158 68,134 68,86" fill="url(#accent)"/>
+    <text x="110" y="138" text-anchor="middle"
+          font-family="'Bricolage Grotesque', system-ui, sans-serif"
+          font-weight="700" font-size="82" fill="oklch(0.22 0.10 130)" letter-spacing="-3">R</text>
+  </g>
+
+  <!-- ── RealSync (главное) ───────────────────────────────────── -->
+  <text x="600" y="540" text-anchor="middle"
+        fill="oklch(0.97 0.005 60)"
+        font-family="'Bricolage Grotesque', 'Inter', system-ui, sans-serif"
+        font-weight="700" font-size="138" letter-spacing="-4">
+    RealSync
+  </text>
+
+  <!-- ── Слоган ───────────────────────────────────────────────── -->
+  <text x="600" y="630" text-anchor="middle"
+        fill="oklch(0.78 0.006 70)"
+        font-family="'Bricolage Grotesque', 'Inter', system-ui, sans-serif"
+        font-weight="500" font-size="52" letter-spacing="-1">
+    AI-интервьюер для IT
+  </text>
+
+  <!-- ── Mono-метки ──────────────────────────────────────────── -->
+  <g text-anchor="middle"
+     font-family="'JetBrains Mono', monospace"
+     font-size="34" letter-spacing="0.1em">
+    <text x="600" y="780" fill="oklch(0.66 0.010 60)">
+      PRACTICE  ·  THEORY  ·  SOFT
+    </text>
+    <text x="600" y="840" fill="oklch(0.84 0.18 130)">
+      AI  ·  GITHUB  ·  TELEGRAM
+    </text>
+  </g>
+
+  <!-- ── Плашка с доменом ─────────────────────────────────────── -->
+  <g transform="translate(380 940)">
+    <rect width="440" height="76" rx="38" fill="oklch(0.84 0.18 130)"/>
+    <text x="220" y="50" text-anchor="middle" fill="oklch(0.22 0.10 130)"
+          font-family="'JetBrains Mono', monospace" font-size="30" font-weight="600">
+      realsync.ddns.net
+    </text>
+  </g>
+</svg>
